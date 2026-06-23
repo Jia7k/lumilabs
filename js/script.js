@@ -1,17 +1,12 @@
 function selectRole(role) {
-  const labels = {
-    beta:   'Business Owner (Beta)',
-    alpha:  'Investor (Alpha)',
-    victor: 'Administrator (Victor)',
+  const destinations = {
+    beta:   'businessownerdashboard.html',
+    alpha:  'investordashboard.html',
+    victor: 'moderatordashboard.html',
   };
 
-  const hint = document.querySelector('.nav-hint');
-  if (hint) {
-    hint.textContent = 'Role selected: ' + (labels[role] || role);
+  const dest = destinations[role];
+  if (dest) {
+    window.location.href = dest;
   }
-
-  console.log('Selected role:', role);
-
-  // Extend here: redirect to role-specific dashboard pages
-  // e.g. window.location.href = role + '-dashboard.html';
 }
