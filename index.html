@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lumi5 Labs – AI-Powered Investment Matchmaking</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav-logo">
+      <div class="logo-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="2,14 7,9 11,12 18,5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="14,5 18,5 18,9" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="logo-text">Lumi5 Labs</span>
+    </div>
+    <span class="nav-hint">Prototype Demo – Select a role:</span>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="badge-star">✦</span>
+      AI-Powered Investment Matchmaking
+    </div>
+    <h1 class="hero-title">
+      Connect Visionary Startups<br />
+      with <span class="hero-accent">Strategic Investors</span>
+    </h1>
+    <p class="hero-sub">
+      Lumi5 Labs is the intelligent platform that matches promising startups with<br />
+      the right investors through AI-driven insights and seamless communication.
+    </p>
+  </section>
+
+  <!-- ROLE SELECT -->
+  <section class="roles-section">
+    <h2 class="roles-title">Select Your Role to Begin</h2>
+    <p class="roles-sub">This prototype demonstrates all user workflows and system behaviors</p>
+
+    <div class="roles-grid">
+
+      <!-- Business Owner -->
+      <div class="role-card">
+        <div class="role-icon role-icon--blue">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="4" y="10" width="20" height="14" rx="2" stroke="white" stroke-width="2" fill="none"/>
+            <path d="M9 10V7a5 5 0 0 1 10 0v3" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="role-name">Business Owner</h3>
+        <p class="role-persona">Beta</p>
+        <ul class="role-features">
+          <li><span class="check">✓</span> Create &amp; manage portfolio</li>
+          <li><span class="check">✓</span> Upload pitch documents</li>
+          <li><span class="check">✓</span> Receive investor interest</li>
+          <li><span class="check">✓</span> Message investors</li>
+        </ul>
+        <button class="role-btn role-btn--blue" onclick="selectRole('beta')">
+          Enter as Beta <span class="btn-arrow">→</span>
+        </button>
+      </div>
+
+      <!-- Investor -->
+      <div class="role-card">
+        <div class="role-icon role-icon--green">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="10" cy="10" r="4" stroke="white" stroke-width="2" fill="none"/>
+            <circle cx="18" cy="10" r="4" stroke="white" stroke-width="2" fill="none"/>
+            <path d="M2 22c0-4 3.6-7 8-7" stroke="white" stroke-width="2" stroke-linecap="round"/>
+            <path d="M18 15c4.4 0 8 3 8 7" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="role-name">Investor</h3>
+        <p class="role-persona">Alpha</p>
+        <ul class="role-features">
+          <li><span class="check">✓</span> Browse approved startups</li>
+          <li><span class="check">✓</span> AI recommendations</li>
+          <li><span class="check">✓</span> Express interest</li>
+          <li><span class="check">✓</span> Direct messaging</li>
+        </ul>
+        <button class="role-btn role-btn--green" onclick="selectRole('alpha')">
+          Enter as Alpha <span class="btn-arrow">→</span>
+        </button>
+      </div>
+
+      <!-- Administrator -->
+      <div class="role-card">
+        <div class="role-icon role-icon--purple">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 3L5 7v7c0 5.25 3.85 10.15 9 11.35C19.15 24.15 23 19.25 23 14V7L14 3z" stroke="white" stroke-width="2" fill="none" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3 class="role-name">Administrator</h3>
+        <p class="role-persona">Victor</p>
+        <ul class="role-features">
+          <li><span class="check">✓</span> Review portfolios</li>
+          <li><span class="check">✓</span> Approve or reject</li>
+          <li><span class="check">✓</span> View audit logs</li>
+          <li><span class="check">✓</span> Platform oversight</li>
+        </ul>
+        <button class="role-btn role-btn--purple" onclick="selectRole('victor')">
+          Enter as Victor <span class="btn-arrow">→</span>
+        </button>
+      </div>
+
+    </div>
+  </section>
+
+  <script src="js/script.js"></script>
+</body>
+</html>
