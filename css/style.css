@@ -4,14 +4,41 @@
   padding: 0;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: #f4f5f7;
-  color: #1a1a2e;
-  min-height: 100vh;
+:root {
+  --primary-orange: #DE8E42;
+  --logo-purple: #6B4EE6;
+  --avatar-purple: #8B5CF6;
+
+  --green-bg: #EAF3DE;
+  --green-text: #3B6D11;
+
+  --red-bg: #FCEBEB;
+  --red-text: #A32D2D;
+
+  --amber-bg: #FAEEDA;
+  --amber-text: #854F0B;
+
+  --purple-bg: #EDE9FE;
+  --purple-text: #8B5CF6;
+
+  --bg-page: #F9FAFB;
+  --bg-card: #FFFFFF;
+  --border: #E5E7EB;
+
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
-/* NAV */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
 .nav {
   display: flex;
   align-items: center;
@@ -49,7 +76,6 @@ body {
   color: #888;
 }
 
-/* HERO */
 .hero {
   text-align: center;
   padding: 80px 2rem 60px;
@@ -94,7 +120,6 @@ body {
   margin: 0 auto;
 }
 
-/* ROLES SECTION */
 .roles-section {
   text-align: center;
   padding: 40px 2rem 80px;
@@ -114,7 +139,6 @@ body {
   margin-bottom: 40px;
 }
 
-/* ROLE CARDS GRID */
 .roles-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -140,7 +164,6 @@ body {
   box-shadow: 0 8px 24px rgba(0,0,0,0.08);
 }
 
-/* ROLE ICONS */
 .role-icon {
   width: 56px;
   height: 56px;
@@ -192,7 +215,6 @@ body {
   flex-shrink: 0;
 }
 
-/* ROLE BUTTONS */
 .role-btn {
   width: 100%;
   padding: 13px 20px;
@@ -227,4 +249,452 @@ body {
   .hero-sub br { display: none; }
   .roles-section { padding: 32px 1.25rem 60px; }
   .roles-grid { grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   DASHBOARD STYLES
+========================================================= */
+body.dashboard {
+  background: var(--bg-page);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* =========================================================
+   NAVBAR
+========================================================= */
+
+body.dashboard .nav,
+body.audit .nav {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  height: 56px;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+body.dashboard .nav-logo,
+body.audit .nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 24px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+body.dashboard .logo-icon,
+body.audit .logo-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--logo-purple);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+body.dashboard .nav-links, 
+body.audit .nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+body.dashboard .nav-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+body.dashboard .nav-btn,
+body.audit .nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+}
+
+body.dashboard .nav-btn.active,
+body.audit .nav-btn.active {
+  background: #111827;
+  color: white;
+}
+
+body.dashboard .nav-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--primary-orange);
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1.5px solid var(--bg-card);
+}
+
+body.dashboard .nav-right,
+body.audit .nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+body.dashboard .user-chip,
+body.audit .user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+body.dashboard .user-info,
+body.audit .user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+body.dashboard .user-info .name,
+body.audit .user-info .name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+body.dashboard .user-info .role,
+body.audit .user-info .role {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+body.dashboard .avatar,
+body.audit .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--avatar-purple);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+body.dashboard .main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 28px 48px;
+}
+
+body.dashboard .welcome-heading {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+body.dashboard .welcome-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+body.dashboard .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+
+body.dashboard .stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+}
+
+body.dashboard .stat-card.orange-card {
+  background: var(--primary-orange);
+  border-color: var(--primary-orange);
+  color: white;
+}
+
+body.dashboard .stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+body.dashboard .orange-card .stat-label {
+  color: rgba(255,255,255,0.9);
+}
+
+body.dashboard .stat-value {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+body.dashboard .stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.dashboard .icon-green {
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+
+body.dashboard .icon-red {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+body.dashboard .icon-purple {
+  background: var(--purple-bg);
+  color: var(--purple-text);
+}
+
+body.dashboard .card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+body.dashboard .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+body.dashboard .card-title,
+body.audit .card-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+body.dashboard .badge-yellow {
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body.dashboard .table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+body.dashboard .table th {
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+body.dashboard .table td {
+  padding: 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+body.dashboard .startup-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+body.dashboard .startup-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--bg-page);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.dashboard .score-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #D1E5B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green-text);
+}
+
+body.dashboard .btn-review {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+body.dashboard .btn-review:hover {
+  background: var(--bg-page);
+}
+
+/* =========================================================
+   AUDIT LOGS
+========================================================= */
+
+body.audit {
+  background: var(--bg-page);
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body.audit .main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 28px 48px;
+}
+
+body.audit .welcome-heading {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+body.audit .welcome-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+body.audit .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+
+body.audit .stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+body.audit .stat-card.orange-card {
+  background: var(--primary-orange);
+  border-color: var(--primary-orange);
+  color: white;
+}
+
+body.audit .stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+body.audit .orange-card .stat-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+body.audit .stat-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+body.audit .stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.audit .icon-orange-tint {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+body.audit .icon-green {
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+
+body.audit .icon-red {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+body.audit .card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-top: 24px;
+}
+
+body.audit .table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+body.audit .table th {
+  text-align: left;
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+body.audit .table td {
+  padding: 18px 12px;
+  vertical-align: middle;
+}
+
+body.audit .table tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+
+body.audit .table tbody tr:last-child {
+  border-bottom: none;
 }

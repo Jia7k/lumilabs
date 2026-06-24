@@ -7,272 +7,11 @@
     <title>Audit Logs — Lumi5 Labs</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css" />
-
-    <style>
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        :root {
-            --primary-orange: #DE8E42;
-            --logo-purple: #6B4EE6;
-            --avatar-purple: #8B5CF6;
-            --green-bg: #EAF3DE;
-            --green-text: #3B6D11;
-            --red-bg: #FCEBEB;
-            --red-text: #A32D2D;
-            --amber-bg: #FAEEDA;
-            --amber-text: #854F0B;
-            --purple-bg: #EDE9FE;
-            --purple-text: #8B5CF6;
-            --bg-page: #F9FAFB;
-            --bg-card: #FFFFFF;
-            --border: #E5E7EB;
-            --text-primary: #111827;
-            --text-secondary: #6B7280;
-            --radius-md: 8px;
-            --radius-lg: 12px;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg-page);
-            color: var(--text-primary);
-            font-size: 14px;
-        }
-
-        /* NAV (MATCH ADMIN EXACTLY) */
-        .nav {
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border);
-            height: 56px;
-            padding: 0 28px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-
-        .nav-logo {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-right: 16px;
-            text-decoration: none;
-        }
-
-        .logo-icon {
-            width: 30px;
-            height: 30px;
-            border-radius: 8px;
-            background: var(--logo-purple);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-        }
-
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            flex: 1;
-        }
-
-        .nav-btn {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            border: none;
-            background: none;
-            color: var(--text-secondary);
-        }
-
-        .nav-btn.active {
-            background: #111827;
-            color: white;
-        }
-
-        .nav-right {
-            margin-left: auto;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .user-chip {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .avatar {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: var(--avatar-purple);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-        }
-
-        /* MAIN (SAME AS ADMIN) */
-        .main {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 32px 28px 48px;
-        }
-
-        .welcome-heading {
-            font-size: 26px;
-            font-weight: 700;
-        }
-
-        .welcome-sub {
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
-
-        /* CARD */
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            margin-top: 24px;
-        }
-
-        /* LOGS */
-        .log {
-            padding: 14px;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            margin-bottom: 10px;
-            background: #fff;
-        }
-
-        .log-title {
-            font-weight: 600;
-        }
-
-        .log-meta {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin: 24px 0;
-        }
-
-        .stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-        }
-
-        .stat-card.orange-card {
-            background: var(--primary-orange);
-            border-color: var(--primary-orange);
-            color: white;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-        }
-
-        .orange-card .stat-label {
-            color: rgba(255, 255, 255, 0.9);
-        }
-
-        .stat-value {
-            font-size: 28px;
-            font-weight: 700;
-        }
-
-        .stat-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .icon-orange-tint {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-        }
-
-        .icon-green {
-            background: var(--green-bg);
-            color: var(--green-text);
-        }
-
-        .icon-red {
-            background: var(--red-bg);
-            color: var(--red-text);
-        }
-
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .table th {
-            text-align: left;
-            padding: 14px 12px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .table td {
-            padding: 18px 12px;
-            vertical-align: middle;
-        }
-
-        .table tbody tr {
-            border-bottom: 1px solid var(--border);
-        }
-
-        /* last row no border */
-        .table tbody tr:last-child {
-            border-bottom: none;
-        }
-    </style>
+    <link rel="stylesheet" href="css/style.css" />
 </head>
 
-<body>
+<body class="audit">
 
-    <!-- NAVBAR -->
     <nav class="nav">
 
         <a class="nav-logo" href="moderatordashboard.html">
@@ -296,23 +35,23 @@
 
         <div class="nav-right">
             <div class="user-chip">
-                <div class="avatar">V</div>
-                <div>
-                    <div style="font-weight:600;">Victor</div>
-                    <div style="font-size:11px;color:var(--text-secondary);">Administrator</div>
+                <div class="avatar" id="user-avatar">V</div>
+
+                <div class="user-info">
+                    <div class="name" id="user-name">Victor</div>
+                    <div class="role" id="user-role">Administrator</div>
                 </div>
+                <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
             </div>
         </div>
 
     </nav>
 
-    <!-- MAIN -->
     <main class="main">
 
         <h1 class="welcome-heading">Audit Logs</h1>
         <p class="welcome-sub">Complete history of moderation actions</p>
 
-        <!-- KPI STATS -->
         <div class="stats-grid">
 
             <div class="stat-card orange-card">
@@ -347,7 +86,6 @@
 
         </div>
 
-        <!-- ACTIVITY TABLE -->
         <div class="card">
 
             <div class="card-header">
@@ -400,7 +138,6 @@
                         </td>
                     </tr>
 
-                    <!-- ROW 2 -->
                     <tr>
                         <td>
                             <div>
