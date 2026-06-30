@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Businesses</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body class="biz-list-page">
+
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <button class="nav-btn" onclick="window.location.href='businessownerdashboard.html'">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
+      </button>
+
+      <button class="nav-btn active">
+        <i class="ti ti-building-store"></i> My Businesses
+      </button>
+
+      <div class="nav-btn-wrap">
+        <button class="nav-btn">
+          <i class="ti ti-message"></i> Messages
+        </button>
+        <span class="nav-badge" id="nav-msg-badge" style="display:none;"></span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <button class="icon-btn">
+        <i class="ti ti-bell"></i>
+      </button>
+
+      <div class="user-chip">
+        <div class="avatar" id="user-avatar"></div>
+        <div class="user-info">
+          <div class="name" id="user-name"></div>
+          <div class="role" id="user-role"></div>
+        </div>
+
+        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+      </div>
+    </div>
+  </nav>
+
+  <!-- PAGE -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h1>My Businesses</h1>
+        <p class="welcome-sub">Manage your startup portfolios</p>
+      </div>
+
+      <button class="btn btn-primary"><i class="ti ti-plus"></i> Create New Portfolio</button>
+    </div>
+
+    <!-- RENDERED LIST -->
+    <div id="biz-list"></div>
+
+  </main>
+
+  <script>
+    const data = {
+      user: {
+        name: "Beta",
+        role: "Business Owner"
+      },
+
+      portfolios: [
+        {
+          id: 1,
+          name: "X3",
+          industry: "Fintech",
+          status: "approved",
+          statusLabel: "Approved",
+          mvp: "Launched",
+          funding: 1000000,
+          readiness: 85,
+          updated: "May 31"
+        },
+        {
+          id: 2,
+          name: "Happi",
+          industry: "Healthtech",
+          status: "pending",
+          statusLabel: "Pending Review",
+          mvp: "Beta",
+          funding: 10000000,
+          readiness: 80,
+          updated: "May 31"
+        },
+        {
+          id: 3,
+          name: "Fint",
+          industry: "Fintech",
+          status: "rejected",
+          statusLabel: "Rejected",
+          mvp: "Prototype",
+          funding: 500000,
+          readiness: 45,
+          updated: "Jun 18",
+          rejection: "Needs stronger market validation"
+        }
+      ]
+    };
+
+    function formatFunding(n) {
+      return "$" + (n / 1000000).toFixed(1) + "M";
+    }
+
+    function render() {
+      // USER
+      document.getElementById("user-avatar").innerText = data.user.name[0];
+      document.getElementById("user-name").innerText = data.user.name;
+      document.getElementById("user-role").innerText = data.user.role;
+
+      // PORTFOLIOS
+      const html = data.portfolios.map(p => `
+      <div class="card" style="margin-bottom:16px;">
+        <div class="biz-card">
+
+          <div style="flex:1;">
+            <div class="biz-title">
+              ${p.name}
+            </div>
+
+            <div class="biz-meta" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+              ${p.industry} <span style="color:var(--text-muted);">&middot;</span>
+              <span class="badge ${p.status}">${p.statusLabel}</span>
+            </div>
+
+            <div class="biz-info-grid">
+              <div class="biz-info-box">
+                <div class="biz-info-label">MVP Status</div>
+                <div class="biz-info-value">${p.mvp}</div>
+              </div>
+              <div class="biz-info-box">
+                <div class="biz-info-label">Funding Goal</div>
+                <div class="biz-info-value">${formatFunding(p.funding)}</div>
+              </div>
+              <div class="biz-info-box">
+                <div class="biz-info-label">Readiness</div>
+                <div class="biz-info-value">${p.readiness}/100</div>
+              </div>
+              <div class="biz-info-box">
+                <div class="biz-info-label">Last Updated</div>
+                <div class="biz-info-value">${p.updated}</div>
+              </div>
+            </div>
+
+            ${p.rejection ? `
+              <div class="biz-rejection">
+                Rejection Reason: ${p.rejection}
+              </div>
+            ` : ""}
+          </div>
+
+          <div class="biz-actions">
+            <button class="btn btn-outline"><i class="ti ti-edit"></i> Edit</button>
+            <button class="btn-text-danger"><i class="ti ti-trash"></i> Delete</button>
+          </div>
+
+        </div>
+      </div>
+    `).join("");
+
+      document.getElementById("biz-list").innerHTML = html;
+    }
+
+    render();
+  </script>
+</body>
+
+</html>

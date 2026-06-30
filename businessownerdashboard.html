@@ -1,389 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Business Dashboard — Lumi5 Labs</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css" />
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --primary-blue: #4361EE; --primary-blue-dark: #3651D4;
-    --logo-purple: #6B4EE6; --avatar-blue: #3B82F6; --inv-green: #4ADE80;
-    --msg-purple: #8B5CF6; --msg-purple-bg: #EDE9FE;
-    --green-bg: #EAF3DE; --green-text: #3B6D11;
-    --amber-bg: #FAEEDA; --amber-text: #854F0B;
-    --red-bg: #FCEBEB; --red-text: #A32D2D;
-    --pink: #D4537E; --pink-bg: #FBEAF0;
-    --bg-page: #F3F4F6; --bg-card: #FFFFFF; --bg-secondary: #F9FAFB;
-    --border: #E5E7EB; --text-primary: #111827; --text-secondary: #6B7280; --text-muted: #9CA3AF;
-    --radius-md: 8px; --radius-lg: 12px;
-  }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg-page); color: var(--text-primary); min-height: 100vh; font-size: 14px; }
-  
-  /* Nav */
-  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); height: 56px; padding: 0 28px; display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 10; }
-  .nav-logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text-primary); margin-right: 16px; text-decoration: none; }
-  .logo-icon { width: 30px; height: 30px; border-radius: 8px; background: var(--logo-purple); display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; }
-  .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
-  .nav-btn { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: var(--text-secondary); }
-  .nav-btn.active { background: #111827; color: white; }
-  .nav-btn-wrap { position: relative; display: inline-flex; }
-  .nav-badge { position: absolute; top: -2px; right: -2px; background: #E24B4A; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; border: 1.5px solid var(--bg-card); }
-  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-  .icon-btn { background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer; }
-  .role-menu { position: relative; }
-  .user-chip { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px; border: none; background: none; text-align: left; }
-  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--avatar-blue); color: white; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
-  .user-info .name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-  .user-info .role { font-size: 11px; color: var(--text-secondary); }
-  .role-dropdown { position: absolute; top: calc(100% + 10px); right: 0; width: 230px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 12px 28px rgba(17,24,39,0.14); padding: 6px; display: none; z-index: 20; }
-  .role-menu.open .role-dropdown { display: block; }
-  .role-option { width: 100%; border: none; background: transparent; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: var(--radius-md); cursor: pointer; text-align: left; }
-  .role-option:hover { background: var(--bg-secondary); }
-  .role-option.active { background: #EEF2FF; }
-  .role-option-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 700; flex: 0 0 auto; }
-  .role-option-avatar.blue { background: var(--avatar-blue); }
-  .role-option-avatar.green { background: var(--inv-green); }
-  .role-option-name { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-  .role-check { margin-left: auto; color: var(--primary-blue); font-size: 16px; }
-
-  /* Main */
-  .main { max-width: 1200px; margin: 0 auto; padding: 32px 28px 48px; }
-  .welcome-heading { font-size: 26px; font-weight: 700; color: var(--text-primary); }
-  .welcome-sub { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
-
-  /* Stats */
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
-  .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .stat-card.primary-card { background: var(--primary-blue); border-color: var(--primary-blue); color: white; }
-  .stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-  .primary-card .stat-label { color: rgba(255,255,255,0.75); }
-  .stat-value { font-size: 30px; font-weight: 700; line-height: 1; }
-  .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
-  .primary-card .stat-sub { color: rgba(255,255,255,0.6); }
-  .stat-unread { font-size: 12px; color: var(--primary-blue); margin-top: 5px; font-weight: 500; }
-  .stat-icon { width: 40px; height: 40px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: 20px; }
-  .icon-white-tint { background: rgba(255,255,255,0.2); color: white; }
-  .icon-pink { background: var(--pink-bg); color: var(--pink); }
-  .icon-purple { background: var(--msg-purple-bg); color: var(--msg-purple); }
-  .icon-green { background: var(--green-bg); color: var(--green-text); }
-
-  /* Layout */
-  .content-row { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
-  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
-  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .card-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .manage-btn { display: flex; align-items: center; gap: 6px; background: var(--primary-blue); color: white; border: none; border-radius: var(--radius-md); padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; }
-
-  /* Counts */
-  .count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-  .count-box { border-radius: var(--radius-md); padding: 14px 16px; }
-  .count-box.approved { background: var(--green-bg); }
-  .count-box.pending { background: var(--amber-bg); }
-  .count-box.draft { background: var(--bg-secondary); border: 1px solid var(--border); }
-  .count-label { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 8px; }
-  .count-box.approved .count-label { color: var(--green-text); }
-  .count-box.pending .count-label { color: var(--amber-text); }
-  .count-box.draft .count-label { color: var(--text-secondary); }
-  .count-num { font-size: 28px; font-weight: 700; }
-  .count-box.approved .count-num { color: var(--green-text); }
-  .count-box.pending .count-num { color: var(--amber-text); }
-  .count-box.draft .count-num { color: var(--text-primary); }
-
-  /* Lists */
-  .section-label { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
-  .portfolio-item { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 8px; }
-  .portfolio-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
-  .portfolio-meta { font-size: 12px; color: var(--text-secondary); }
-  .badge { font-size: 11px; font-weight: 500; padding: 3px 9px; border-radius: 20px; }
-  .badge.approved { background: var(--green-bg); color: var(--green-text); }
-  .badge.pending { background: var(--amber-bg); color: var(--amber-text); }
-  .badge.rejected { background: var(--red-bg); color: var(--red-text); }
-  .eye-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
-  .view-all-btn { width: 100%; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: none; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; }
-
-  /* Sidebar */
-  .sidebar-col { display: flex; flex-direction: column; gap: 16px; }
-  .interest-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .interest-item:last-child { border-bottom: none; }
-  .inv-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--inv-green); color: white; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
-  .interest-name { font-size: 13px; font-weight: 600; }
-  .interest-sub { font-size: 12px; color: var(--text-secondary); }
-  .msg-btn { margin-left: auto; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; }
-  
-  .notif-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .view-all-link { font-size: 12px; color: var(--primary-blue); border: none; background: none; font-weight: 500; cursor: pointer; }
-  .notif-item { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 8px; }
-  .notif-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
-  .notif-body { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Business Dashboard — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
 </head>
-<body>
 
-<nav class="nav">
-  <a class="nav-logo" href="#"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
-  <div class="nav-links">
-    <button class="nav-btn active"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
-    <button class="nav-btn"><i class="ti ti-building-store"></i> My Businesses</button>
-    <div class="nav-btn-wrap">
-      <button class="nav-btn" onclick="openMessagesTab()"><i class="ti ti-message"></i> Messages</button>
-      <span class="nav-badge" id="nav-msg-badge" style="display:none;"></span>
-    </div>
-  </div>
-  <div class="nav-right">
-    <button class="icon-btn"><i class="ti ti-bell"></i></button>
-    <div class="role-menu" id="role-menu">
-      <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
-        <div class="avatar" id="user-avatar"></div>
-        <div class="user-info">
-          <div class="name" id="user-name"></div>
-          <div class="role" id="user-role"></div>
-        </div>
-        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+<body class="biz-dashboard">
+
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <button class="nav-btn active" onclick="window.location.href='businessownerdashboard.html'">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
       </button>
-      <div class="role-dropdown" role="menu">
-        <button class="role-option active" type="button" onclick="switchRole('beta')" role="menuitem">
-          <span class="role-option-avatar blue">B</span>
-          <span class="role-option-name">Beta</span>
-          <i class="ti ti-check role-check"></i>
+      <button class="nav-btn" onclick="window.location.href='mybusinesses.html'">
+        <i class="ti ti-building-store"></i> My Businesses
+      </button>
+      <div class="nav-btn-wrap">
+        <button class="nav-btn" onclick="openMessagesTab()"><i class="ti ti-message"></i> Messages</button>
+        <span class="nav-badge" id="nav-msg-badge" style="display:none;"></span>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="icon-btn"><i class="ti ti-bell"></i></button>
+      <div class="role-menu" id="role-menu">
+        <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="user-avatar"></div>
+          <div class="user-info">
+            <div class="name" id="user-name"></div>
+            <div class="role" id="user-role"></div>
+          </div>
+          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
         </button>
-        <button class="role-option" type="button" onclick="switchRole('alpha')" role="menuitem">
-          <span class="role-option-avatar green">A</span>
-          <span class="role-option-name">Alpha</span>
+        <div class="role-dropdown" role="menu">
+          <button class="role-option active" type="button" onclick="switchRole('beta')" role="menuitem">
+            <span class="role-option-avatar blue">B</span>
+            <span class="role-option-name">Beta</span>
+            <i class="ti ti-check role-check"></i>
+          </button>
+          <button class="role-option" type="button" onclick="switchRole('alpha')" role="menuitem">
+            <span class="role-option-avatar green">A</span>
+            <span class="role-option-name">Alpha</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <h1 class="welcome-heading" id="page-title"></h1>
+    <p class="welcome-sub" id="page-subtitle"></p>
+
+    <div class="stats-grid">
+      <div class="stat-card primary-card">
+        <div>
+          <div class="stat-label">Total Portfolios</div>
+          <div class="stat-value" id="stat-total"></div>
+          <div class="stat-sub" id="stat-breakdown"></div>
+        </div>
+        <div class="stat-icon icon-white-tint"><i class="ti ti-briefcase"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Investor Interests</div>
+          <div class="stat-value" id="stat-interests"></div>
+        </div>
+        <div class="stat-icon icon-pink"><i class="ti ti-heart"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Messages</div>
+          <div class="stat-value" id="stat-messages"></div>
+          <div class="stat-unread" id="stat-unread-label"></div>
+        </div>
+        <div class="stat-icon icon-purple"><i class="ti ti-message"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Avg. Readiness</div>
+          <div class="stat-value" id="stat-avg"></div>
+        </div>
+        <div class="stat-icon icon-green"><i class="ti ti-trending-up"></i></div>
+      </div>
+    </div>
+
+    <div class="content-row">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">My Portfolios</span>
+          <button class="manage-btn" onclick="window.location.href='mybusinesses.html'">
+            Manage My Businesses <i class="ti ti-arrow-right"></i>
+          </button>
+        </div>
+        <div class="count-grid">
+          <div class="count-box approved">
+            <div class="count-label">Approved</div>
+            <div class="count-num" id="count-approved"></div>
+          </div>
+          <div class="count-box pending">
+            <div class="count-label">Pending</div>
+            <div class="count-num" id="count-pending"></div>
+          </div>
+          <div class="count-box draft">
+            <div class="count-label">Draft</div>
+            <div class="count-num" id="count-draft"></div>
+          </div>
+        </div>
+        <div class="section-label">Recent Portfolios</div>
+        <div id="portfolio-list"></div>
+        <button class="view-all-btn" onclick="window.location.href='mybusinesses.html'">
+          View All Portfolios <i class="ti ti-arrow-right"></i>
         </button>
       </div>
-    </div>
-  </div>
-</nav>
 
-<main class="main">
-  <h1 class="welcome-heading" id="page-title"></h1>
-  <p class="welcome-sub" id="page-subtitle"></p>
-
-  <div class="stats-grid">
-    <div class="stat-card primary-card">
-      <div>
-        <div class="stat-label">Total Portfolios</div>
-        <div class="stat-value" id="stat-total"></div>
-        <div class="stat-sub" id="stat-breakdown"></div>
-      </div>
-      <div class="stat-icon icon-white-tint"><i class="ti ti-briefcase"></i></div>
-    </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Investor Interests</div>
-        <div class="stat-value" id="stat-interests"></div>
-      </div>
-      <div class="stat-icon icon-pink"><i class="ti ti-heart"></i></div>
-    </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Messages</div>
-        <div class="stat-value" id="stat-messages"></div>
-        <div class="stat-unread" id="stat-unread-label"></div>
-      </div>
-      <div class="stat-icon icon-purple"><i class="ti ti-message"></i></div>
-    </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Avg. Readiness</div>
-        <div class="stat-value" id="stat-avg"></div>
-      </div>
-      <div class="stat-icon icon-green"><i class="ti ti-trending-up"></i></div>
-    </div>
-  </div>
-
-  <div class="content-row">
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">My Portfolios</span>
-        <button class="manage-btn">Manage My Businesses <i class="ti ti-arrow-right"></i></button>
-      </div>
-      <div class="count-grid">
-        <div class="count-box approved">
-          <div class="count-label">Approved</div>
-          <div class="count-num" id="count-approved"></div>
+      <div class="sidebar-col">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px"><i class="ti ti-heart" style="color:var(--pink)"></i>
+            Recent Interests</div>
+          <div id="interests-list"></div>
         </div>
-        <div class="count-box pending">
-          <div class="count-label">Pending</div>
-          <div class="count-num" id="count-pending"></div>
-        </div>
-        <div class="count-box draft">
-          <div class="count-label">Draft</div>
-          <div class="count-num" id="count-draft"></div>
+        <div class="card">
+          <div class="notif-header">
+            <span class="card-title">Notifications</span>
+            <button class="view-all-link">View all</button>
+          </div>
+          <div id="notifications-list"></div>
         </div>
       </div>
-      <div class="section-label">Recent Portfolios</div>
-      <div id="portfolio-list"></div>
-      <button class="view-all-btn">View All Portfolios <i class="ti ti-arrow-right"></i></button>
     </div>
+  </main>
 
-    <div class="sidebar-col">
-      <div class="card">
-        <div class="card-title" style="margin-bottom:12px"><i class="ti ti-heart" style="color:var(--pink)"></i> Recent Interests</div>
-        <div id="interests-list"></div>
-      </div>
-      <div class="card">
-        <div class="notif-header">
-          <span class="card-title">Notifications</span>
-          <button class="view-all-link">View all</button>
-        </div>
-        <div id="notifications-list"></div>
-      </div>
-    </div>
-  </div>
-</main>
-
-<script>
-  async function getBusinessData() {
-    return {
-      user: { name: "Beta", role: "Business Owner" },
-      pageDetails: { title: "Welcome back, Beta", subtitle: "Manage your startup portfolio and connect with investors" },
-      portfolios: { total: 11, approved: 7, pending: 1, draft: 0 },
-      investorInterests: 3,
-      messages: { total: 3, unread: 1 },
-      avgReadiness: 65,
-      recentPortfolios: [
-        { name: "X3", status: "approved", sector: "Fintech", readiness: 85 },
-        { name: "Happi", status: "pending", sector: "Healthtech", readiness: 80 },
-        { name: "Fint", status: "rejected", sector: "Fintech", readiness: 45 },
-      ],
-      interests: [
-        { investor_id: 2, investor: "Alpha", portfolio_id: 1, portfolio: "X3", message: "Interested in X3" },
-        { investor_id: 4, investor: "Mira Chen", portfolio_id: 2, portfolio: "Happi", message: "Interested in Happi" },
-        { investor_id: 2, investor: "Alpha", portfolio_id: 3, portfolio: "Fint", message: "Interested in Fint" }
-      ],
-      notifications: [
-        { title: "New Message", body: "Alpha sent you a message about X3" },
-        { title: "Portfolio Needs Changes", body: 'Your portfolio "abc" requires changes: upload more documents pls' },
-        { title: "New Message", body: "Alpha sent you a message about X3" },
-        { title: "New Investor Interest!", body: "Alpha is interested in X3" }
-      ]
-    };
-  }
-
-  async function initBusiness() {
-    const data = await getBusinessData();
-    
-    document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
-    document.getElementById("user-name").innerText = data.user.name;
-    document.getElementById("user-role").innerText = data.user.role;
-    document.getElementById("page-title").innerText = data.pageDetails.title;
-    document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
-    
-    if (data.messages.unread > 0) {
-      const badge = document.getElementById("nav-msg-badge");
-      badge.style.display = "flex";
-      badge.innerText = data.messages.unread;
+  <script>
+    async function getBusinessData() {
+      return {
+        user: { name: "Beta", role: "Business Owner" },
+        pageDetails: { title: "Welcome back, Beta", subtitle: "Manage your startup portfolio and connect with investors" },
+        portfolios: { total: 11, approved: 7, pending: 1, draft: 0 },
+        investorInterests: 3,
+        messages: { total: 3, unread: 1 },
+        avgReadiness: 65,
+        recentPortfolios: [
+          { name: "X3", status: "approved", sector: "Fintech", readiness: 85 },
+          { name: "Happi", status: "pending", sector: "Healthtech", readiness: 80 },
+          { name: "Fint", status: "rejected", sector: "Fintech", readiness: 45 },
+        ],
+        interests: [
+          { investor_id: 2, investor: "Alpha", portfolio_id: 1, portfolio: "X3", message: "Interested in X3" },
+          { investor_id: 4, investor: "Mira Chen", portfolio_id: 2, portfolio: "Happi", message: "Interested in Happi" },
+          { investor_id: 2, investor: "Alpha", portfolio_id: 3, portfolio: "Fint", message: "Interested in Fint" }
+        ],
+        notifications: [
+          { title: "New Message", body: "Alpha sent you a message about X3" },
+          { title: "Portfolio Needs Changes", body: 'Your portfolio "abc" requires changes: upload more documents pls' },
+          { title: "New Message", body: "Alpha sent you a message about X3" },
+          { title: "New Investor Interest!", body: "Alpha is interested in X3" }
+        ]
+      };
     }
 
-    document.getElementById("stat-total").innerText = data.portfolios.total;
-    document.getElementById("stat-breakdown").innerText = `${data.portfolios.approved} approved · ${data.portfolios.pending} pending · ${data.portfolios.draft} draft`;
-    document.getElementById("stat-interests").innerText = data.investorInterests;
-    document.getElementById("stat-messages").innerText = data.messages.total;
-    document.getElementById("stat-unread-label").innerText = data.messages.unread > 0 ? `${data.messages.unread} unread` : "";
-    document.getElementById("stat-avg").innerText = `${data.avgReadiness}/100`;
+    async function initBusiness() {
+      const data = await getBusinessData();
 
-    document.getElementById("count-approved").innerText = data.portfolios.approved;
-    document.getElementById("count-pending").innerText = data.portfolios.pending;
-    document.getElementById("count-draft").innerText = data.portfolios.draft;
+      document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
+      document.getElementById("user-name").innerText = data.user.name;
+      document.getElementById("user-role").innerText = data.user.role;
+      document.getElementById("page-title").innerText = data.pageDetails.title;
+      document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
 
-    const statusMap = { approved: "Approved", pending: "Pending Review", rejected: "Rejected" };
-    document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.map(p => `
+      if (data.messages.unread > 0) {
+        const badge = document.getElementById("nav-msg-badge");
+        badge.style.display = "flex";
+        badge.innerText = data.messages.unread;
+      }
+
+      document.getElementById("stat-total").innerText = data.portfolios.total;
+      document.getElementById("stat-breakdown").innerText = `${data.portfolios.approved} approved · ${data.portfolios.pending} pending · ${data.portfolios.draft} draft`;
+      document.getElementById("stat-interests").innerText = data.investorInterests;
+      document.getElementById("stat-messages").innerText = data.messages.total;
+      document.getElementById("stat-unread-label").innerText = data.messages.unread > 0 ? `${data.messages.unread} unread` : "";
+      document.getElementById("stat-avg").innerText = `${data.avgReadiness}/100`;
+
+      document.getElementById("count-approved").innerText = data.portfolios.approved;
+      document.getElementById("count-pending").innerText = data.portfolios.pending;
+      document.getElementById("count-draft").innerText = data.portfolios.draft;
+
+      const statusMap = { approved: "Approved", pending: "Pending Review", rejected: "Rejected" };
+      document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.map(p => `
       <div class="portfolio-item">
         <div>
           <div class="portfolio-name">${p.name} <span class="badge ${p.status}">${statusMap[p.status]}</span></div>
           <div class="portfolio-meta">${p.sector} · Readiness: ${p.readiness}/100</div>
         </div>
-        <button class="eye-btn"><i class="ti ti-eye"></i></button>
+        <button class="btn-ghost"><i class="ti ti-eye"></i></button>
       </div>
     `).join('');
 
-    document.getElementById("interests-list").innerHTML = data.interests.map(i => `
+      document.getElementById("interests-list").innerHTML = data.interests.map(i => `
       <div class="interest-item">
         <div class="inv-avatar">${i.investor[0]}</div>
         <div><div class="interest-name">${i.investor}</div><div class="interest-sub">${i.message}</div></div>
-        <button class="msg-btn" onclick="openMessageThread(${i.investor_id}, '${escapeForUrl(i.investor)}', ${i.portfolio_id}, '${escapeForUrl(i.portfolio)}')"><i class="ti ti-message"></i></button>
+        <button class="btn-ghost" onclick="openMessageThread(${i.investor_id}, '${escapeForUrl(i.investor)}', ${i.portfolio_id}, '${escapeForUrl(i.portfolio)}')"><i class="ti ti-message"></i></button>
       </div>
     `).join('');
 
-    document.getElementById("notifications-list").innerHTML = data.notifications.map(n => `
+      document.getElementById("notifications-list").innerHTML = data.notifications.map(n => `
       <div class="notif-item">
         <div class="notif-title">${n.title}</div>
         <div class="notif-body">${n.body}</div>
       </div>
     `).join('');
-  }
+    }
 
-  function escapeForUrl(value) {
-    return encodeURIComponent(value || "");
-  }
+    function escapeForUrl(value) {
+      return encodeURIComponent(value || "");
+    }
 
-  const PROTOTYPE_USERS = {
-    beta: { key: "beta", name: "Beta", role: "business_owner", dashboard: "businessownerdashboard.html" },
-    alpha: { key: "alpha", name: "Alpha", role: "investor", dashboard: "investordashboard.html" }
-  };
+    const PROTOTYPE_USERS = {
+      beta: { key: "beta", name: "Beta", role: "business_owner", dashboard: "businessownerdashboard.html" },
+      alpha: { key: "alpha", name: "Alpha", role: "investor", dashboard: "investordashboard.html" }
+    };
 
-  function setSelectedUser(key) {
-    const user = PROTOTYPE_USERS[key];
-    if (!user) return;
-    localStorage.setItem("lumilabsSelectedUser", JSON.stringify({
-      key: user.key,
-      name: user.name,
-      role: user.role
-    }));
-  }
+    function setSelectedUser(key) {
+      const user = PROTOTYPE_USERS[key];
+      if (!user) return;
+      localStorage.setItem("lumilabsSelectedUser", JSON.stringify({
+        key: user.key,
+        name: user.name,
+        role: user.role
+      }));
+    }
 
-  function switchRole(key) {
-    const user = PROTOTYPE_USERS[key];
-    if (!user) return;
-    setSelectedUser(key);
-    window.location.href = user.dashboard;
-  }
+    function switchRole(key) {
+      const user = PROTOTYPE_USERS[key];
+      if (!user) return;
+      setSelectedUser(key);
+      window.location.href = user.dashboard;
+    }
 
-  function openMessagesTab() {
-    setSelectedUser("beta");
-    window.location.href = "messages.html";
-  }
+    function openMessagesTab() {
+      setSelectedUser("beta");
+      window.location.href = "messages.html";
+    }
 
-  function openMessageThread(partnerId, partnerName, portfolioId, portfolioName) {
-    setSelectedUser("beta");
-    const params = new URLSearchParams({
-      partnerId,
-      partnerName: decodeURIComponent(partnerName),
-      partnerRole: "investor",
-      portfolioId,
-      portfolioName: decodeURIComponent(portfolioName),
-    });
-    window.location.href = `messages.html?${params.toString()}`;
-  }
+    function openMessageThread(partnerId, partnerName, portfolioId, portfolioName) {
+      setSelectedUser("beta");
+      const params = new URLSearchParams({
+        partnerId,
+        partnerName: decodeURIComponent(partnerName),
+        partnerRole: "investor",
+        portfolioId,
+        portfolioName: decodeURIComponent(portfolioName),
+      });
+      window.location.href = `messages.html?${params.toString()}`;
+    }
 
-  function initRoleMenu() {
-    const menu = document.getElementById("role-menu");
-    const button = document.getElementById("role-menu-button");
+    function initRoleMenu() {
+      const menu = document.getElementById("role-menu");
+      const button = document.getElementById("role-menu-button");
 
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const isOpen = menu.classList.toggle("open");
-      button.setAttribute("aria-expanded", String(isOpen));
-    });
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const isOpen = menu.classList.toggle("open");
+        button.setAttribute("aria-expanded", String(isOpen));
+      });
 
-    document.addEventListener("click", () => {
-      menu.classList.remove("open");
-      button.setAttribute("aria-expanded", "false");
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
+      document.addEventListener("click", () => {
         menu.classList.remove("open");
         button.setAttribute("aria-expanded", "false");
-      }
-    });
-  }
+      });
 
-  initRoleMenu();
-  initBusiness();
-</script>
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          menu.classList.remove("open");
+          button.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+
+    initRoleMenu();
+    initBusiness();
+  </script>
 </body>
+
 </html>

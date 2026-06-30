@@ -1,131 +1,135 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Moderation Dashboard — Lumi5 Labs</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moderation Dashboard — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
 </head>
+
 <body class="dashboard">
 
-<nav class="nav">
-  <a class="nav-logo" href="#">
-    <div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs
-  </a>
-  <div class="nav-links">
-    <div class="nav-btn-wrap">
-      <button class="nav-btn active"><i class="ti ti-shield-check"></i> Moderation Dashboard</button>
-      <span class="nav-badge" id="nav-pending-badge"></span>
-    </div>
-    <button class="nav-btn" onclick="window.location.href='audit-logs.html'">
-      <i class="ti ti-settings"></i> Audit Logs
-    </button>
-  </div>
-  <div class="nav-right">
-    <div class="user-chip">
-      <div class="avatar" id="user-avatar"></div>
-      <div class="user-info">
-        <div class="name" id="user-name"></div>
-        <div class="role" id="user-role"></div>
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <div class="nav-btn-wrap">
+        <button class="nav-btn active"><i class="ti ti-shield-check"></i> Moderation Dashboard</button>
+        <span class="nav-badge" id="nav-pending-badge"></span>
       </div>
-      <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+      <button class="nav-btn" onclick="window.location.href='audit-logs.html'">
+        <i class="ti ti-settings"></i> Audit Logs
+      </button>
     </div>
-  </div>
-</nav>
-
-<main class="main">
-  <h1 class="welcome-heading" id="page-title"></h1>
-  <p class="welcome-sub" id="page-subtitle"></p>
-
-  <div class="stats-grid">
-    <div class="stat-card orange-card">
-      <div>
-        <div class="stat-label">Pending Review</div>
-        <div class="stat-value" id="stat-pending"></div>
+    <div class="nav-right">
+      <div class="user-chip">
+        <div class="avatar" id="user-avatar"></div>
+        <div class="user-info">
+          <div class="name" id="user-name"></div>
+          <div class="role" id="user-role"></div>
+        </div>
+        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
       </div>
-      <div class="stat-icon icon-orange-tint"><i class="ti ti-clock"></i></div>
     </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Approved</div>
-        <div class="stat-value" id="stat-approved"></div>
-      </div>
-      <div class="stat-icon icon-green"><i class="ti ti-check"></i></div>
-    </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Rejected</div>
-        <div class="stat-value" id="stat-rejected"></div>
-      </div>
-      <div class="stat-icon icon-red"><i class="ti ti-x"></i></div>
-    </div>
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Total Matches</div>
-        <div class="stat-value" id="stat-matches"></div>
-      </div>
-      <div class="stat-icon icon-purple"><i class="ti ti-users"></i></div>
-    </div>
-  </div>
+  </nav>
 
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">
-        Moderation Queue <span class="badge-yellow" id="queue-badge"></span>
+  <main class="main">
+    <h1 class="welcome-heading" id="page-title"></h1>
+    <p class="welcome-sub" id="page-subtitle"></p>
+
+    <div class="stats-grid">
+      <div class="stat-card orange-card">
+        <div>
+          <div class="stat-label">Pending Review</div>
+          <div class="stat-value" id="stat-pending"></div>
+        </div>
+        <div class="stat-icon icon-orange-tint"><i class="ti ti-clock"></i></div>
       </div>
-      <button class="btn-review">View Audit Logs</button>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Approved</div>
+          <div class="stat-value" id="stat-approved"></div>
+        </div>
+        <div class="stat-icon icon-green"><i class="ti ti-check"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Rejected</div>
+          <div class="stat-value" id="stat-rejected"></div>
+        </div>
+        <div class="stat-icon icon-red"><i class="ti ti-x"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Total Matches</div>
+          <div class="stat-value" id="stat-matches"></div>
+        </div>
+        <div class="stat-icon icon-purple"><i class="ti ti-users"></i></div>
+      </div>
     </div>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Startup</th>
-          <th>Industry</th>
-          <th>Submitted</th>
-          <th>Status</th>
-          <th>Score</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="queue-list"></tbody>
-    </table>
-  </div>
-</main>
 
-<script>
-  async function getAdminData() {
-    // Replace with actual API call
-    return {
-      user: { name: "Victor", role: "Administrator" },
-      pageDetails: { title: "Moderation Dashboard", subtitle: "Review and manage startup portfolios" },
-      stats: { pending: 1, approved: 7, rejected: 3, totalMatches: 2 },
-      queue: [
-        { name: "Happi", owner: "Beta", industry: "Healthtech", submittedDate: "Feb 13, 2026", submittedTime: "6:01 AM", status: "Pending Review", score: 80 }
-      ]
-    };
-  }
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          Moderation Queue <span class="badge-yellow" id="queue-badge"></span>
+        </div>
+        <button class="btn-review" onclick="window.location.href='audit-logs.html'">
+          View Audit Logs
+        </button>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Startup</th>
+            <th>Industry</th>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th>Score</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="queue-list"></tbody>
+      </table>
+    </div>
+  </main>
 
-  async function initAdmin() {
-    const data = await getAdminData();
-    
-    document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
-    document.getElementById("user-name").innerText = data.user.name;
-    document.getElementById("user-role").innerText = data.user.role;
-    
-    document.getElementById("page-title").innerText = data.pageDetails.title;
-    document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
-    
-    document.getElementById("nav-pending-badge").innerText = data.stats.pending;
-    document.getElementById("stat-pending").innerText = data.stats.pending;
-    document.getElementById("stat-approved").innerText = data.stats.approved;
-    document.getElementById("stat-rejected").innerText = data.stats.rejected;
-    document.getElementById("stat-matches").innerText = data.stats.totalMatches;
-    document.getElementById("queue-badge").innerText = `${data.stats.pending} pending`;
+  <script>
+    async function getAdminData() {
+      // Replace with actual API call
+      return {
+        user: { name: "Victor", role: "Administrator" },
+        pageDetails: { title: "Moderation Dashboard", subtitle: "Review and manage startup portfolios" },
+        stats: { pending: 1, approved: 7, rejected: 3, totalMatches: 2 },
+        queue: [
+          { name: "Happi", owner: "Beta", industry: "Healthtech", submittedDate: "Feb 13, 2026", submittedTime: "6:01 AM", status: "Pending Review", score: 80 }
+        ]
+      };
+    }
 
-    const tbody = document.getElementById("queue-list");
-    tbody.innerHTML = "";
-    data.queue.forEach(item => {
-      tbody.innerHTML += `
+    async function initAdmin() {
+      const data = await getAdminData();
+
+      document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
+      document.getElementById("user-name").innerText = data.user.name;
+      document.getElementById("user-role").innerText = data.user.role;
+
+      document.getElementById("page-title").innerText = data.pageDetails.title;
+      document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
+
+      document.getElementById("nav-pending-badge").innerText = data.stats.pending;
+      document.getElementById("stat-pending").innerText = data.stats.pending;
+      document.getElementById("stat-approved").innerText = data.stats.approved;
+      document.getElementById("stat-rejected").innerText = data.stats.rejected;
+      document.getElementById("stat-matches").innerText = data.stats.totalMatches;
+      document.getElementById("queue-badge").innerText = `${data.stats.pending} pending`;
+
+      const tbody = document.getElementById("queue-list");
+      tbody.innerHTML = "";
+      data.queue.forEach(item => {
+        tbody.innerHTML += `
         <tr>
           <td>
             <div class="startup-cell">
@@ -151,10 +155,11 @@
           <td><button class="btn-review"><i class="ti ti-eye"></i> Review</button></td>
         </tr>
       `;
-    });
-  }
+      });
+    }
 
-  initAdmin();
-</script>
+    initAdmin();
+  </script>
 </body>
+
 </html>
