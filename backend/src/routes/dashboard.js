@@ -41,7 +41,7 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
     );
 
     const [recentInterests] = await db.query(
-      `SELECT u.name AS investor, u.id AS investor_id, p.name AS portfolio
+      `SELECT u.name AS investor, u.id AS investor_id, p.id AS portfolio_id, p.name AS portfolio
        FROM investor_interests ii
        JOIN users u ON u.id = ii.investor_id
        JOIN portfolios p ON p.id = ii.portfolio_id

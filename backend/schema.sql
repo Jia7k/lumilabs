@@ -1,8 +1,8 @@
 -- Lumi5 Labs Database Schema
--- Run this file to initialize the database: mysql -u root -p lumilabs < schema.sql
+-- Run this file to initialize the database: mysql -u root -p lumi5_labs < schema.sql
 
-CREATE DATABASE IF NOT EXISTS lumilabs;
-USE lumilabs;
+CREATE DATABASE IF NOT EXISTS lumi5_labs;
+USE lumi5_labs;
 
 -- Users table (all roles share this table)
 CREATE TABLE IF NOT EXISTS users (

@@ -59,7 +59,7 @@ router.delete('/:portfolioId', authenticate, requireRole('investor'), async (req
 router.get('/my', authenticate, requireRole('investor'), async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT p.id, p.name, p.sector, p.readiness_score, p.funding_goal, u.name AS owner_name, ii.created_at AS interested_at
+      `SELECT p.id, p.owner_id, p.name, p.sector, p.readiness_score, p.funding_goal, u.name AS owner_name, ii.created_at AS interested_at
        FROM investor_interests ii
        JOIN portfolios p ON p.id = ii.portfolio_id
        JOIN users u ON u.id = p.owner_id

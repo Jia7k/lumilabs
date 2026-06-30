@@ -39,7 +39,7 @@ router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res)
   try {
     const { sector, minScore } = req.query;
     let query = `
-      SELECT p.id, p.name, p.sector, p.description, p.funding_goal, p.readiness_score, p.created_at,
+      SELECT p.id, p.owner_id, p.name, p.sector, p.description, p.funding_goal, p.readiness_score, p.created_at,
         u.name AS owner_name,
         (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count
       FROM portfolios p
