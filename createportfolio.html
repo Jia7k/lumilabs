@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Create Business Portfolio</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body class="biz-list-page">
+
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <button class="nav-btn" onclick="window.location.href='businessownerdashboard.html'">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
+      </button>
+      <button class="nav-btn active">
+        <i class="ti ti-building-store"></i> My Businesses
+      </button>
+      <div class="nav-btn-wrap">
+        <button class="nav-btn">
+          <i class="ti ti-message"></i> Messages
+        </button>
+        <span class="nav-badge" id="nav-msg-badge" style="display:none;"></span>
+      </div>
+    </div>
+    <div class="nav-right">
+      <button class="icon-btn"><i class="ti ti-bell"></i></button>
+      <div class="user-chip">
+        <div class="avatar" id="user-avatar"></div>
+        <div class="user-info">
+          <div class="name" id="user-name"></div>
+          <div class="role" id="user-role"></div>
+        </div>
+        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="pf-header">
+      <div class="pf-header-left">
+        <button class="pf-back-btn" onclick="window.location.href='mybusinesses.html'">
+          <i class="ti ti-arrow-left"></i> Back
+        </button>
+        <div>
+          <h1 id="page-title">Create Business Portfolio</h1>
+          <p class="welcome-sub" id="page-sub">Build your startup profile to attract investors</p>
+        </div>
+      </div>
+      <div class="pf-header-actions">
+        <button class="btn btn-outline" onclick="submitForm('draft')">
+          <i class="ti ti-device-floppy"></i> Save as Draft
+        </button>
+        <button id="submit-btn" class="btn btn-primary" onclick="submitForm('pending')">
+          <i class="ti ti-send"></i> Submit for Review
+        </button>
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Company Information</div>
+        <div class="pf-section-sub">Tell us about your startup</div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Company Name <span class="required">*</span></label>
+          <input type="text" id="f-name" placeholder="Enter company name" />
+        </div>
+        <div class="form-group">
+          <label>Industry <span class="required">*</span></label>
+          <select id="f-sector">
+            <option value="" disabled selected>Select industry</option>
+            <option>Fintech</option>
+            <option>Healthtech</option>
+            <option>Edtech</option>
+            <option>E-commerce</option>
+            <option>AI / ML</option>
+            <option>SaaS</option>
+            <option>Logistics</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>MVP Status <span class="required">*</span></label>
+          <select id="f-mvp_status">
+            <option value="" disabled selected>Select MVP status</option>
+            <option>Idea</option>
+            <option>Prototype</option>
+            <option>Beta</option>
+            <option>Launched</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Funding Goal (USD) <span class="required">*</span></label>
+          <input type="number" id="f-funding_goal" placeholder="e.g., 500000" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="f-description" rows="4"
+          placeholder="Describe your company, product, and value proposition..."></textarea>
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Additional Details</div>
+        <div class="pf-section-sub">Help investors learn more about your team</div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Team Size</label>
+          <input type="number" id="f-team_size" placeholder="e.g., 5" />
+        </div>
+        <div class="form-group">
+          <label>Founded Year</label>
+          <input type="number" id="f-founded_year" placeholder="e.g., 2023" />
+        </div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="f-location" placeholder="e.g., San Francisco, CA" />
+        </div>
+        <div class="form-group">
+          <label>Website</label>
+          <input type="url" id="f-website" placeholder="https://example.com" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Supporting Documents</div>
+        <div class="pf-section-sub">Upload your pitch deck, financial documents, etc.</div>
+      </div>
+
+      <div class="pf-upload-zone" id="upload-zone" ondragover="event.preventDefault(); this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event)">
+        <i class="ti ti-upload pf-upload-icon"></i>
+        <p class="pf-upload-text">Drag and drop files here, or</p>
+        <button class="btn btn-outline" onclick="document.getElementById('file-input').click()">Browse Files</button>
+        <p class="pf-upload-hint">Accepted: PDF, PPT, DOCX • Max size: 10MB</p>
+        <input type="file" id="file-input" style="display:none" multiple accept=".pdf,.ppt,.pptx,.doc,.docx"
+          onchange="handleFiles(this.files)" />
+      </div>
+
+      <div id="file-list"></div>
+    </div>
+
+  </main>
+
+  <script src="js/createportfolio.js"></script>
+</body>
+
+</html>

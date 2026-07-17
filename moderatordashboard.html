@@ -17,7 +17,7 @@
     </a>
     <div class="nav-links">
       <div class="nav-btn-wrap">
-        <button class="nav-btn active"><i class="ti ti-shield-check"></i> Moderation Dashboard</button>
+        <button class="nav-btn active"><i class="ti ti-shield"></i> Moderation Dashboard</button>
         <span class="nav-badge" id="nav-pending-badge"></span>
       </div>
       <button class="nav-btn" onclick="window.location.href='audit-logs.html'">
@@ -31,7 +31,6 @@
           <div class="name" id="user-name"></div>
           <div class="role" id="user-role"></div>
         </div>
-        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
       </div>
     </div>
   </nav>
@@ -46,7 +45,7 @@
           <div class="stat-label">Pending Review</div>
           <div class="stat-value" id="stat-pending"></div>
         </div>
-        <div class="stat-icon icon-orange-tint"><i class="ti ti-clock"></i></div>
+        <div class="stat-icon icon-white-tint"><i class="ti ti-clock"></i></div>
       </div>
       <div class="stat-card">
         <div>
@@ -96,70 +95,24 @@
     </div>
   </main>
 
-  <script>
-    async function getAdminData() {
-      // Replace with actual API call
-      return {
-        user: { name: "Victor", role: "Administrator" },
-        pageDetails: { title: "Moderation Dashboard", subtitle: "Review and manage startup portfolios" },
-        stats: { pending: 1, approved: 7, rejected: 3, totalMatches: 2 },
-        queue: [
-          { name: "Happi", owner: "Beta", industry: "Healthtech", submittedDate: "Feb 13, 2026", submittedTime: "6:01 AM", status: "Pending Review", score: 80 }
-        ]
-      };
-    }
+  <!-- Review modal -->
+  <div class="modal-overlay" id="review-overlay">
+    <div class="modal-card" id="review-card"></div>
+  </div>
 
-    async function initAdmin() {
-      const data = await getAdminData();
+  <div class="reason-overlay" id="reason-overlay">
+    <div class="reason-card">
+      <h3>Reject Portfolio</h3>
+      <p>Please provide a reason for rejection. This feedback will be sent to the business owner.</p>
+      <textarea class="reason-textarea" id="reason-textarea" placeholder="e.g. Weak market traction"></textarea>
+      <div class="reason-footer">
+        <button class="btn-cancel-outline" id="reason-cancel-btn">Cancel</button>
+        <button class="btn-confirm-reject" id="reason-confirm-btn">Reject Portfolio</button>
+      </div>
+    </div>
+  </div>
 
-      document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
-      document.getElementById("user-name").innerText = data.user.name;
-      document.getElementById("user-role").innerText = data.user.role;
-
-      document.getElementById("page-title").innerText = data.pageDetails.title;
-      document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
-
-      document.getElementById("nav-pending-badge").innerText = data.stats.pending;
-      document.getElementById("stat-pending").innerText = data.stats.pending;
-      document.getElementById("stat-approved").innerText = data.stats.approved;
-      document.getElementById("stat-rejected").innerText = data.stats.rejected;
-      document.getElementById("stat-matches").innerText = data.stats.totalMatches;
-      document.getElementById("queue-badge").innerText = `${data.stats.pending} pending`;
-
-      const tbody = document.getElementById("queue-list");
-      tbody.innerHTML = "";
-      data.queue.forEach(item => {
-        tbody.innerHTML += `
-        <tr>
-          <td>
-            <div class="startup-cell">
-              <div class="startup-icon"><i class="ti ti-building"></i></div>
-              <div>
-                <div class="startup-name">${item.name}</div>
-                <div class="startup-owner">${item.owner}</div>
-              </div>
-            </div>
-          </td>
-          <td>${item.industry}</td>
-          <td>
-            <div>${item.submittedDate}</div>
-            <div style="color: var(--text-secondary); font-size: 12px;">${item.submittedTime}</div>
-          </td>
-          <td>
-            <div class="status-wrapper">
-              <span class="badge-yellow">${item.status}</span>
-              <i class="ti ti-alert-triangle" style="color: var(--amber-text)"></i>
-            </div>
-          </td>
-          <td><div class="score-circle">${item.score}</div></td>
-          <td><button class="btn-review"><i class="ti ti-eye"></i> Review</button></td>
-        </tr>
-      `;
-      });
-    }
-
-    initAdmin();
-  </script>
+  <script src="js/moderatordashboard.js"></script>
 </body>
 
 </html>
