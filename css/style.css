@@ -575,6 +575,22 @@ body.audit .table td {
   margin: 0 auto;
 }
 
+.roles-footer-note {
+  margin-top: 32px;
+  font-size: 14px;
+  color: #666;
+}
+
+.roles-footer-note a {
+  color: #4f46e5;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.roles-footer-note a:hover {
+  text-decoration: underline;
+}
+
 .role-card {
   background: #ffffff;
   border-radius: 14px;
@@ -663,6 +679,8 @@ body.audit .table td {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  text-decoration: none;
+  box-sizing: border-box;
   transition: opacity 0.15s, transform 0.1s;
 }
 

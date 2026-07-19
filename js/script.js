@@ -1,43 +1,10 @@
-/* ==========================================================
-   Lumi5 Labs — shared front-end script
-   Handles: quick-demo role select (index.html),
-            sign up (signup.html), sign in (signin.html)
-   ========================================================== */
+const API_BASE = window.LUMILABS_API_BASE || (() => {
+  const { protocol, hostname } = window.location;
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+  return isLocal ? 'http://localhost:3000/api' : `${protocol}//${hostname}:3000/api`;
+})();
 
-// Same pattern used in js/messages.js — override with
-// window.LUMILABS_API_BASE if the backend runs elsewhere.
-const API_BASE = window.LUMILABS_API_BASE || 'http://localhost:3000/api';
 
-/* ----------------------------------------------------------
-   Quick demo (existing prototype shortcut on index.html)
-   ---------------------------------------------------------- */
-function selectRole(role) {
-  const users = {
-    beta: { key: 'beta', name: 'Beta', role: 'business_owner' },
-    alpha: { key: 'alpha', name: 'Alpha', role: 'investor' },
-    victor: { key: 'victor', name: 'Victor', role: 'admin' },
-  };
-
-  const destinations = {
-    beta:   'businessownerdashboard.html',
-    alpha:  'investordashboard.html',
-    victor: 'moderatordashboard.html',
-  };
-
-  const dest = destinations[role];
-  if (dest) {
-    localStorage.setItem('lumilabsSelectedUser', JSON.stringify(users[role]));
-    window.location.href = dest;
-  }
-}
-
-/* ----------------------------------------------------------
-   Shared auth helpers
-   ---------------------------------------------------------- */
-
-// Maps a backend role to where a signed-in user should land,
-// and to the "key" used throughout the rest of the prototype
-// (see PROTOTYPE_USERS in businessownerdashboard.html etc).
 const ROLE_MAP = {
   business_owner: { key: 'beta',   dashboard: 'businessownerdashboard.html' },
   investor:       { key: 'alpha',  dashboard: 'investordashboard.html' },
@@ -117,13 +84,6 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-/* ----------------------------------------------------------
-   SIGN UP PAGE
-   Business owners get a real account then are handed off to
-   createportfolio.html to build their startup profile (which
-   already covers Company Info / MVP status / documents, etc).
-   Investors just need the basic account fields.
-   ---------------------------------------------------------- */
 function initSignupPage() {
   const form = document.getElementById('signup-form');
   if (!form) return;
@@ -151,8 +111,12 @@ function initSignupPage() {
     btn.addEventListener('click', () => setRole(btn.dataset.role));
   });
 
-  // Default to Business Owner.
-  setRole(roleInput.value || 'business_owner');
+  // Pre-select based on ?role=business_owner|investor in the URL
+  // (used by the homepage's "Sign Up as..." buttons); otherwise
+  // default to Business Owner.
+  const params = new URLSearchParams(window.location.search);
+  const requestedRole = params.get('role');
+  setRole(requestedRole === 'investor' ? 'investor' : 'business_owner');
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -221,9 +185,6 @@ function initSignupPage() {
   });
 }
 
-/* ----------------------------------------------------------
-   SIGN IN PAGE
-   ---------------------------------------------------------- */
 function initSigninPage() {
   const form = document.getElementById('signin-form');
   if (!form) return;
