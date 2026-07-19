@@ -1683,8 +1683,8 @@ body.audit .card {
   font-size: 16px;
 }
 
-.role-toggle-btn .rt-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-.role-toggle-btn .rt-sub   { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+.role-toggle-btn .rt-title { display: block; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.role-toggle-btn .rt-sub   { display: block; font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 
 .role-toggle-btn.active {
   border-color: var(--primary-blue);
