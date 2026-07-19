@@ -1,6 +1,3 @@
-const user = JSON.parse(localStorage.getItem("lumilabsSelectedUser"));
-
-// Check if editing
 const params = new URLSearchParams(window.location.search);
 const editId = params.get("id") ? parseInt(params.get("id")) : null;
 const statusLabel = {
@@ -10,15 +7,7 @@ const statusLabel = {
   rejected: "Rejected"
 };
 let originalPortfolio = null;
-
-// LocalStorage helpers
-function getPortfolios() {
-  return JSON.parse(localStorage.getItem("portfolios")) || [];
-}
-
-function savePortfolios(portfolios) {
-  localStorage.setItem("portfolios", JSON.stringify(portfolios));
-}
+let currentStatus = null; // status of the portfolio being edited (null if creating new)
 
 function hasChanges() {
   if (!originalPortfolio) return false;
@@ -46,17 +35,35 @@ function updateSubmitBtn(status) {
   }
 }
 
-function init() {
-  // Nav user info
+async function init() {
+  let user;
+  try {
+    user = await API.getCurrentUser();
+  } catch (err) {
+    alert("Your session has expired or is invalid. Please log in again.");
+    return;
+  }
+
   document.getElementById("user-avatar").innerText = user.name[0];
   document.getElementById("user-name").innerText = user.name;
-  document.getElementById("user-role").innerText = user.role.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase());
+  document.getElementById("user-role").innerText = user.role
+    .replace("_", " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
 
   if (editId) {
-    // Edit mode
+    // EDIT MODE
     document.getElementById("page-title").innerText = "Edit Business Portfolio";
-    const p = getPortfolios().find(p => p.id === editId);
-    if (!p) { alert("Portfolio not found."); window.location.href = "mybusinesses.html"; return; }
+
+    let p;
+    try {
+      p = await API.getPortfolio(editId);
+    } catch (err) {
+      alert("Portfolio not found: " + err.message);
+      window.location.href = "mybusinesses.html";
+      return;
+    }
+
+    currentStatus = p.status;
 
     document.getElementById("page-sub").innerHTML = `
       <span class="badge ${p.status}">${statusLabel[p.status]}</span> · Readiness ${p.readiness_score}/100
@@ -85,80 +92,88 @@ function init() {
     };
 
     document.querySelectorAll("input, textarea, select").forEach(el => {
-      el.addEventListener("input", () => {
-        updateSubmitBtn(p.status);
-      });
-
-      el.addEventListener("change", () => {
-        updateSubmitBtn(p.status);
-      });
+      el.addEventListener("input", () => updateSubmitBtn(p.status));
+      el.addEventListener("change", () => updateSubmitBtn(p.status));
     });
 
     updateSubmitBtn(p.status);
   }
 }
 
-// Save/Submit
-function submitForm(status) {
+function parseIntOrNull(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const n = parseInt(value, 10);
+  return isNaN(n) ? null : n;
+}
+
+// SAVE/SUBMIT
+async function submitForm(status) {
   const name = document.getElementById("f-name").value.trim();
   const sector = document.getElementById("f-sector").value.trim();
-  const mvp = document.getElementById("f-mvp_status").value.trim();
+  const mvp_status = document.getElementById("f-mvp_status").value.trim();
   const goal = document.getElementById("f-funding_goal").value;
 
-  if (!name || !sector || !mvp || !goal) {
+  if (!name || !sector || !mvp_status || !goal) {
     alert("Please fill in all required fields (Company Name, Industry, MVP Status, Funding Goal).");
     return;
   }
 
-  const portfolios = getPortfolios();
-  const now = new Date().toISOString();
-
-  if (editId) {
-    // Update
-    const idx = portfolios.findIndex(p => p.id === editId);
-    portfolios[idx] = {
-      ...portfolios[idx],
-      name,
-      sector,
-      mvp_status: mvp,
-      funding_goal: parseFloat(goal),
-      description: document.getElementById("f-description").value.trim(),
-      team_size: parseInt(document.getElementById("f-team_size").value) || null,
-      founded_year: parseInt(document.getElementById("f-founded_year").value) || null,
-      location: document.getElementById("f-location").value.trim(),
-      website: document.getElementById("f-website").value.trim(),
-      status: status === "pending" ? "pending" : (hasChanges() ? status : portfolios[idx].status),
-      submitted_at: status === "pending" ? now : portfolios[idx].submitted_at,
-      updated_at: now
-    };
-  } else {
-    // Create
-    portfolios.push({
-      id: Date.now(),
-      owner_id: user.key,
-      name,
-      sector,
-      mvp_status: mvp,
-      funding_goal: parseFloat(goal),
-      description: document.getElementById("f-description").value.trim(),
-      team_size: parseInt(document.getElementById("f-team_size").value) || null,
-      founded_year: parseInt(document.getElementById("f-founded_year").value) || null,
-      location: document.getElementById("f-location").value.trim(),
-      website: document.getElementById("f-website").value.trim(),
-      readiness_score: 0,
-      status,
-      rejection_reason: null,
-      submitted_at: status === "pending" ? now : null,
-      created_at: now,
-      updated_at: now
-    });
+  const funding_goal = parseFloat(goal);
+  if (isNaN(funding_goal) || funding_goal < 0) {
+    alert("Funding Goal must be a positive number.");
+    return;
+  }
+ 
+  const team_size = parseIntOrNull(document.getElementById("f-team_size").value);
+  if (team_size !== null && team_size < 0) {
+    alert("Team Size can't be negative.");
+    return;
+  }
+ 
+  const founded_year = parseIntOrNull(document.getElementById("f-founded_year").value);
+  if (founded_year !== null && (founded_year < 1900 || founded_year > 2100)) {
+    alert("Founded Year must be between 1900 and 2100.");
+    return;
   }
 
-  savePortfolios(portfolios);
-  window.location.href = "mybusinesses.html";
+  const payload = {
+    name,
+    sector,
+    mvp_status,
+    funding_goal: parseFloat(goal),
+    description: document.getElementById("f-description").value.trim(),
+    team_size,
+    founded_year,
+    location: document.getElementById("f-location").value.trim(),
+    website: document.getElementById("f-website").value.trim()
+  };
+
+  try {
+    let portfolioId = editId;
+
+    if (editId) {
+      // UPDATE
+      if (!originalPortfolio || hasChanges() || status === "pending") {
+        await API.updatePortfolio(editId, payload);
+      }
+    } else {
+      // CREATE
+      const created = await API.createPortfolio(payload);
+      portfolioId = created.id;
+    }
+
+    // Move to pending review
+    if (status === "pending") {
+      await API.submitPortfolio(portfolioId);
+    }
+
+    window.location.href = "mybusinesses.html";
+  } catch (err) {
+    alert("Couldn't save portfolio: " + err.message);
+  }
 }
 
-// File Upload (UI only for now — wire to DB later)
+// FILE UPLOAD (UI only for now — wire to DB later)
 let uploadedFiles = [];
 
 function handleFiles(files) {

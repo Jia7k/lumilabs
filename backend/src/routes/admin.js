@@ -40,8 +40,8 @@ router.put('/portfolios/:id/approve', authenticate, requireRole('admin'), async 
     );
 
     await db.query(
-      `INSERT INTO audit_logs (admin_id, action, portfolio_id, notes) VALUES (?, 'approved', ?, ?)`,
-      [req.user.id, req.params.id, req.body.notes || null]
+      `INSERT INTO audit_logs (admin_id, action, portfolio_id, reason) VALUES (?, 'approved', ?, ?)`,
+      [req.user.id, req.params.id, null]
     );
 
     // Notify business owner
@@ -88,7 +88,7 @@ router.put(
       );
 
       await db.query(
-        `INSERT INTO audit_logs (admin_id, action, portfolio_id, notes) VALUES (?, 'rejected', ?, ?)`,
+        `INSERT INTO audit_logs (admin_id, action, portfolio_id, reason) VALUES (?, 'rejected', ?, ?)`,
         [req.user.id, req.params.id, req.body.reason]
       );
 
@@ -105,55 +105,6 @@ router.put(
       );
 
       res.json({ message: 'Portfolio rejected' });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-);
-
-// PUT /api/admin/portfolios/:id/request-changes
-router.put(
-  '/portfolios/:id/request-changes',
-  authenticate,
-  requireRole('admin'),
-  [body('reason').trim().notEmpty()],
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    try {
-      const [rows] = await db.query(
-        "SELECT * FROM portfolios WHERE id = ? AND status = 'pending'",
-        [req.params.id]
-      );
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Pending portfolio not found' });
-      }
-
-      // Revert to draft so owner can edit and resubmit
-      await db.query(
-        "UPDATE portfolios SET status='draft', rejection_reason=? WHERE id=?",
-        [req.body.reason, req.params.id]
-      );
-
-      await db.query(
-        `INSERT INTO audit_logs (admin_id, action, portfolio_id, notes) VALUES (?, 'requested_changes', ?, ?)`,
-        [req.user.id, req.params.id, req.body.reason]
-      );
-
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id)
-         VALUES (?, 'portfolio_needs_changes', 'Portfolio Needs Changes', ?, ?, ?)`,
-        [
-          rows[0].owner_id,
-          `Your portfolio "${rows[0].name}" requires changes: ${req.body.reason}`,
-          req.params.id,
-          req.user.id,
-        ]
-      );
-
-      res.json({ message: 'Changes requested' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });

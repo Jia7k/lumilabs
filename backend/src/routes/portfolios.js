@@ -112,20 +112,40 @@ router.post(
   [
     body('name').trim().notEmpty(),
     body('sector').trim().notEmpty(),
+    body('mvp_status').isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
     body('description').optional().trim(),
     body('funding_goal').optional().isFloat({ min: 0 }),
+    body('team_size').optional().isInt({ min: 0 }),
+    body('founded_year').optional().isInt({ min: 1900, max: 2100 }),
+    body('location').optional().trim(),
+    body('website').optional().trim(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const { name, sector, description = '', funding_goal = 0 } = req.body;
+    const {
+      name,
+      sector,
+      mvp_status,
+      description = '',
+      funding_goal = 0,
+      team_size = null,
+      founded_year = null,
+      location = null,
+      website = null,
+    } = req.body;
     const readiness_score = calcReadinessScore({ name, sector, description, funding_goal }, 0);
 
     try {
       const [result] = await db.query(
-        'INSERT INTO portfolios (owner_id, name, sector, description, funding_goal, readiness_score, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [req.user.id, name, sector, description, funding_goal, readiness_score, 'draft']
+        `INSERT INTO portfolios
+          (owner_id, name, sector, mvp_status, description, funding_goal, team_size, founded_year, location, website, readiness_score, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.user.id, name, sector, mvp_status, description, funding_goal,
+          team_size, founded_year, location, website, readiness_score, 'draft',
+        ]
       );
       const [rows] = await db.query('SELECT * FROM portfolios WHERE id = ?', [result.insertId]);
       res.status(201).json(rows[0]);
@@ -136,7 +156,7 @@ router.post(
   }
 );
 
-// PUT /api/portfolios/:id  — update portfolio (owner, only draft or rejected)
+// PUT /api/portfolios/:id  — update portfolio (draft, rejected, or approved)
 router.put(
   '/:id',
   authenticate,
@@ -144,8 +164,13 @@ router.put(
   [
     body('name').optional().trim().notEmpty(),
     body('sector').optional().trim().notEmpty(),
+    body('mvp_status').optional().isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
     body('description').optional().trim(),
     body('funding_goal').optional().isFloat({ min: 0 }),
+    body('team_size').optional().isInt({ min: 0 }),
+    body('founded_year').optional().isInt({ min: 1900, max: 2100 }),
+    body('location').optional().trim(),
+    body('website').optional().trim(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -160,15 +185,21 @@ router.put(
       if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
       const portfolio = rows[0];
 
-      if (!['draft', 'rejected'].includes(portfolio.status)) {
-        return res.status(400).json({ error: 'Only draft or rejected portfolios can be edited' });
+      // Can edit in draft, rejected, or approved
+      if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
+        return res.status(400).json({ error: 'This portfolio cannot be edited right now' });
       }
 
       const updated = {
         name: req.body.name ?? portfolio.name,
         sector: req.body.sector ?? portfolio.sector,
+        mvp_status: req.body.mvp_status ?? portfolio.mvp_status,
         description: req.body.description ?? portfolio.description,
         funding_goal: req.body.funding_goal ?? portfolio.funding_goal,
+        team_size: req.body.team_size ?? portfolio.team_size,
+        founded_year: req.body.founded_year ?? portfolio.founded_year,
+        location: req.body.location ?? portfolio.location,
+        website: req.body.website ?? portfolio.website,
       };
 
       const [docCount] = await db.query(
@@ -178,8 +209,14 @@ router.put(
       const readiness_score = calcReadinessScore(updated, docCount[0].c);
 
       await db.query(
-        'UPDATE portfolios SET name=?, sector=?, description=?, funding_goal=?, readiness_score=?, rejection_reason=NULL WHERE id=?',
-        [updated.name, updated.sector, updated.description, updated.funding_goal, readiness_score, req.params.id]
+        `UPDATE portfolios
+         SET name=?, sector=?, mvp_status=?, description=?, funding_goal=?, team_size=?, founded_year=?, location=?, website=?, readiness_score=?
+         WHERE id=?`,
+        [
+          updated.name, updated.sector, updated.mvp_status, updated.description, updated.funding_goal,
+          updated.team_size, updated.founded_year, updated.location, updated.website,
+          readiness_score, req.params.id,
+        ]
       );
 
       const [fresh] = await db.query('SELECT * FROM portfolios WHERE id = ?', [req.params.id]);
@@ -191,7 +228,7 @@ router.put(
   }
 );
 
-// POST /api/portfolios/:id/submit  — submit draft for admin review
+// POST /api/portfolios/:id/submit  — submit for admin review
 router.post('/:id/submit', authenticate, requireRole('business_owner'), async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -202,8 +239,8 @@ router.post('/:id/submit', authenticate, requireRole('business_owner'), async (r
     if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
     const portfolio = rows[0];
 
-    if (!['draft', 'rejected'].includes(portfolio.status)) {
-      return res.status(400).json({ error: 'Portfolio is already submitted or approved' });
+    if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
+      return res.status(400).json({ error: 'Portfolio is already pending review' });
     }
 
     await db.query(
@@ -235,16 +272,16 @@ router.post('/:id/submit', authenticate, requireRole('business_owner'), async (r
   }
 });
 
-// DELETE /api/portfolios/:id  — delete own draft portfolio
+// DELETE /api/portfolios/:id  — delete own portfolio (any status)
 router.delete('/:id', authenticate, requireRole('business_owner'), async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT * FROM portfolios WHERE id = ? AND owner_id = ? AND status = 'draft'",
+      'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
       [req.params.id, req.user.id]
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Draft portfolio not found' });
+      return res.status(404).json({ error: 'Portfolio not found' });
     }
 
     await db.query('DELETE FROM portfolios WHERE id = ?', [req.params.id]);

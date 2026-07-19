@@ -28,10 +28,10 @@
 
         <div class="nav-right">
             <div class="user-chip">
-                <div class="avatar" id="user-avatar">V</div>
+                <div class="avatar" id="user-avatar"></div>
                 <div class="user-info">
-                    <div class="name" id="user-name">Victor</div>
-                    <div class="role" id="user-role">Administrator</div>
+                    <div class="name" id="user-name"></div>
+                    <div class="role" id="user-role"></div>
                 </div>
             </div>
         </div>
@@ -52,7 +52,7 @@
             <div class="stat-card">
                 <div>
                     <div class="stat-label">Total Actions</div>
-                    <div class="stat-value">10</div>
+                    <div class="stat-value" id="stat-total">—</div>
                 </div>
                 <div class="stat-icon icon-purple">
                     <i class="ti ti-shield"></i>
@@ -62,7 +62,7 @@
             <div class="stat-card">
                 <div>
                     <div class="stat-label">Approved</div>
-                    <div class="stat-value" id="stat-approved">7</div>
+                    <div class="stat-value" id="stat-approved">—</div>
                 </div>
                 <div class="stat-icon icon-green">
                     <i class="ti ti-check"></i>
@@ -72,7 +72,7 @@
             <div class="stat-card">
                 <div>
                     <div class="stat-label">Rejected</div>
-                    <div class="stat-value" id="stat-rejected">3</div>
+                    <div class="stat-value" id="stat-rejected">—</div>
                 </div>
                 <div class="stat-icon icon-red">
                     <i class="ti ti-x"></i>
@@ -99,74 +99,15 @@
                     </tr>
                 </thead>
 
-                <tbody>
-                    <tr>
-                        <td>
-                            <div>
-                                <div style="font-weight:600;">Jul 08, 2026</div>
-                                <div style="font-size:12px;color:#6B7280;">10:42 AM</div>
-                            </div>
-                        </td>
-
-                        <td>
-                            <div style="display:flex;align-items:center;gap:10px;">
-                                <div
-                                    style="width:32px;height:32px;border-radius:50%;background:#8B5CF6;color:white;display:flex;align-items:center;justify-content:center;font-weight:600;">
-                                    V
-                                </div>
-                                Victor
-                            </div>
-                        </td>
-
-                        <td>
-                            <span
-                                style="background:#EAF3DE;color:#3B6D11;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;">
-                                Approved
-                            </span>
-                        </td>
-
-                        <td style="font-weight:600;">X3</td>
-
-                        <td style="color:#6B7280;font-size:13px;">
-                            -
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <td>
-                            <div>
-                                <div style="font-weight:600;">Jun 20, 2026</div>
-                                <div style="font-size:12px;color:#6B7280;">09:15 AM</div>
-                            </div>
-                        </td>
-
-                        <td>
-                            <div style="display:flex;align-items:center;gap:10px;">
-                                <div
-                                    style="width:32px;height:32px;border-radius:50%;background:#8B5CF6;color:white;display:flex;align-items:center;justify-content:center;font-weight:600;">
-                                    V
-                                </div>
-                                Victor
-                            </div>
-                        </td>
-
-                        <td>
-                            <span
-                                style="background:#FCEBEB;color:#A32D2D;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;">
-                                Rejected
-                            </span>
-                        </td>
-
-                        <td style="font-weight:600;">Fint</td>
-
-                        <td style="color:#6B7280;font-size:13px;">
-                            Needs stronger market validation
-                        </td>
-                    </tr>
+                <tbody id="audit-tbody">
+                    <!-- Rows are rendered by audit-logs.js -->
                 </tbody>
             </table>
         </div>
     </main>
+
+    <script src="js/api.js"></script>
+    <script src="js/audit-logs.js"></script>
 </body>
 
 </html>
