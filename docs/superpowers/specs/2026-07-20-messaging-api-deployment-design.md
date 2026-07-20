@@ -6,7 +6,7 @@ The deployed messaging page requests same-origin endpoints under `/api`, but Apa
 
 ## Chosen approach
 
-Install the supported Ubuntu Node.js and npm packages, add a messaging-only Express entry point, and run it as an unprivileged `systemd` service bound to `127.0.0.1:3001`. Reverse-proxy only `/api/messages` from Apache to that service. Keep MySQL bound to localhost and keep port 3001 private.
+Install the official Node.js 24.18.0 LTS Linux x64 runtime under `/opt/lumilabs-messaging`, add a messaging-only Express entry point, and run it as an unprivileged `systemd` service bound to `127.0.0.1:3001`. Reverse-proxy only `/api/messages` from Apache to that service. Keep MySQL bound to localhost and keep port 3001 private.
 
 The deployed frontend and backend messaging files match the repository byte-for-byte, and the existing SQL returns the seeded Alpha/Beta conversation. The only application file added will be `backend/messages-server.js`, whose sole responsibility is mounting the existing messaging router. Existing dashboards, authentication routes, database schema, portfolios, interests, notifications, shared styling, and unrelated backend files will not be changed.
 
@@ -30,11 +30,10 @@ The `lumilabs-messaging` service will run as the existing `user` account with wo
 
 - Add `backend/messages-server.js` as the messaging-only process entry point.
 - Add a messaging smoke test under `backend/test/`.
+- Add the checksum-verified Node.js runtime under `/opt/lumilabs-messaging`; do not install or replace a system-wide Node.js package.
 - Add `/etc/systemd/system/lumilabs-messaging.service`, which starts only the messaging process.
 - Modify `/etc/apache2/sites-available/000-default.conf` only to add the two `/api/messages` proxy directives.
 - Do not modify any other project or application file.
-
-Installing the missing Node.js runtime necessarily changes operating-system package files; it does not alter unrelated LumiLabs source code.
 
 ## Error handling and security
 
