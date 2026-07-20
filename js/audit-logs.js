@@ -84,7 +84,7 @@ async function renderAuditLogs() {
         <td style="font-weight:600;">${escapeHtml(log.portfolio_name)}</td>
 
         <td style="color:#6B7280;font-size:13px;">
-          ${log.notes ? escapeHtml(log.notes) : "-"}
+          ${log.reason ? escapeHtml(log.reason) : "-"}
         </td>
       </tr>
     `;

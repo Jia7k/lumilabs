@@ -118,6 +118,7 @@ function openReviewModal(id) {
       </div>
     </div>
 
+    <div class="modal-section-label">Company</div>
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Industry</div>
@@ -132,10 +133,6 @@ function openReviewModal(id) {
         <div class="modal-field-value">${formatFunding(p.funding_goal)}</div>
       </div>
       <div>
-        <div class="modal-field-label">Team Size</div>
-        <div class="modal-field-value">${p.team_size ?? "—"}</div>
-      </div>
-      <div>
         <div class="modal-field-label">Location</div>
         <div class="modal-field-value">${p.location ? escapeHtml(p.location) : "—"}</div>
       </div>
@@ -145,7 +142,63 @@ function openReviewModal(id) {
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Description</div>
-        <div class="modal-field-value" style="font-weight:400;">${escapeHtml(p.description)}</div>
+        <div class="modal-field-value" style="font-weight:400;">${p.description ? escapeHtml(p.description) : "—"}</div>
+      </div>
+    </div>
+
+    <div class="modal-section-label">Team <span class="modal-section-pts">25 pts</span></div>
+    <div class="modal-fields-grid">
+      <div>
+        <div class="modal-field-label">Team Size</div>
+        <div class="modal-field-value">${p.team_size ?? "—"}</div>
+      </div>
+      <div>
+        <div class="modal-field-label">Founded Year</div>
+        <div class="modal-field-value">${p.founded_year ?? "—"}</div>
+      </div>
+      <div class="modal-field-full">
+        <div class="modal-field-label">Advisors / Notable Members</div>
+        <div class="modal-field-value" style="font-weight:400;">${p.advisor_names ? escapeHtml(p.advisor_names) : "—"}</div>
+      </div>
+    </div>
+
+    <div class="modal-section-label">Traction <span class="modal-section-pts">25 pts</span></div>
+    <div class="modal-fields-grid">
+      <div>
+        <div class="modal-field-label">Monthly Revenue</div>
+        <div class="modal-field-value">${p.monthly_revenue != null ? formatFunding(p.monthly_revenue) : "—"}</div>
+      </div>
+      <div>
+        <div class="modal-field-label">Users / Customers</div>
+        <div class="modal-field-value">${p.user_count != null ? p.user_count.toLocaleString() : "—"}</div>
+      </div>
+      <div>
+        <div class="modal-field-label">MoM Growth</div>
+        <div class="modal-field-value">${p.growth_rate != null ? p.growth_rate + "%" : "—"}</div>
+      </div>
+    </div>
+
+    <div class="modal-section-label">Market <span class="modal-section-pts">20 pts</span></div>
+    <div class="modal-fields-grid">
+      <div class="modal-field-full">
+        <div class="modal-field-label">Target Market Size</div>
+        <div class="modal-field-value" style="font-weight:400;">${p.market_size ? escapeHtml(p.market_size) : "—"}</div>
+      </div>
+      <div class="modal-field-full">
+        <div class="modal-field-label">Competitor Analysis</div>
+        <div class="modal-field-value" style="font-weight:400;">${p.competitor_analysis ? escapeHtml(p.competitor_analysis) : "—"}</div>
+      </div>
+    </div>
+
+    <div class="modal-section-label">Financials <span class="modal-section-pts">15 pts</span></div>
+    <div class="modal-fields-grid">
+      <div>
+        <div class="modal-field-label">Monthly Burn Rate</div>
+        <div class="modal-field-value">${p.burn_rate != null ? formatFunding(p.burn_rate) : "—"}</div>
+      </div>
+      <div>
+        <div class="modal-field-label">Runway</div>
+        <div class="modal-field-value">${p.runway_months != null ? p.runway_months + " months" : "—"}</div>
       </div>
     </div>
 

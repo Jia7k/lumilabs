@@ -63,6 +63,9 @@ const API = {
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
 
+  // Business owner dashboard
+  getBusinessOwnerDashboard: () => apiFetch("/dashboard/business-owner"),
+
   // Investor
   getInvestorDashboard: () => apiFetch("/dashboard/investor"),
   getRecommendations: () => apiFetch("/recommendations"),

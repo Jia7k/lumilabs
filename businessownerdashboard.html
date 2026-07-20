@@ -39,14 +39,9 @@
           <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
         </button>
         <div class="role-dropdown" role="menu">
-          <button class="role-option active" type="button" onclick="switchRole('beta')" role="menuitem">
-            <span class="role-option-avatar blue">B</span>
-            <span class="role-option-name">Beta</span>
-            <i class="ti ti-check role-check"></i>
-          </button>
-          <button class="role-option" type="button" onclick="switchRole('alpha')" role="menuitem">
-            <span class="role-option-avatar green">A</span>
-            <span class="role-option-name">Alpha</span>
+          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+            <span class="role-option-avatar" style="background:#EF4444;"><i class="ti ti-logout" style="font-size:14px;"></i></span>
+            <span class="role-option-name">Sign Out</span>
           </button>
         </div>
       </div>
@@ -136,42 +131,56 @@
     </div>
   </main>
 
+  <script src="js/api.js"></script>
   <script>
-    async function getBusinessData() {
-      return {
-        user: { name: "Beta", role: "Business Owner" },
-        pageDetails: { title: "Welcome back, Beta", subtitle: "Manage your startup portfolio and connect with investors" },
-        portfolios: { total: 11, approved: 7, pending: 1, draft: 0 },
-        investorInterests: 3,
-        messages: { total: 3, unread: 1 },
-        avgReadiness: 65,
-        recentPortfolios: [
-          { name: "X3", status: "approved", sector: "Fintech", readiness: 85 },
-          { name: "Happi", status: "pending", sector: "Healthtech", readiness: 80 },
-          { name: "Fint", status: "rejected", sector: "Fintech", readiness: 45 },
-        ],
-        interests: [
-          { investor_id: 2, investor: "Alpha", portfolio_id: 1, portfolio: "X3", message: "Interested in X3" },
-          { investor_id: 4, investor: "Mira Chen", portfolio_id: 2, portfolio: "Happi", message: "Interested in Happi" },
-          { investor_id: 2, investor: "Alpha", portfolio_id: 3, portfolio: "Fint", message: "Interested in Fint" }
-        ],
-        notifications: [
-          { title: "New Message", body: "Alpha sent you a message about X3" },
-          { title: "Portfolio Needs Changes", body: 'Your portfolio "abc" requires changes: upload more documents pls' },
-          { title: "New Message", body: "Alpha sent you a message about X3" },
-          { title: "New Investor Interest!", body: "Alpha is interested in X3" }
-        ]
-      };
+    const statusLabel = { approved: "Approved", pending: "Pending Review", rejected: "Rejected", draft: "Draft" };
+
+    function signOut() {
+      localStorage.removeItem("lumilabsToken");
+      window.location.href = "signin.html";
     }
 
-    async function initBusiness() {
-      const data = await getBusinessData();
+    function openMessageThread(partnerId, partnerName, portfolioId, portfolioName) {
+      const params = new URLSearchParams({ partnerId, partnerName, partnerRole: "investor", portfolioId, portfolioName });
+      window.location.href = `messages.html?${params.toString()}`;
+    }
 
-      document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
-      document.getElementById("user-name").innerText = data.user.name;
-      document.getElementById("user-role").innerText = data.user.role;
-      document.getElementById("page-title").innerText = data.pageDetails.title;
-      document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
+    function initRoleMenu() {
+      const menu = document.getElementById("role-menu");
+      const button = document.getElementById("role-menu-button");
+      button.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.classList.toggle("open");
+      });
+      document.addEventListener("click", () => menu.classList.remove("open"));
+    }
+
+    async function init() {
+      let user;
+      try {
+        user = await API.getCurrentUser();
+      } catch {
+        window.location.href = "signin.html";
+        return;
+      }
+      if (user.role !== "business_owner") {
+        window.location.href = "signin.html";
+        return;
+      }
+
+      document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
+      document.getElementById("user-name").innerText = user.name;
+      document.getElementById("user-role").innerText = "Business Owner";
+      document.getElementById("page-title").innerText = `Welcome back, ${user.name}`;
+      document.getElementById("page-subtitle").innerText = "Manage your startup portfolio and connect with investors";
+
+      let data;
+      try {
+        data = await API.getBusinessOwnerDashboard();
+      } catch (err) {
+        alert("Could not load dashboard: " + err.message);
+        return;
+      }
 
       if (data.messages.unread > 0) {
         const badge = document.getElementById("nav-msg-badge");
@@ -190,101 +199,42 @@
       document.getElementById("count-pending").innerText = data.portfolios.pending;
       document.getElementById("count-draft").innerText = data.portfolios.draft;
 
-      const statusMap = { approved: "Approved", pending: "Pending Review", rejected: "Rejected" };
-      document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.map(p => `
-      <div class="portfolio-item">
-        <div>
-          <div class="portfolio-name">${p.name} <span class="badge ${p.status}">${statusMap[p.status]}</span></div>
-          <div class="portfolio-meta">${p.sector} · Readiness: ${p.readiness}/100</div>
-        </div>
-        <button class="btn-ghost"><i class="ti ti-eye"></i></button>
-      </div>
-    `).join('');
+      document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.length
+        ? data.recentPortfolios.map(p => `
+            <div class="portfolio-item">
+              <div>
+                <div class="portfolio-name">${p.name} <span class="badge ${p.status}">${statusLabel[p.status] || p.status}</span></div>
+                <div class="portfolio-meta">${p.sector} · Readiness: ${p.readiness_score}/100</div>
+              </div>
+              <button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${p.id}'"><i class="ti ti-eye"></i></button>
+            </div>`).join("")
+        : `<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No portfolios yet. <a href="createportfolio.html">Create one</a>.</div>`;
 
-      document.getElementById("interests-list").innerHTML = data.interests.map(i => `
-      <div class="interest-item">
-        <div class="inv-avatar">${i.investor[0]}</div>
-        <div><div class="interest-name">${i.investor}</div><div class="interest-sub">${i.message}</div></div>
-        <button class="btn-ghost" onclick="openMessageThread(${i.investor_id}, '${escapeForUrl(i.investor)}', ${i.portfolio_id}, '${escapeForUrl(i.portfolio)}')"><i class="ti ti-message"></i></button>
-      </div>
-    `).join('');
+      document.getElementById("interests-list").innerHTML = data.recentInterests.length
+        ? data.recentInterests.map(i => `
+            <div class="interest-item">
+              <div class="inv-avatar">${i.investor[0].toUpperCase()}</div>
+              <div>
+                <div class="interest-name">${i.investor}</div>
+                <div class="interest-sub">Interested in ${i.portfolio}</div>
+              </div>
+              <button class="btn-ghost" onclick="openMessageThread(${i.investor_id},'${encodeURIComponent(i.investor)}',${i.portfolio_id},'${encodeURIComponent(i.portfolio)}')">
+                <i class="ti ti-message"></i>
+              </button>
+            </div>`).join("")
+        : `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No investor interests yet.</div>`;
 
-      document.getElementById("notifications-list").innerHTML = data.notifications.map(n => `
-      <div class="notif-item">
-        <div class="notif-title">${n.title}</div>
-        <div class="notif-body">${n.body}</div>
-      </div>
-    `).join('');
-    }
-
-    function escapeForUrl(value) {
-      return encodeURIComponent(value || "");
-    }
-
-    const PROTOTYPE_USERS = {
-      beta: { key: "beta", name: "Beta", role: "business_owner", dashboard: "businessownerdashboard.html" },
-      alpha: { key: "alpha", name: "Alpha", role: "investor", dashboard: "investordashboard.html" }
-    };
-
-    function setSelectedUser(key) {
-      const user = PROTOTYPE_USERS[key];
-      if (!user) return;
-      localStorage.setItem("lumilabsSelectedUser", JSON.stringify({
-        key: user.key,
-        name: user.name,
-        role: user.role
-      }));
-    }
-
-    function switchRole(key) {
-      const user = PROTOTYPE_USERS[key];
-      if (!user) return;
-      setSelectedUser(key);
-      window.location.href = user.dashboard;
-    }
-
-    function openMessagesTab() {
-      setSelectedUser("beta");
-      window.location.href = "messages.html";
-    }
-
-    function openMessageThread(partnerId, partnerName, portfolioId, portfolioName) {
-      setSelectedUser("beta");
-      const params = new URLSearchParams({
-        partnerId,
-        partnerName: decodeURIComponent(partnerName),
-        partnerRole: "investor",
-        portfolioId,
-        portfolioName: decodeURIComponent(portfolioName),
-      });
-      window.location.href = `messages.html?${params.toString()}`;
-    }
-
-    function initRoleMenu() {
-      const menu = document.getElementById("role-menu");
-      const button = document.getElementById("role-menu-button");
-
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const isOpen = menu.classList.toggle("open");
-        button.setAttribute("aria-expanded", String(isOpen));
-      });
-
-      document.addEventListener("click", () => {
-        menu.classList.remove("open");
-        button.setAttribute("aria-expanded", "false");
-      });
-
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-          menu.classList.remove("open");
-          button.setAttribute("aria-expanded", "false");
-        }
-      });
+      document.getElementById("notifications-list").innerHTML = data.notifications.length
+        ? data.notifications.map(n => `
+            <div class="notif-item">
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-body">${n.body}</div>
+            </div>`).join("")
+        : `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No notifications.</div>`;
     }
 
     initRoleMenu();
-    initBusiness();
+    init();
   </script>
 </body>
 
