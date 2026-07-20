@@ -12,6 +12,12 @@ function formatFunding(n) {
   return "$" + n;
 }
 
+function isScoreStale(p) {
+  return p.monthly_revenue == null && p.user_count == null && p.growth_rate == null &&
+    p.market_size == null && p.competitor_analysis == null && p.advisor_names == null &&
+    p.burn_rate == null && p.runway_months == null;
+}
+
 function formatSubmitted(iso) {
   if (!iso) return { date: "—", time: "" };
   const d = new Date(iso);
@@ -88,7 +94,12 @@ async function renderAdmin() {
             <i class="ti ti-alert-triangle" style="color: var(--amber-text)"></i>
           </div>
         </td>
-        <td><div class="score-circle" style="--score:${p.readiness_score};"><span>${p.readiness_score}</span></div></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="score-circle" style="--score:${p.readiness_score};"><span>${p.readiness_score}</span></div>
+            ${isScoreStale(p) ? `<i class="ti ti-alert-triangle" style="color:#F59E0B;font-size:15px;" title="Score may be outdated — new readiness fields are empty"></i>` : ""}
+          </div>
+        </td>
         <td><button class="btn-review" onclick="openReviewModal(${p.id})"><i class="ti ti-eye"></i> Review</button></td>
       </tr>
     `;
@@ -113,9 +124,14 @@ function openReviewModal(id) {
     <div class="modal-readiness">
       <div class="score-circle" style="--score:${p.readiness_score}; width:48px; height:48px; font-size:15px;"><span>${p.readiness_score}</span></div>
       <div>
-        <div class="readiness-label">Readiness</div>
+        <div class="readiness-label">Readiness <button class="score-info-btn" onclick="showScoreInfo()" title="How is this calculated?"><i class="ti ti-info-circle"></i></button></div>
         <div class="readiness-score">${p.readiness_score}/100</div>
       </div>
+      ${isScoreStale(p) ? `
+      <div class="score-stale-warning">
+        <i class="ti ti-alert-triangle"></i>
+        Score may be outdated — business owner hasn't filled in new readiness fields
+      </div>` : ""}
     </div>
 
     <div class="modal-section-label">Company</div>

@@ -96,7 +96,7 @@ async function render() {
               <div class="biz-info-value">${formatFunding(p.funding_goal)}</div>
             </div>
             <div class="biz-info-box">
-              <div class="biz-info-label">Readiness</div>
+              <div class="biz-info-label">Readiness <button class="score-info-btn" onclick="showScoreInfo()" title="How is this calculated?"><i class="ti ti-info-circle"></i></button></div>
               <div class="biz-info-value">${p.readiness_score}/100</div>
             </div>
             <div class="biz-info-box">

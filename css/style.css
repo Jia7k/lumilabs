@@ -1477,6 +1477,109 @@ body.audit .card {
   align-items: center;
   gap: 14px;
   margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.score-stale-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  color: #92400E;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-left: auto;
+}
+
+.score-info-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.score-info-btn:hover { color: var(--primary-green); }
+
+.score-info-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.score-info-overlay.open { display: flex; }
+
+.score-info-modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 560px;
+  padding: 28px 32px 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  margin: 16px;
+}
+
+.score-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.score-info-header h3 { font-size: 17px; font-weight: 700; }
+.score-info-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-secondary);
+  padding: 4px;
+}
+.score-info-close:hover { color: var(--text-primary); }
+
+.score-info-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.score-info-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.score-info-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: #F9FAFB;
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.score-info-table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid #F3F4F6;
+  vertical-align: top;
+  color: var(--text-primary);
+}
+.score-info-table td:nth-child(2) {
+  font-weight: 700;
+  color: var(--primary-green);
+  white-space: nowrap;
+}
+
+.score-info-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .readiness-label {

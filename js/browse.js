@@ -73,7 +73,7 @@ function renderGrid(portfolios) {
             <div class="meta-value">${formatFunding(p.funding_goal)}</div>
           </div>
           <div class="meta-box">
-            <div class="meta-label">Readiness</div>
+            <div class="meta-label">Readiness <button onclick="showScoreInfo()" title="How is this calculated?" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:14px;vertical-align:middle;padding:0 2px;line-height:1;">ℹ</button></div>
             <div class="meta-value score-value">${p.readiness_score}/100</div>
           </div>
           <div class="meta-box">
