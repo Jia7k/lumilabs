@@ -40,7 +40,7 @@ test('does not expose unrelated API namespaces', async (t) => {
 
 const smokeOrigin = process.env.MESSAGES_SMOKE_ORIGIN;
 
-test('deployed API returns Beta and the seeded Alpha conversation', {
+test('deployed API returns Beta and the seeded Alpha thread', {
   skip: !smokeOrigin,
 }, async () => {
   const headers = {
@@ -57,6 +57,11 @@ test('deployed API returns Beta and the seeded Alpha conversation', {
   );
   const alpha = conversations.find((row) => Number(row.partner_id) === 2);
   assert.ok(alpha, 'Expected the seeded Alpha conversation');
-  assert.equal(Number(alpha.id), 3);
-  assert.match(alpha.content, /currently raising/i);
+
+  const thread = await readJson(
+    await fetch(`${smokeOrigin}/api/messages/conversations/2`, { headers })
+  );
+  const seededMessage = thread.find((row) => Number(row.id) === 3);
+  assert.ok(seededMessage, 'Expected seeded message id 3 in the Alpha thread');
+  assert.match(seededMessage.content, /currently raising/i);
 });
