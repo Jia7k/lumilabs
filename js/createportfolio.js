@@ -9,6 +9,15 @@ const statusLabel = {
 let originalPortfolio = null;
 let currentStatus = null; // status of the portfolio being edited (null if creating new)
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function hasChanges() {
   if (!originalPortfolio) return false;
 
@@ -261,7 +270,7 @@ function renderFileList() {
   const existingHtml = existingDocuments.map(d => `
     <div class="pf-file-item">
       <i class="ti ti-file"></i>
-      <span>${d.file_name}</span>
+      <span>${escapeHtml(d.file_name)}</span>
       <span class="pf-file-size">Uploaded</span>
       <button class="btn-ghost" onclick="removeExistingDocument(${d.id})"><i class="ti ti-x"></i></button>
     </div>
@@ -270,7 +279,7 @@ function renderFileList() {
   const pendingHtml = pendingFiles.map((f, i) => `
     <div class="pf-file-item">
       <i class="ti ti-file"></i>
-      <span>${f.name}</span>
+      <span>${escapeHtml(f.name)}</span>
       <span class="pf-file-size">${(f.size / 1024).toFixed(0)} KB · Pending save</span>
       <button class="btn-ghost" onclick="removePendingFile(${i})"><i class="ti ti-x"></i></button>
     </div>
