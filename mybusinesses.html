@@ -32,13 +32,22 @@
 
     <div class="nav-right">
       <button class="icon-btn"><i class="ti ti-bell"></i></button>
-      <div class="user-chip">
-        <div class="avatar" id="user-avatar"></div>
-        <div class="user-info">
-          <div class="name" id="user-name"></div>
-          <div class="role" id="user-role"></div>
+      <div class="role-menu" id="role-menu">
+        <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="user-avatar"></div>
+          <div class="user-info">
+            <div class="name" id="user-name"></div>
+            <div class="role" id="user-role"></div>
+          </div>
+          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+        </button>
+        <div class="role-dropdown" role="menu">
+          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+            <span class="role-option-avatar" style="background:#EF4444;"><i class="ti ti-logout"
+                style="font-size:14px;"></i></span>
+            <span class="role-option-name">Sign Out</span>
+          </button>
         </div>
-        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
       </div>
     </div>
   </nav>

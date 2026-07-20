@@ -137,4 +137,20 @@ async function deletePortfolio(id) {
   }
 }
 
+function signOut() {
+  localStorage.removeItem("lumilabsToken");
+  window.location.href = "signin.html";
+}
+
+function initRoleMenu() {
+  const menu = document.getElementById("role-menu");
+  const button = document.getElementById("role-menu-button");
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.classList.toggle("open");
+  });
+  document.addEventListener("click", () => menu.classList.remove("open"));
+}
+
+initRoleMenu();
 init();
