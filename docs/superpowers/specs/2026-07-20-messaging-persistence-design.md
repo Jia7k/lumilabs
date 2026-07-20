@@ -75,11 +75,11 @@ When the user submits a non-empty message in an active conversation:
 1. Disable the textarea and Send button to prevent duplicate submissions.
 2. Send the POST request using the current prototype headers.
 3. Wait for a successful `201` response.
-4. Reload the active thread and conversation list from the API so the displayed state comes from MySQL rather than only a local optimistic copy.
-5. Clear the textarea and show `Message sent` only after the refresh succeeds.
+4. Treat the returned row as committed, clear the textarea, and show `Message sent`.
+5. Reload the active thread and conversation list from the API so the displayed state is confirmed by MySQL rather than only a local optimistic copy.
 6. Re-enable the composer.
 
-On failure, the browser keeps the typed content, re-enables the composer, and shows the API's useful error message. Error extraction will support both the route's `{ "error": "..." }` responses and express-validator's `{ "errors": [...] }` response shape.
+If the POST fails, the browser keeps the typed content, re-enables the composer, and shows the API's useful error message. Error extraction will support both the route's `{ "error": "..." }` responses and express-validator's `{ "errors": [...] }` response shape. If the POST succeeds but the follow-up reload fails, the browser must not restore the cleared draft or invite a duplicate retry; it reports that the message was saved but the conversation could not be refreshed.
 
 Refreshing `messages.html` continues to use the existing conversation GET endpoint, which must return the committed message.
 
@@ -90,7 +90,8 @@ Refreshing `messages.html` continues to use the existing conversation GET endpoi
 - Validation and authorization errors preserve the draft and display a specific message.
 - Connection, message-insert, notification-insert, read-back, or commit failures result in rollback and a generic safe server error.
 - Rollback and connection release are guarded so cleanup errors do not hide the original failure.
-- The input is never cleared for a failed request.
+- The input is never cleared when the POST fails.
+- A follow-up GET failure is reported separately from a send failure because the message has already committed.
 
 ## Verification
 
@@ -101,7 +102,7 @@ Automated messaging tests will cover:
 - A forced notification failure rolls back and does not commit.
 - Invalid content is rejected without acquiring a transaction connection.
 - The existing messaging health, namespace-isolation, and seeded-conversation tests remain passing.
-- Browser request behavior preserves input on failure and reloads database-backed thread state after success, using the lightest test seam compatible with the existing dependency-free frontend.
+- Browser request behavior preserves input when the POST fails, avoids duplicate retry messaging after a committed POST, and reloads database-backed thread state after success, using the lightest test seam compatible with the existing dependency-free frontend.
 
 Live acceptance verification will:
 
