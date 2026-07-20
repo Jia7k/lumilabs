@@ -49,6 +49,7 @@ async function main() {
   // Load routes AFTER tunnel is up so db.js picks up the correct DB_HOST/DB_PORT
   const express = require('express');
   const cors = require('cors');
+  const path = require('path');
 
   const authRoutes          = require('./src/routes/auth');
   const portfolioRoutes     = require('./src/routes/portfolios');
@@ -72,6 +73,7 @@ async function main() {
   app.use('/api/notifications',   notificationRoutes);
   app.use('/api/recommendations', recommendationRoutes);
   app.use('/api/dashboard',       dashboardRoutes);
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

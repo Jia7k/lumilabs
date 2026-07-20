@@ -1,7 +1,10 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -339,6 +342,108 @@ router.post('/:id/submit', authenticate, requireRole('business_owner'), async (r
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// POST /api/portfolios/:id/documents  — upload supporting documents
+router.post(
+  '/:id/documents',
+  authenticate,
+  requireRole('business_owner'),
+  upload.array('documents', 5),
+  async (req, res) => {
+    try {
+      const [rows] = await db.query(
+        'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
+        [req.params.id, req.user.id]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Portfolio not found' });
+      }
+ 
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+ 
+      const values = req.files.map((f) => [
+        req.params.id,
+        f.originalname,
+        `/uploads/portfolio-documents/${f.filename}`,
+        f.mimetype,
+      ]);
+ 
+      await db.query(
+        'INSERT INTO portfolio_documents (portfolio_id, file_name, file_url, file_type) VALUES ?',
+        [values]
+      );
+ 
+      const [docCount] = await db.query(
+        'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
+        [req.params.id]
+      );
+      const readiness_score = calcReadinessScore(rows[0], docCount[0].c);
+      await db.query('UPDATE portfolios SET readiness_score = ? WHERE id = ?', [
+        readiness_score,
+        req.params.id,
+      ]);
+ 
+      const [docs] = await db.query(
+        'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
+        [req.params.id]
+      );
+ 
+      res.status(201).json({ documents: docs, readiness_score });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+ 
+// DELETE /api/portfolios/:id/documents/:docId  — remove a supporting document
+router.delete(
+  '/:id/documents/:docId',
+  authenticate,
+  requireRole('business_owner'),
+  async (req, res) => {
+    try {
+      const [portfolioRows] = await db.query(
+        'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
+        [req.params.id, req.user.id]
+      );
+      if (portfolioRows.length === 0) {
+        return res.status(404).json({ error: 'Portfolio not found' });
+      }
+ 
+      const [docRows] = await db.query(
+        'SELECT * FROM portfolio_documents WHERE id = ? AND portfolio_id = ?',
+        [req.params.docId, req.params.id]
+      );
+      if (docRows.length === 0) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+ 
+      await db.query('DELETE FROM portfolio_documents WHERE id = ?', [req.params.docId]);
+ 
+      // Remove the file from disk too
+      const filePath = path.join(__dirname, '..', '..', docRows[0].file_url);
+      fs.unlink(filePath, () => {});
+ 
+      const [docCount] = await db.query(
+        'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
+        [req.params.id]
+      );
+      const readiness_score = calcReadinessScore(portfolioRows[0], docCount[0].c);
+      await db.query('UPDATE portfolios SET readiness_score = ? WHERE id = ?', [
+        readiness_score,
+        req.params.id,
+      ]);
+ 
+      res.json({ message: 'Document deleted', readiness_score });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
 
 // DELETE /api/portfolios/:id  — delete own portfolio (any status)
 router.delete('/:id', authenticate, requireRole('business_owner'), async (req, res) => {

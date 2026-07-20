@@ -1,4 +1,5 @@
 const API_BASE = "http://localhost:3000/api";
+const FILE_BASE = API_BASE.replace(/\/api$/, "");
 
 function showScoreInfo() {
   let overlay = document.getElementById("score-info-overlay");
@@ -47,17 +48,19 @@ function closeScoreInfo() {
   if (overlay) overlay.style.display = "none";
 }
 
-
 function getToken() {
   return localStorage.getItem("lumilabsToken");
 }
 
 async function apiFetch(path, options = {}) {
+  const token = getToken();
+  const isFormData = options.body instanceof FormData;
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${getToken()}`,
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   });
@@ -95,7 +98,13 @@ const API = {
     apiFetch(`/portfolios/${id}/submit`, { method: "POST" }),
   deletePortfolio: (id) =>
     apiFetch(`/portfolios/${id}`, { method: "DELETE" }),
-
+  uploadDocuments: (id, files) => {
+    const formData = new FormData();
+    for (const file of files) formData.append("documents", file);
+    return apiFetch(`/portfolios/${id}/documents`, { method: "POST", body: formData });
+  },
+  deleteDocument: (portfolioId, docId) =>
+    apiFetch(`/portfolios/${portfolioId}/documents/${docId}`, { method: "DELETE" }),
   // Admin
   getQueue: () => apiFetch("/admin/queue"),
   approvePortfolio: (id, notes = null) =>
@@ -110,6 +119,7 @@ const API = {
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
+  resolveFileUrl: (fileUrl) => `${FILE_BASE}${fileUrl}`,
 
   // Business owner dashboard
   getBusinessOwnerDashboard: () => apiFetch("/dashboard/business-owner"),

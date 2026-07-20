@@ -94,7 +94,9 @@ async function init() {
     document.getElementById("f-competitor_analysis").value = p.competitor_analysis || "";
     document.getElementById("f-burn_rate").value = p.burn_rate || "";
     document.getElementById("f-runway_months").value = p.runway_months || "";
-
+    existingDocuments = p.documents || [];
+    renderFileList();
+    
     originalPortfolio = {
       name: document.getElementById("f-name").value,
       sector: document.getElementById("f-sector").value,
@@ -197,6 +199,15 @@ async function submitForm(status) {
       portfolioId = created.id;
     }
 
+    // Upload any files now that there is a portfolio ID, has to happen after create/update
+    if (pendingFiles.length > 0) {
+      const result = await API.uploadDocuments(portfolioId, pendingFiles);
+      existingDocuments = existingDocuments.concat(result.documents ? result.documents.filter(
+        d => !existingDocuments.some(existing => existing.id === d.id)
+      ) : []);
+      pendingFiles = [];
+    }
+
     // Move to pending review
     if (status === "pending") {
       await API.submitPortfolio(portfolioId);
@@ -208,13 +219,14 @@ async function submitForm(status) {
   }
 }
 
-// FILE UPLOAD (UI only for now — wire to DB later)
-let uploadedFiles = [];
+// FILE UPLOAD
+let existingDocuments = [];
+let pendingFiles = [];
 
 function handleFiles(files) {
   for (const file of files) {
     if (file.size > 10 * 1024 * 1024) { alert(`${file.name} exceeds 10MB.`); continue; }
-    uploadedFiles.push(file);
+    pendingFiles.push(file);
   }
   renderFileList();
 }
@@ -225,23 +237,46 @@ function handleDrop(event) {
   handleFiles(event.dataTransfer.files);
 }
 
-function removeFile(index) {
-  uploadedFiles.splice(index, 1);
+function removePendingFile(index) {
+  pendingFiles.splice(index, 1);
   renderFileList();
+}
+
+async function removeExistingDocument(docId) {
+  if (!editId) return;
+  if (!confirm("Delete this document? This cannot be undone.")) return;
+
+  try {
+    await API.deleteDocument(editId, docId);
+    existingDocuments = existingDocuments.filter(d => d.id !== docId);
+    renderFileList();
+  } catch (err) {
+    alert("Couldn't delete document: " + err.message);
+  }
 }
 
 function renderFileList() {
   const container = document.getElementById("file-list");
-  if (uploadedFiles.length === 0) { container.innerHTML = ""; return; }
 
-  container.innerHTML = uploadedFiles.map((f, i) => `
+  const existingHtml = existingDocuments.map(d => `
+    <div class="pf-file-item">
+      <i class="ti ti-file"></i>
+      <span>${d.file_name}</span>
+      <span class="pf-file-size">Uploaded</span>
+      <button class="btn-ghost" onclick="removeExistingDocument(${d.id})"><i class="ti ti-x"></i></button>
+    </div>
+  `).join("");
+
+  const pendingHtml = pendingFiles.map((f, i) => `
     <div class="pf-file-item">
       <i class="ti ti-file"></i>
       <span>${f.name}</span>
-      <span class="pf-file-size">${(f.size / 1024).toFixed(0)} KB</span>
-      <button class="btn-ghost" onclick="removeFile(${i})"><i class="ti ti-x"></i></button>
+      <span class="pf-file-size">${(f.size / 1024).toFixed(0)} KB · Pending save</span>
+      <button class="btn-ghost" onclick="removePendingFile(${i})"><i class="ti ti-x"></i></button>
     </div>
   `).join("");
+
+  container.innerHTML = existingHtml + pendingHtml;
 }
 
 init();

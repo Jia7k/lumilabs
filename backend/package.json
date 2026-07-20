@@ -15,6 +15,7 @@
     "express-validator": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.10.1",
+    "multer": "^2.2.0",
     "tunnel-ssh": "^5.2.0"
   },
   "devDependencies": {

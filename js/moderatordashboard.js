@@ -106,15 +106,27 @@ async function renderAdmin() {
   });
 }
 
-function openReviewModal(id) {
+async function openReviewModal(id) {
   const p = currentQueue.find(item => item.id === id);
   if (!p) return;
   activeReviewId = id;
 
+  document.getElementById("review-card").innerHTML = `<p class="modal-subtitle">Loading...</p>`;
+  document.getElementById("review-overlay").classList.add("open");
+
+  let full;
+  try {
+    full = await API.getPortfolio(id);
+  } catch (err) {
+    alert("Couldn't load portfolio details: " + err.message);
+    closeReviewModal();
+    return;
+  }
+
   document.getElementById("review-card").innerHTML = `
     <div class="modal-header-row">
       <div class="modal-title-group">
-        <h2>${escapeHtml(p.name)}</h2>
+        <h2>${escapeHtml(full.name)}</h2>
         <span class="badge-yellow">Pending Review</span>
       </div>
       <button class="modal-close-btn" onclick="closeReviewModal()"><i class="ti ti-x"></i></button>
@@ -122,10 +134,10 @@ function openReviewModal(id) {
     <p class="modal-subtitle">Review all portfolio details before making a decision</p>
 
     <div class="modal-readiness">
-      <div class="score-circle" style="--score:${p.readiness_score}; width:48px; height:48px; font-size:15px;"><span>${p.readiness_score}</span></div>
+      <div class="score-circle" style="--score:${full.readiness_score}; width:48px; height:48px; font-size:15px;"><span>${full.readiness_score}</span></div>
       <div>
         <div class="readiness-label">Readiness <button class="score-info-btn" onclick="showScoreInfo()" title="How is this calculated?"><i class="ti ti-info-circle"></i></button></div>
-        <div class="readiness-score">${p.readiness_score}/100</div>
+        <div class="readiness-score">${full.readiness_score}/100</div>
       </div>
       ${isScoreStale(p) ? `
       <div class="score-stale-warning">
@@ -138,43 +150,58 @@ function openReviewModal(id) {
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Industry</div>
-        <div class="modal-field-value">${escapeHtml(p.sector)}</div>
+        <div class="modal-field-value">${escapeHtml(full.sector)}</div>
       </div>
       <div>
         <div class="modal-field-label">MVP Status</div>
-        <div class="modal-field-value">${escapeHtml(p.mvp_status)}</div>
+        <div class="modal-field-value">${escapeHtml(full.mvp_status)}</div>
       </div>
       <div>
         <div class="modal-field-label">Funding Goal</div>
-        <div class="modal-field-value">${formatFunding(p.funding_goal)}</div>
+        <div class="modal-field-value">${formatFunding(full.funding_goal)}</div>
       </div>
       <div>
         <div class="modal-field-label">Location</div>
-        <div class="modal-field-value">${p.location ? escapeHtml(p.location) : "—"}</div>
+        <div class="modal-field-value ${full.location ? "" : "muted"}">${full.location ? escapeHtml(full.location) : "No location provided"}</div>
       </div>
       <div>
         <div class="modal-field-label">Website</div>
-        <div class="modal-field-value ${p.website ? "" : "muted"}">${p.website ? escapeHtml(p.website) : "Not specified"}</div>
+        <div class="modal-field-value ${full.website ? "" : "muted"}">${full.website ? escapeHtml(full.website) : "No website provided"}</div>
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Description</div>
-        <div class="modal-field-value" style="font-weight:400;">${p.description ? escapeHtml(p.description) : "—"}</div>
+        <div class="modal-field-value ${full.description ? "" : "muted"}">${full.description ? escapeHtml(full.description) : "No description provided"}</div>
+        </div>
+      <div class="modal-field-full">
+        <div class="modal-field-label">Documents</div>
+        <div class="modal-field-value ${full.documents && full.documents.length > 0 ? "" : "muted"}">
+          ${
+            full.documents && full.documents.length > 0
+              ? full.documents.map(d => `
+                  <a href="${API.resolveFileUrl(d.file_url)}" target="_blank" rel="noopener"
+                     style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                    <i class="ti ti-file"></i> ${escapeHtml(d.file_name)}
+                  </a>
+                `).join("")
+              : `No documents uploaded`
+          }
+        </div>
       </div>
     </div>
-
+    
     <div class="modal-section-label">Team <span class="modal-section-pts">25 pts</span></div>
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Team Size</div>
-        <div class="modal-field-value">${p.team_size ?? "—"}</div>
+        <div class="modal-field-value ${full.team_size ? "" : "muted"}">${full.team_size ? escapeHtml(full.team_size) : "No team size provided"}</div>
       </div>
       <div>
         <div class="modal-field-label">Founded Year</div>
-        <div class="modal-field-value">${p.founded_year ?? "—"}</div>
+        <div class="modal-field-value">${full.founded_year ?? "—"}</div>
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Advisors / Notable Members</div>
-        <div class="modal-field-value" style="font-weight:400;">${p.advisor_names ? escapeHtml(p.advisor_names) : "—"}</div>
+        <div class="modal-field-value" style="font-weight:400;">${full.advisor_names ? escapeHtml(full.advisor_names) : "—"}</div>
       </div>
     </div>
 
@@ -182,15 +209,15 @@ function openReviewModal(id) {
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Monthly Revenue</div>
-        <div class="modal-field-value">${p.monthly_revenue != null ? formatFunding(p.monthly_revenue) : "—"}</div>
+        <div class="modal-field-value">${full.monthly_revenue != null ? formatFunding(full.monthly_revenue) : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">Users / Customers</div>
-        <div class="modal-field-value">${p.user_count != null ? p.user_count.toLocaleString() : "—"}</div>
+        <div class="modal-field-value">${full.user_count != null ? full.user_count.toLocaleString() : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">MoM Growth</div>
-        <div class="modal-field-value">${p.growth_rate != null ? p.growth_rate + "%" : "—"}</div>
+        <div class="modal-field-value">${full.growth_rate != null ? full.growth_rate + "%" : "—"}</div>
       </div>
     </div>
 
@@ -198,11 +225,11 @@ function openReviewModal(id) {
     <div class="modal-fields-grid">
       <div class="modal-field-full">
         <div class="modal-field-label">Target Market Size</div>
-        <div class="modal-field-value" style="font-weight:400;">${p.market_size ? escapeHtml(p.market_size) : "—"}</div>
+        <div class="modal-field-value" style="font-weight:400;">${full.market_size ? escapeHtml(full.market_size) : "—"}</div>
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Competitor Analysis</div>
-        <div class="modal-field-value" style="font-weight:400;">${p.competitor_analysis ? escapeHtml(p.competitor_analysis) : "—"}</div>
+        <div class="modal-field-value" style="font-weight:400;">${full.competitor_analysis ? escapeHtml(full.competitor_analysis) : "—"}</div>
       </div>
     </div>
 
@@ -210,11 +237,11 @@ function openReviewModal(id) {
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Monthly Burn Rate</div>
-        <div class="modal-field-value">${p.burn_rate != null ? formatFunding(p.burn_rate) : "—"}</div>
+        <div class="modal-field-value">${full.burn_rate != null ? formatFunding(full.burn_rate) : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">Runway</div>
-        <div class="modal-field-value">${p.runway_months != null ? p.runway_months + " months" : "—"}</div>
+        <div class="modal-field-value">${full.runway_months != null ? full.runway_months + " months" : "—"}</div>
       </div>
     </div>
 
@@ -223,8 +250,6 @@ function openReviewModal(id) {
       <button class="btn-approve-solid" onclick="handleApprove()"><i class="ti ti-circle-check"></i> Approve</button>
     </div>
   `;
-
-  document.getElementById("review-overlay").classList.add("open");
 }
 
 function closeReviewModal() {
