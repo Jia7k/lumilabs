@@ -65,42 +65,41 @@ function clientHarness() {
   };
 }
 
-test('successful POST clears the draft and reloads the committed thread', async () => {
+test('successful POSTs clear each draft and keep the composer reusable', async () => {
   const client = clientHarness();
-  const saved = {
-    id: 51,
-    sender_id: 3,
-    receiver_id: 2,
-    portfolio_id: null,
-    content: 'Persist me',
-    read_at: null,
-    created_at: '2026-07-20T09:10:00.000Z',
-  };
+  const savedMessages = [];
   client.hooks.request = async (requestPath, options) => {
     if (requestPath === '/messages') {
       assert.equal(options.method, 'POST');
-      assert.deepEqual(JSON.parse(options.body), {
+      const body = JSON.parse(options.body);
+      assert.equal(body.receiver_id, 2);
+      assert.equal(body.portfolio_id, null);
+      const saved = {
+        id: 51 + savedMessages.length,
+        sender_id: 3,
         receiver_id: 2,
-        content: 'Persist me',
         portfolio_id: null,
-      });
+        content: body.content,
+        read_at: null,
+        created_at: '2026-07-20T09:10:00.000Z',
+      };
+      savedMessages.push(saved);
       return saved;
     }
     if (requestPath === '/messages/conversations/2') {
-      return [{ ...saved, sender_name: 'Beta' }];
+      return savedMessages.map((message) => ({
+        ...message,
+        sender_name: 'Beta',
+      }));
     }
     if (requestPath === '/messages/conversations') {
+      const latest = savedMessages[savedMessages.length - 1];
       return [{
-        id: 51,
-        sender_id: 3,
-        receiver_id: 2,
+        ...latest,
         partner_id: 2,
         partner_name: 'Alpha',
         partner_role: 'investor',
-        portfolio_id: null,
         portfolio_name: null,
-        content: 'Persist me',
-        created_at: '2026-07-20T09:10:00.000Z',
         unread_count: 0,
       }];
     }
@@ -112,12 +111,33 @@ test('successful POST clears the draft and reloads the committed thread', async 
   assert.equal(client.run('els.messageInput.value'), '');
   assert.equal(client.run('state.messages.length'), 1);
   assert.equal(client.run('state.messages[0].id'), 51);
+  assert.equal(client.run('els.messageInput.disabled'), false);
+  assert.equal(client.run('els.sendBtn.disabled'), false);
+
+  client.run("els.messageInput.value = 'Persist again'");
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.deepEqual(savedMessages.map(({ content }) => content), [
+    'Persist me',
+    'Persist again',
+  ]);
+  assert.equal(client.run('els.messageInput.value'), '');
+  assert.equal(client.run('els.messageInput.disabled'), false);
+  assert.equal(client.run('els.sendBtn.disabled'), false);
+  assert.equal(client.run('state.messages.length'), 2);
   assert.deepEqual(client.hooks.requests, [
+    '/messages',
+    '/messages/conversations/2',
+    '/messages/conversations',
     '/messages',
     '/messages/conversations/2',
     '/messages/conversations',
   ]);
   assert.deepEqual(client.hooks.events, [
+    'render-thread',
+    'render-thread',
+    'render-conversations',
+    'render-header',
     'render-thread',
     'render-thread',
     'render-conversations',
