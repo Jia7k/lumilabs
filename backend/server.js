@@ -1,42 +1,77 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
 
-const authRoutes = require('./src/routes/auth');
-const portfolioRoutes = require('./src/routes/portfolios');
-const interestRoutes = require('./src/routes/interests');
-const messageRoutes = require('./src/routes/messages');
-const adminRoutes = require('./src/routes/admin');
-const notificationRoutes = require('./src/routes/notifications');
-const recommendationRoutes = require('./src/routes/recommendations');
-const dashboardRoutes = require('./src/routes/dashboard');
+async function main() {
+  // Set up SSH tunnel if SSH_HOST is configured
+  if (process.env.SSH_HOST) {
+    const { createTunnel } = require('tunnel-ssh');
+    const tunnelPort = parseInt(process.env.DB_TUNNEL_PORT || '3307');
 
-const app = express();
+    console.log(`Connecting SSH tunnel to ${process.env.SSH_HOST}...`);
+    try {
+      await createTunnel(
+        { autoClose: false },
+        { port: tunnelPort },
+        {
+          host: process.env.SSH_HOST,
+          port: parseInt(process.env.SSH_PORT || '22'),
+          username: process.env.SSH_USER,
+          password: process.env.SSH_PASSWORD,
+        },
+        {
+          srcAddr: '127.0.0.1',
+          srcPort: tunnelPort,
+          dstAddr: '127.0.0.1',
+          dstPort: 3306,
+        }
+      );
+      process.env.DB_HOST = '127.0.0.1';
+      process.env.DB_PORT = String(tunnelPort);
+      console.log(`SSH tunnel established → localhost:${tunnelPort}`);
+    } catch (err) {
+      console.error('SSH tunnel failed:', err.message);
+      process.exit(1);
+    }
+  }
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || '*' }));
-app.use(express.json());
+  // Load routes AFTER tunnel is up so db.js picks up the correct DB_HOST/DB_PORT
+  const express = require('express');
+  const cors = require('cors');
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/portfolios', portfolioRoutes);
-app.use('/api/interests', interestRoutes);
-app.use('/api/messages', messageRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+  const authRoutes          = require('./src/routes/auth');
+  const portfolioRoutes     = require('./src/routes/portfolios');
+  const interestRoutes      = require('./src/routes/interests');
+  const messageRoutes       = require('./src/routes/messages');
+  const adminRoutes         = require('./src/routes/admin');
+  const notificationRoutes  = require('./src/routes/notifications');
+  const recommendationRoutes= require('./src/routes/recommendations');
+  const dashboardRoutes     = require('./src/routes/dashboard');
 
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+  const app = express();
 
-// 404
-app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+  app.use(cors({ origin: process.env.CLIENT_ORIGIN || '*' }));
+  app.use(express.json());
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
+  app.use('/api/auth',            authRoutes);
+  app.use('/api/portfolios',      portfolioRoutes);
+  app.use('/api/interests',       interestRoutes);
+  app.use('/api/messages',        messageRoutes);
+  app.use('/api/admin',           adminRoutes);
+  app.use('/api/notifications',   notificationRoutes);
+  app.use('/api/recommendations', recommendationRoutes);
+  app.use('/api/dashboard',       dashboardRoutes);
+
+  app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+  app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+  app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  });
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Lumi5 Labs API running on port ${PORT}`));
+}
+
+main().catch(err => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Lumi5 Labs API running on port ${PORT}`));
