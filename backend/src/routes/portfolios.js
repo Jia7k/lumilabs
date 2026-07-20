@@ -5,15 +5,49 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Recalculate readiness score based on portfolio completeness
+const optFloat = (min = 0) => (v) => {
+  if (v == null || v === '') return true;
+  const n = Number(v);
+  if (!isNaN(n) && n >= min) return true;
+  throw new Error(`Must be a number >= ${min}`);
+};
+const optInt = (min = 0, max) => (v) => {
+  if (v == null || v === '') return true;
+  const n = Number(v);
+  if (Number.isInteger(n) && n >= min && (max == null || n <= max)) return true;
+  throw new Error(`Must be an integer >= ${min}`);
+};
+
+// Readiness score based on Village Capital / SICouncil methodology
+// Dimensions: Team (25) + Traction (25) + Market (20) + Product (15) + Financials (15) = 100
 function calcReadinessScore(portfolio, docCount) {
   let score = 0;
-  if (portfolio.name) score += 15;
-  if (portfolio.sector) score += 15;
-  if (portfolio.description && portfolio.description.length > 50) score += 20;
-  if (portfolio.funding_goal > 0) score += 10;
-  if (docCount >= 1) score += 20;
-  if (docCount >= 3) score += 20;
+
+  // TEAM (25 pts)
+  if (portfolio.team_size >= 1) score += 8;
+  if (portfolio.team_size >= 3) score += 5;
+  if (portfolio.advisor_names && String(portfolio.advisor_names).trim()) score += 7;
+  if (portfolio.founded_year) score += 5;
+
+  // TRACTION (25 pts)
+  if (portfolio.monthly_revenue > 0) score += 12;
+  if (portfolio.user_count > 0) score += 8;
+  if (portfolio.growth_rate > 0) score += 5;
+
+  // MARKET (20 pts)
+  if (portfolio.market_size && String(portfolio.market_size).trim()) score += 8;
+  if (portfolio.competitor_analysis && String(portfolio.competitor_analysis).trim()) score += 7;
+  if (portfolio.description && portfolio.description.length > 50) score += 5;
+
+  // PRODUCT (15 pts)
+  const mvpPoints = { Idea: 3, Prototype: 7, Beta: 11, Launched: 15 };
+  score += mvpPoints[portfolio.mvp_status] || 0;
+
+  // FINANCIALS (15 pts)
+  if (portfolio.funding_goal > 0) score += 5;
+  if (portfolio.burn_rate != null && portfolio.burn_rate >= 0) score += 5;
+  if (portfolio.runway_months > 0) score += 5;
+
   return Math.min(score, 100);
 }
 
@@ -114,37 +148,46 @@ router.post(
     body('sector').trim().notEmpty(),
     body('mvp_status').isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
     body('description').optional().trim(),
-    body('funding_goal').optional().isFloat({ min: 0 }),
-    body('team_size').optional().isInt({ min: 0 }),
-    body('founded_year').optional().isInt({ min: 1900, max: 2100 }),
+    body('funding_goal').custom(optFloat(0)),
+    body('team_size').custom(optInt(0)),
+    body('founded_year').custom(optInt(1900, 2100)),
     body('location').optional().trim(),
     body('website').optional().trim(),
+    body('monthly_revenue').custom(optFloat(0)),
+    body('user_count').custom(optInt(0)),
+    body('growth_rate').custom(optFloat(0)),
+    body('market_size').optional().trim(),
+    body('competitor_analysis').optional().trim(),
+    body('advisor_names').optional().trim(),
+    body('burn_rate').custom(optFloat(0)),
+    body('runway_months').custom(optInt(0)),
   ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const {
-      name,
-      sector,
-      mvp_status,
-      description = '',
-      funding_goal = 0,
-      team_size = null,
-      founded_year = null,
-      location = null,
-      website = null,
+      name, sector, mvp_status,
+      description = '', funding_goal = 0,
+      team_size = null, founded_year = null, location = null, website = null,
+      monthly_revenue = null, user_count = null, growth_rate = null,
+      market_size = null, competitor_analysis = null, advisor_names = null,
+      burn_rate = null, runway_months = null,
     } = req.body;
-    const readiness_score = calcReadinessScore({ name, sector, description, funding_goal }, 0);
+    const readiness_score = calcReadinessScore(req.body, 0);
 
     try {
       const [result] = await db.query(
         `INSERT INTO portfolios
-          (owner_id, name, sector, mvp_status, description, funding_goal, team_size, founded_year, location, website, readiness_score, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (owner_id, name, sector, mvp_status, description, funding_goal, team_size, founded_year, location, website,
+           monthly_revenue, user_count, growth_rate, market_size, competitor_analysis, advisor_names, burn_rate, runway_months,
+           readiness_score, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           req.user.id, name, sector, mvp_status, description, funding_goal,
-          team_size, founded_year, location, website, readiness_score, 'draft',
+          team_size, founded_year, location, website,
+          monthly_revenue, user_count, growth_rate, market_size, competitor_analysis, advisor_names, burn_rate, runway_months,
+          readiness_score, 'draft',
         ]
       );
       const [rows] = await db.query('SELECT * FROM portfolios WHERE id = ?', [result.insertId]);
@@ -166,11 +209,19 @@ router.put(
     body('sector').optional().trim().notEmpty(),
     body('mvp_status').optional().isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
     body('description').optional().trim(),
-    body('funding_goal').optional().isFloat({ min: 0 }),
-    body('team_size').optional().isInt({ min: 0 }),
-    body('founded_year').optional().isInt({ min: 1900, max: 2100 }),
+    body('funding_goal').custom(optFloat(0)),
+    body('team_size').custom(optInt(0)),
+    body('founded_year').custom(optInt(1900, 2100)),
     body('location').optional().trim(),
     body('website').optional().trim(),
+    body('monthly_revenue').custom(optFloat(0)),
+    body('user_count').custom(optInt(0)),
+    body('growth_rate').custom(optFloat(0)),
+    body('market_size').optional().trim(),
+    body('competitor_analysis').optional().trim(),
+    body('advisor_names').optional().trim(),
+    body('burn_rate').custom(optFloat(0)),
+    body('runway_months').custom(optInt(0)),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -178,28 +229,37 @@ router.put(
 
     try {
       const [rows] = await db.query('SELECT * FROM portfolios WHERE id = ? AND owner_id = ?', [
-        req.params.id,
-        req.user.id,
+        req.params.id, req.user.id,
       ]);
 
       if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
       const portfolio = rows[0];
 
-      // Can edit in draft, rejected, or approved
-      if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
+      if (!['draft', 'rejected', 'approved', 'pending'].includes(portfolio.status)) {
         return res.status(400).json({ error: 'This portfolio cannot be edited right now' });
       }
 
+      const pick = (key, fallback) =>
+        Object.prototype.hasOwnProperty.call(req.body, key) ? req.body[key] : fallback;
+
       const updated = {
-        name: req.body.name ?? portfolio.name,
-        sector: req.body.sector ?? portfolio.sector,
-        mvp_status: req.body.mvp_status ?? portfolio.mvp_status,
-        description: req.body.description ?? portfolio.description,
-        funding_goal: req.body.funding_goal ?? portfolio.funding_goal,
-        team_size: req.body.team_size ?? portfolio.team_size,
-        founded_year: req.body.founded_year ?? portfolio.founded_year,
-        location: req.body.location ?? portfolio.location,
-        website: req.body.website ?? portfolio.website,
+        name: pick('name', portfolio.name),
+        sector: pick('sector', portfolio.sector),
+        mvp_status: pick('mvp_status', portfolio.mvp_status),
+        description: pick('description', portfolio.description),
+        funding_goal: pick('funding_goal', portfolio.funding_goal),
+        team_size: pick('team_size', portfolio.team_size),
+        founded_year: pick('founded_year', portfolio.founded_year),
+        location: pick('location', portfolio.location),
+        website: pick('website', portfolio.website),
+        monthly_revenue: pick('monthly_revenue', portfolio.monthly_revenue),
+        user_count: pick('user_count', portfolio.user_count),
+        growth_rate: pick('growth_rate', portfolio.growth_rate),
+        market_size: pick('market_size', portfolio.market_size),
+        competitor_analysis: pick('competitor_analysis', portfolio.competitor_analysis),
+        advisor_names: pick('advisor_names', portfolio.advisor_names),
+        burn_rate: pick('burn_rate', portfolio.burn_rate),
+        runway_months: pick('runway_months', portfolio.runway_months),
       };
 
       const [docCount] = await db.query(
@@ -208,19 +268,27 @@ router.put(
       );
       const readiness_score = calcReadinessScore(updated, docCount[0].c);
 
+      const wasResetToDraft = portfolio.status === 'pending';
+      const newStatus = wasResetToDraft ? 'draft' : portfolio.status;
+
       await db.query(
         `UPDATE portfolios
-         SET name=?, sector=?, mvp_status=?, description=?, funding_goal=?, team_size=?, founded_year=?, location=?, website=?, readiness_score=?
+         SET name=?, sector=?, mvp_status=?, description=?, funding_goal=?, team_size=?, founded_year=?, location=?, website=?,
+             monthly_revenue=?, user_count=?, growth_rate=?, market_size=?, competitor_analysis=?, advisor_names=?, burn_rate=?, runway_months=?,
+             readiness_score=?, status=?, submitted_at=?
          WHERE id=?`,
         [
           updated.name, updated.sector, updated.mvp_status, updated.description, updated.funding_goal,
           updated.team_size, updated.founded_year, updated.location, updated.website,
-          readiness_score, req.params.id,
+          updated.monthly_revenue, updated.user_count, updated.growth_rate, updated.market_size,
+          updated.competitor_analysis, updated.advisor_names, updated.burn_rate, updated.runway_months,
+          readiness_score, newStatus, wasResetToDraft ? null : portfolio.submitted_at,
+          req.params.id,
         ]
       );
 
       const [fresh] = await db.query('SELECT * FROM portfolios WHERE id = ?', [req.params.id]);
-      res.json(fresh[0]);
+      res.json({ ...fresh[0], was_reset_to_draft: wasResetToDraft });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });

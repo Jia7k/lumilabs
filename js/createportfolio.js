@@ -21,7 +21,15 @@ function hasChanges() {
     document.getElementById("f-team_size").value !== originalPortfolio.team_size ||
     document.getElementById("f-founded_year").value !== originalPortfolio.founded_year ||
     document.getElementById("f-location").value !== originalPortfolio.location ||
-    document.getElementById("f-website").value !== originalPortfolio.website
+    document.getElementById("f-website").value !== originalPortfolio.website ||
+    document.getElementById("f-advisor_names").value !== originalPortfolio.advisor_names ||
+    document.getElementById("f-monthly_revenue").value !== originalPortfolio.monthly_revenue ||
+    document.getElementById("f-user_count").value !== originalPortfolio.user_count ||
+    document.getElementById("f-growth_rate").value !== originalPortfolio.growth_rate ||
+    document.getElementById("f-market_size").value !== originalPortfolio.market_size ||
+    document.getElementById("f-competitor_analysis").value !== originalPortfolio.competitor_analysis ||
+    document.getElementById("f-burn_rate").value !== originalPortfolio.burn_rate ||
+    document.getElementById("f-runway_months").value !== originalPortfolio.runway_months
   );
 }
 
@@ -78,6 +86,14 @@ async function init() {
     document.getElementById("f-founded_year").value = p.founded_year || "";
     document.getElementById("f-location").value = p.location || "";
     document.getElementById("f-website").value = p.website || "";
+    document.getElementById("f-advisor_names").value = p.advisor_names || "";
+    document.getElementById("f-monthly_revenue").value = p.monthly_revenue || "";
+    document.getElementById("f-user_count").value = p.user_count || "";
+    document.getElementById("f-growth_rate").value = p.growth_rate || "";
+    document.getElementById("f-market_size").value = p.market_size || "";
+    document.getElementById("f-competitor_analysis").value = p.competitor_analysis || "";
+    document.getElementById("f-burn_rate").value = p.burn_rate || "";
+    document.getElementById("f-runway_months").value = p.runway_months || "";
 
     originalPortfolio = {
       name: document.getElementById("f-name").value,
@@ -88,7 +104,15 @@ async function init() {
       team_size: document.getElementById("f-team_size").value,
       founded_year: document.getElementById("f-founded_year").value,
       location: document.getElementById("f-location").value,
-      website: document.getElementById("f-website").value
+      website: document.getElementById("f-website").value,
+      advisor_names: document.getElementById("f-advisor_names").value,
+      monthly_revenue: document.getElementById("f-monthly_revenue").value,
+      user_count: document.getElementById("f-user_count").value,
+      growth_rate: document.getElementById("f-growth_rate").value,
+      market_size: document.getElementById("f-market_size").value,
+      competitor_analysis: document.getElementById("f-competitor_analysis").value,
+      burn_rate: document.getElementById("f-burn_rate").value,
+      runway_months: document.getElementById("f-runway_months").value,
     };
 
     document.querySelectorAll("input, textarea, select").forEach(el => {
@@ -136,17 +160,23 @@ async function submitForm(status) {
     return;
   }
 
-  const payload = {
-    name,
-    sector,
-    mvp_status,
+  const rawPayload = {
+    name, sector, mvp_status,
     funding_goal: parseFloat(goal),
     description: document.getElementById("f-description").value.trim(),
-    team_size,
-    founded_year,
+    team_size, founded_year,
     location: document.getElementById("f-location").value.trim(),
-    website: document.getElementById("f-website").value.trim()
+    website: document.getElementById("f-website").value.trim(),
+    advisor_names: document.getElementById("f-advisor_names").value.trim(),
+    monthly_revenue: parseFloat(document.getElementById("f-monthly_revenue").value) || null,
+    user_count: parseIntOrNull(document.getElementById("f-user_count").value),
+    growth_rate: parseFloat(document.getElementById("f-growth_rate").value) || null,
+    market_size: document.getElementById("f-market_size").value.trim(),
+    competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
+    burn_rate: parseFloat(document.getElementById("f-burn_rate").value) || null,
+    runway_months: parseIntOrNull(document.getElementById("f-runway_months").value),
   };
+  const payload = rawPayload;
 
   try {
     let portfolioId = editId;
@@ -154,7 +184,12 @@ async function submitForm(status) {
     if (editId) {
       // UPDATE
       if (!originalPortfolio || hasChanges() || status === "pending") {
-        await API.updatePortfolio(editId, payload);
+        const result = await API.updatePortfolio(editId, payload);
+        if (result.was_reset_to_draft) {
+          alert("Your changes have been saved. Because your portfolio was under review, it has been returned to Draft — please re-submit when ready.");
+          window.location.href = "mybusinesses.html";
+          return;
+        }
       }
     } else {
       // CREATE

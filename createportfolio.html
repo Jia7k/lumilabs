@@ -117,7 +117,7 @@
 
     <div class="card pf-section">
       <div class="pf-section-heading">
-        <div class="pf-section-title">Additional Details</div>
+        <div class="pf-section-title">Team <span style="font-size:11px;font-weight:400;color:var(--text-muted);">25 pts</span></div>
         <div class="pf-section-sub">Help investors learn more about your team</div>
       </div>
 
@@ -140,6 +140,72 @@
         <div class="form-group">
           <label>Website</label>
           <input type="url" id="f-website" placeholder="https://example.com" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Advisors / Notable Team Members</label>
+        <input type="text" id="f-advisor_names" placeholder="e.g., Jane Doe (ex-Google), John Smith (VC Partner)" />
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Traction <span style="font-size:11px;font-weight:400;color:var(--text-muted);">25 pts</span></div>
+        <div class="pf-section-sub">Show investors your growth and momentum</div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Monthly Revenue (USD)</label>
+          <input type="number" id="f-monthly_revenue" placeholder="e.g., 5000" />
+        </div>
+        <div class="form-group">
+          <label>Number of Users / Customers</label>
+          <input type="number" id="f-user_count" placeholder="e.g., 200" />
+        </div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Month-over-Month Growth (%)</label>
+          <input type="number" id="f-growth_rate" placeholder="e.g., 15" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Market <span style="font-size:11px;font-weight:400;color:var(--text-muted);">20 pts</span></div>
+        <div class="pf-section-sub">Define your market opportunity</div>
+      </div>
+
+      <div class="form-group">
+        <label>Target Market Size</label>
+        <input type="text" id="f-market_size" placeholder="e.g., $5B addressable market in Southeast Asia" />
+      </div>
+
+      <div class="form-group">
+        <label>Competitor Analysis</label>
+        <textarea id="f-competitor_analysis" rows="3"
+          placeholder="Who are your main competitors and what makes you different?"></textarea>
+      </div>
+    </div>
+
+    <div class="card pf-section">
+      <div class="pf-section-heading">
+        <div class="pf-section-title">Financials <span style="font-size:11px;font-weight:400;color:var(--text-muted);">15 pts</span></div>
+        <div class="pf-section-sub">Provide financial clarity for investors</div>
+      </div>
+
+      <div class="pf-form-row">
+        <div class="form-group">
+          <label>Monthly Burn Rate (USD)</label>
+          <input type="number" id="f-burn_rate" placeholder="e.g., 20000" />
+        </div>
+        <div class="form-group">
+          <label>Runway (months)</label>
+          <input type="number" id="f-runway_months" placeholder="e.g., 12" />
         </div>
       </div>
     </div>
