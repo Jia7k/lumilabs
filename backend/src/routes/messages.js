@@ -196,39 +196,58 @@ router.post(
       return res.status(400).json({ error: 'Cannot message yourself' });
     }
 
+    let connection;
+    let transactionOpen = false;
+
     try {
-      const [receiver] = await db.query('SELECT id, name FROM users WHERE id = ?', [receiver_id]);
-      if (receiver.length === 0) return res.status(404).json({ error: 'Receiver not found' });
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+      transactionOpen = true;
+
+      const [receiver] = await connection.query(
+        'SELECT id, name FROM users WHERE id = ?',
+        [receiver_id]
+      );
+      if (receiver.length === 0) {
+        await connection.rollback();
+        transactionOpen = false;
+        return res.status(404).json({ error: 'Receiver not found' });
+      }
 
       let portfolioName = null;
       if (portfolio_id) {
-        const [portfolioRows] = await db.query(
+        const [portfolioRows] = await connection.query(
           'SELECT id, name, owner_id FROM portfolios WHERE id = ?',
           [portfolio_id]
         );
 
         if (portfolioRows.length === 0) {
+          await connection.rollback();
+          transactionOpen = false;
           return res.status(404).json({ error: 'Portfolio not found' });
         }
 
         const portfolio = portfolioRows[0];
         const canDiscussPortfolio =
-          portfolio.owner_id === senderId || portfolio.owner_id === receiver_id;
+          Number(portfolio.owner_id) === senderId
+          || Number(portfolio.owner_id) === receiver_id;
 
         if (!canDiscussPortfolio) {
+          await connection.rollback();
+          transactionOpen = false;
           return res.status(403).json({ error: 'Portfolio is not related to this conversation' });
         }
 
         portfolioName = portfolio.name;
       }
 
-      const [result] = await db.query(
+      const [result] = await connection.query(
         'INSERT INTO messages (sender_id, receiver_id, portfolio_id, content) VALUES (?, ?, ?, ?)',
         [senderId, receiver_id, portfolio_id, content]
       );
 
-      // Notify receiver
-      await db.query(
+      // Notify receiver as part of the same transaction as the message.
+      await connection.query(
         `INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id)
          VALUES (?, 'new_message', 'New Message', ?, ?, ?)`,
         [
@@ -241,11 +260,36 @@ router.post(
         ]
       );
 
-      const [msg] = await db.query('SELECT * FROM messages WHERE id = ?', [result.insertId]);
-      res.status(201).json(msg[0]);
+      const [messages] = await connection.query(
+        'SELECT * FROM messages WHERE id = ?',
+        [result.insertId]
+      );
+      if (messages.length !== 1) {
+        throw new Error('Inserted message could not be read back');
+      }
+
+      await connection.commit();
+      transactionOpen = false;
+      return res.status(201).json(messages[0]);
     } catch (err) {
+      if (connection && transactionOpen) {
+        try {
+          await connection.rollback();
+        } catch (rollbackError) {
+          console.error('Message transaction rollback failed', rollbackError);
+        }
+      }
+
       console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      return res.status(500).json({ error: 'Server error' });
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          console.error('Message connection release failed', releaseError);
+        }
+      }
     }
   }
 );

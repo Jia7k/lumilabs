@@ -444,6 +444,24 @@ function renderEmptyThread() {
   `;
 }
 
+async function reloadActiveConversationFromDatabase(partnerId) {
+  const messageRows = await apiFetch(
+    `/messages/conversations/${encodeURIComponent(partnerId)}`
+  );
+  const conversationRows = await apiFetch('/messages/conversations');
+
+  state.messages = messageRows.map(normalizeMessage);
+  state.conversations = conversationRows.map(normalizeConversation);
+  state.active = state.conversations.find(
+    (conversation) => sameId(conversation.partner_id, partnerId)
+  ) || state.active;
+  if (state.active) state.active.unread_count = 0;
+
+  renderThread();
+  renderConversations();
+  renderActiveHeader();
+}
+
 async function sendActiveMessage(event) {
   event.preventDefault();
   if (!state.active) return;
@@ -462,31 +480,37 @@ async function sendActiveMessage(event) {
   setSending(true);
 
   try {
-    const saved = await apiFetch('/messages', {
-      method: 'POST',
-      body: JSON.stringify({
-        receiver_id: receiverId,
-        content,
-        portfolio_id: Number.isInteger(portfolioId) ? portfolioId : null,
-      }),
-    });
+    let saved;
+    try {
+      saved = await apiFetch('/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          receiver_id: receiverId,
+          content,
+          portfolio_id: Number.isInteger(portfolioId) ? portfolioId : null,
+        }),
+      });
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || 'Message could not be sent');
+      return;
+    }
 
     state.messages.push(normalizeMessage({
       ...saved,
       sender_name: state.user.name,
       portfolio_name: state.active.portfolio_name,
     }));
-
     els.messageInput.value = '';
     renderThread();
-    await loadConversations();
-    state.active = state.conversations.find((item) => sameId(item.partner_id, receiverId)) || state.active;
-    renderConversations();
-    renderActiveHeader();
     showToast('Message sent');
-  } catch (err) {
-    console.error(err);
-    showToast(err.message || 'Message could not be sent');
+
+    try {
+      await reloadActiveConversationFromDatabase(receiverId);
+    } catch (err) {
+      console.error(err);
+      showToast('Message saved, but conversation could not be refreshed');
+    }
   } finally {
     setSending(false);
   }
@@ -530,7 +554,10 @@ async function apiFetch(path, options = {}) {
   const payload = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    throw new Error(payload?.error || 'API request failed');
+    const message = payload?.error
+      || payload?.errors?.[0]?.msg
+      || 'API request failed';
+    throw new Error(message);
   }
 
   return payload;
