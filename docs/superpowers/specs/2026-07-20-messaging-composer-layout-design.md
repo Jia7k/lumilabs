@@ -68,7 +68,7 @@ Add a dependency-free messaging layout test under `backend/test/` that reads `me
 - The message list has `min-height: 0` and `overflow-y: auto`.
 - The narrow-screen rule gives the thread an explicit 560-pixel height and resets its minimum height.
 
-Keep the existing client-flow tests passing, including the checks that a successful POST clears the draft, reloads the stored thread, and re-enables the composer.
+Extend the successful client-flow test to submit twice in the same harness. It must assert that the textarea and Send button are re-enabled after the first request and that the second submission issues a second POST without refreshing or reselecting the conversation. Keep the existing checks that a successful POST clears the draft and reloads the stored thread.
 
 No browser automation dependency will be added. The static test guards the CSS contract, while the live acceptance check uses the deployed page with the existing six-message thread.
 
@@ -90,9 +90,10 @@ If no interactive browser connection is available to the agent, automated layout
 
 - Modify: `messages.html`
 - Create: `backend/test/messages-layout.test.js`
+- Modify: `backend/test/messages-client.test.js`
 - Documentation: this messaging-specific specification and its implementation plan
 
-No JavaScript, API route, database schema, deployment service, or unrelated application file changes are required.
+No production JavaScript, API route, database schema, deployment service, or unrelated application file changes are required.
 
 ## Non-Goals
 
