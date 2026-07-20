@@ -119,9 +119,9 @@
   <a class="nav-logo" href="#"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
   <div class="nav-links">
     <button class="nav-btn active"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
-    <button class="nav-btn"><i class="ti ti-search"></i> Browse Startups</button>
-    <button class="nav-btn"><i class="ti ti-heart"></i> My Interests</button>
-    <button class="nav-btn" onclick="openMessagesTab()"><i class="ti ti-message"></i> Messages</button>
+    <button class="nav-btn" onclick="window.location.href='browse.html'"><i class="ti ti-search"></i> Browse Startups</button>
+    <button class="nav-btn" onclick="window.location.href='my-interests.html'"><i class="ti ti-heart"></i> My Interests</button>
+    <button class="nav-btn" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
   </div>
   <div class="nav-right">
     <button class="icon-btn"><i class="ti ti-bell"></i></button>
@@ -135,14 +135,11 @@
         <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
       </button>
       <div class="role-dropdown" role="menu">
-        <button class="role-option" type="button" onclick="switchRole('beta')" role="menuitem">
-          <span class="role-option-avatar blue">B</span>
-          <span class="role-option-name">Beta</span>
-        </button>
-        <button class="role-option active" type="button" onclick="switchRole('alpha')" role="menuitem">
-          <span class="role-option-avatar green">A</span>
-          <span class="role-option-name">Alpha</span>
-          <i class="ti ti-check role-check"></i>
+        <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+          <span class="role-option-avatar" style="background:#EF4444;">
+            <i class="ti ti-logout" style="font-size:14px;"></i>
+          </span>
+          <span class="role-option-name">Sign Out</span>
         </button>
       </div>
     </div>
@@ -192,13 +189,13 @@
           <button class="btn-refresh"><i class="ti ti-refresh"></i> Refresh</button>
         </div>
         <div class="rec-list" id="recommended-list"></div>
-        <button class="btn-full-width">See All Recommendations <i class="ti ti-arrow-right" style="vertical-align: middle;"></i></button>
+        <button class="btn-full-width" onclick="window.location.href='browse.html'">See All Recommendations <i class="ti ti-arrow-right" style="vertical-align: middle;"></i></button>
       </div>
 
       <div class="card-container">
         <div class="section-title-row">
           <div class="section-title">Recently Added</div>
-          <a href="#" class="link-view-all">View All <i class="ti ti-arrow-right"></i></a>
+          <a href="browse.html" class="link-view-all">View All <i class="ti ti-arrow-right"></i></a>
         </div>
         <div class="recent-grid" id="recently-added-grid"></div>
       </div>
@@ -214,7 +211,7 @@
           <div class="section-title" style="display:flex; align-items:center; gap:8px;">
             <i class="ti ti-heart" style="color:var(--pink-text)"></i> Recent Interests
           </div>
-          <a href="#" class="link-view-all" style="color:var(--primary-green)">View all</a>
+          <a href="my-interests.html" class="link-view-all" style="color:var(--primary-green)">View all</a>
         </div>
         <div id="recent-interests-list"></div>
       </div>
@@ -223,6 +220,7 @@
 </main>
 
 <script>
+  // Legacy stub — real logic is in js/investordashboard.js
   async function getInvestorData() {
     return {
       user: { name: "Alpha", role: "Investor" },
@@ -370,8 +368,8 @@
     });
   }
 
-  initRoleMenu();
-  initInvestor();
 </script>
+<script src="js/api.js"></script>
+<script src="js/investordashboard.js"></script>
 </body>
 </html>

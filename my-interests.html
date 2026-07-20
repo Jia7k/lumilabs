@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Interests — Lumi5 Labs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary-green: #52A475; --logo-purple: #6B4EE6; --header-purple: #7B61FF;
+    --pink-bg: #FBEAF0; --pink-text: #D4537E;
+    --blue-bg: #E6F1FB; --blue-text: #378ADD;
+    --purple-light: #F3F0FF; --purple-text: #7B61FF;
+    --bg-page: #F9FAFB; --bg-card: #FFFFFF; --border: #E5E7EB;
+    --text-primary: #111827; --text-secondary: #6B7280; --text-muted: #9CA3AF;
+    --radius-md: 8px; --radius-lg: 12px;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg-page); color: var(--text-primary); min-height: 100vh; font-size: 14px; }
+  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); height: 56px; padding: 0 28px; display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 10; }
+  .nav-logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text-primary); margin-right: 16px; text-decoration: none; }
+  .logo-icon { width: 30px; height: 30px; border-radius: 8px; background: var(--logo-purple); display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; }
+  .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
+  .nav-btn { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: var(--text-secondary); }
+  .nav-btn.active { background: #111827; color: white; }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .user-chip { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px; border: none; background: none; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: #52A475; color: white; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .user-info .name { font-size: 13px; font-weight: 600; }
+  .user-info .role { font-size: 11px; color: var(--text-secondary); }
+  .role-menu { position: relative; }
+  .role-dropdown { position: absolute; top: calc(100% + 10px); right: 0; width: 180px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 12px 28px rgba(17,24,39,0.14); padding: 6px; display: none; z-index: 20; }
+  .role-menu.open .role-dropdown { display: block; }
+  .role-option { width: 100%; border: none; background: transparent; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: var(--radius-md); cursor: pointer; }
+  .role-option:hover { background: var(--bg-page); }
+  .role-option-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+  .role-option-name { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+
+  .main { max-width: 900px; margin: 0 auto; padding: 32px 28px 48px; }
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .page-title { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .count-badge { background: var(--pink-bg); color: var(--pink-text); font-size: 13px; font-weight: 600; padding: 2px 10px; border-radius: 20px; }
+  .btn-browse { padding: 8px 16px; background: #111827; color: white; border: none; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn-browse:hover { background: #1f2937; }
+
+  .interest-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+  .interest-icon { width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--pink-bg); color: var(--pink-text); display: flex; align-items: center; justify-content: center; font-size: 22px; flex: 0 0 auto; }
+  .interest-info { flex: 1; }
+  .interest-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .interest-meta { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-secondary); }
+  .sector-tag { background: var(--blue-bg); color: var(--blue-text); padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .score-tag { background: rgba(82,164,117,0.1); color: var(--primary-green); padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .interest-date { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .interest-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+  .btn-action { padding: 8px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+  .btn-action:hover { background: var(--bg-page); }
+  .btn-remove { color: var(--pink-text); border-color: var(--pink-text); background: var(--pink-bg); }
+  .btn-remove:hover { background: #f7d5e0; }
+  .empty-state { text-align: center; padding: 80px 24px; color: var(--text-secondary); }
+  .empty-state i { font-size: 56px; display: block; margin-bottom: 16px; color: var(--text-muted); }
+  .empty-state h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-logo" href="investordashboard.html"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
+  <div class="nav-links">
+    <button class="nav-btn" onclick="window.location.href='investordashboard.html'"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
+    <button class="nav-btn" onclick="window.location.href='browse.html'"><i class="ti ti-search"></i> Browse Startups</button>
+    <button class="nav-btn active"><i class="ti ti-heart"></i> My Interests</button>
+    <button class="nav-btn" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
+  </div>
+  <div class="nav-right">
+    <div class="role-menu" id="role-menu">
+      <button class="user-chip" id="role-menu-button" type="button">
+        <div class="avatar" id="user-avatar"></div>
+        <div class="user-info">
+          <div class="name" id="user-name"></div>
+          <div class="role">Investor</div>
+        </div>
+        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+      </button>
+      <div class="role-dropdown">
+        <button class="role-option" onclick="signOut()">
+          <span class="role-option-avatar" style="background:#EF4444;"><i class="ti ti-logout" style="font-size:14px;"></i></span>
+          <span class="role-option-name">Sign Out</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="page-header">
+    <h1 class="page-title">
+      <i class="ti ti-heart" style="color:var(--pink-text)"></i>
+      My Interests
+      <span class="count-badge" id="count-badge">0</span>
+    </h1>
+    <button class="btn-browse" onclick="window.location.href='browse.html'">
+      <i class="ti ti-search"></i> Browse More
+    </button>
+  </div>
+
+  <div id="interests-list">
+    <div class="empty-state"><i class="ti ti-loader-2"></i>Loading...</div>
+  </div>
+</main>
+
+<script src="js/api.js"></script>
+<script src="js/my-interests.js"></script>
+</body>
+</html>

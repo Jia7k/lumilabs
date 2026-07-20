@@ -61,5 +61,20 @@ const API = {
       body: JSON.stringify({ reason })
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
-  getStats: () => apiFetch("/admin/stats")
+  getStats: () => apiFetch("/admin/stats"),
+
+  // Investor
+  getInvestorDashboard: () => apiFetch("/dashboard/investor"),
+  getRecommendations: () => apiFetch("/recommendations"),
+  getAllPortfolios: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))
+    ).toString();
+    return apiFetch(`/portfolios${qs ? "?" + qs : ""}`);
+  },
+  expressInterest: (portfolioId) =>
+    apiFetch(`/interests/${portfolioId}`, { method: "POST" }),
+  removeInterest: (portfolioId) =>
+    apiFetch(`/interests/${portfolioId}`, { method: "DELETE" }),
+  getMyInterests: () => apiFetch("/interests/my"),
 };
