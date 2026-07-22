@@ -17,6 +17,32 @@ function sendWorkflowError(res, error) {
   return res.status(500).json({ error: 'Server error' });
 }
 
+async function loadOwnedEditablePortfolio(req, res, next) {
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
+      [req.params.id, req.user.id],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+
+    const portfolio = rows[0];
+    if (portfolio.status === 'pending') {
+      return res.status(409).json({ error: 'A pending portfolio cannot be edited' });
+    }
+    if (!['draft', 'approved', 'rejected'].includes(portfolio.status)) {
+      return res.status(409).json({ error: 'This portfolio cannot be edited right now' });
+    }
+
+    req.portfolio = portfolio;
+    return next();
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}
+
 const optFloat = (min = 0) => (v) => {
   if (v == null || v === '') return true;
   const n = Number(v);
@@ -247,8 +273,11 @@ router.put(
       if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
       const portfolio = rows[0];
 
-      if (!['draft', 'rejected', 'approved', 'pending'].includes(portfolio.status)) {
-        return res.status(400).json({ error: 'This portfolio cannot be edited right now' });
+      if (portfolio.status === 'pending') {
+        return res.status(409).json({ error: 'A pending portfolio cannot be edited' });
+      }
+      if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
+        return res.status(409).json({ error: 'This portfolio cannot be edited right now' });
       }
 
       const pick = (key, fallback) =>
@@ -280,21 +309,23 @@ router.put(
       );
       const readiness_score = calcReadinessScore(updated, docCount[0].c);
 
-      const wasResetToDraft = portfolio.status === 'pending';
-      const newStatus = wasResetToDraft ? 'draft' : portfolio.status;
+      const wasResetToDraft = portfolio.status !== 'draft';
+      const newStatus = 'draft';
+      const submittedAt = null;
+      const rejectionReason = null;
 
       await db.query(
         `UPDATE portfolios
          SET name=?, sector=?, mvp_status=?, description=?, funding_goal=?, team_size=?, founded_year=?, location=?, website=?,
              monthly_revenue=?, user_count=?, growth_rate=?, market_size=?, competitor_analysis=?, advisor_names=?, burn_rate=?, runway_months=?,
-             readiness_score=?, status=?, submitted_at=?
+             readiness_score=?, status=?, submitted_at=?, rejection_reason=?
          WHERE id=?`,
         [
           updated.name, updated.sector, updated.mvp_status, updated.description, updated.funding_goal,
           updated.team_size, updated.founded_year, updated.location, updated.website,
           updated.monthly_revenue, updated.user_count, updated.growth_rate, updated.market_size,
           updated.competitor_analysis, updated.advisor_names, updated.burn_rate, updated.runway_months,
-          readiness_score, newStatus, wasResetToDraft ? null : portfolio.submitted_at,
+          readiness_score, newStatus, submittedAt, rejectionReason,
           req.params.id,
         ]
       );
@@ -327,17 +358,10 @@ router.post(
   '/:id/documents',
   authenticate,
   requireRole('business_owner'),
+  loadOwnedEditablePortfolio,
   upload.array('documents', 5),
   async (req, res) => {
     try {
-      const [rows] = await db.query(
-        'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
-        [req.params.id, req.user.id]
-      );
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Portfolio not found' });
-      }
- 
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({ error: 'No files uploaded' });
       }
@@ -358,11 +382,17 @@ router.post(
         'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
         [req.params.id]
       );
-      const readiness_score = calcReadinessScore(rows[0], docCount[0].c);
-      await db.query('UPDATE portfolios SET readiness_score = ? WHERE id = ?', [
+      const readiness_score = calcReadinessScore(req.portfolio, docCount[0].c);
+      await db.query(
+        'UPDATE portfolios SET readiness_score=?, status=?, submitted_at=?, rejection_reason=? WHERE id=?',
+        [
         readiness_score,
+        'draft',
+        null,
+        null,
         req.params.id,
-      ]);
+        ],
+      );
  
       const [docs] = await db.query(
         'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
@@ -382,16 +412,9 @@ router.delete(
   '/:id/documents/:docId',
   authenticate,
   requireRole('business_owner'),
+  loadOwnedEditablePortfolio,
   async (req, res) => {
     try {
-      const [portfolioRows] = await db.query(
-        'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
-        [req.params.id, req.user.id]
-      );
-      if (portfolioRows.length === 0) {
-        return res.status(404).json({ error: 'Portfolio not found' });
-      }
- 
       const [docRows] = await db.query(
         'SELECT * FROM portfolio_documents WHERE id = ? AND portfolio_id = ?',
         [req.params.docId, req.params.id]
@@ -410,11 +433,11 @@ router.delete(
         'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
         [req.params.id]
       );
-      const readiness_score = calcReadinessScore(portfolioRows[0], docCount[0].c);
-      await db.query('UPDATE portfolios SET readiness_score = ? WHERE id = ?', [
-        readiness_score,
-        req.params.id,
-      ]);
+      const readiness_score = calcReadinessScore(req.portfolio, docCount[0].c);
+      await db.query(
+        'UPDATE portfolios SET readiness_score=?, status=?, submitted_at=?, rejection_reason=? WHERE id=?',
+        [readiness_score, 'draft', null, null, req.params.id],
+      );
  
       res.json({ message: 'Document deleted', readiness_score });
     } catch (err) {
@@ -424,19 +447,25 @@ router.delete(
   }
 );
 
-// DELETE /api/portfolios/:id  — delete own portfolio (any status)
+// DELETE /api/portfolios/:id  — delete an editable portfolio
 router.delete('/:id', authenticate, requireRole('business_owner'), async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
-      [req.params.id, req.user.id]
+    const [result] = await db.query(
+      "DELETE FROM portfolios WHERE id=? AND owner_id=? AND status IN ('draft','rejected')",
+      [req.params.id, req.user.id],
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Portfolio not found' });
+    if (result.affectedRows !== 1) {
+      const [rows] = await db.query(
+        'SELECT id FROM portfolios WHERE id=? AND owner_id=?',
+        [req.params.id, req.user.id],
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Portfolio not found' });
+      }
+      return res.status(409).json({ error: 'Pending or approved portfolios cannot be deleted' });
     }
 
-    await db.query('DELETE FROM portfolios WHERE id = ?', [req.params.id]);
     res.json({ message: 'Portfolio deleted' });
   } catch (err) {
     console.error(err);

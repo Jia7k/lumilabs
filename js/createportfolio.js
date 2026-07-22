@@ -1,5 +1,9 @@
 const params = new URLSearchParams(window.location.search);
-const editId = params.get("id") ? parseInt(params.get("id")) : null;
+let editId = params.get("id") ? Number.parseInt(params.get("id"), 10) : null;
+let isSaving = false;
+const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'ppt', 'pptx', 'doc', 'docx']);
+const MAX_UPLOAD_FILES = 5;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const statusLabel = {
   draft: "Draft",
   pending: "Pending Review",
@@ -16,6 +20,13 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function setSaving(saving) {
+  isSaving = saving;
+  document.querySelectorAll('[data-portfolio-save]').forEach((button) => {
+    button.disabled = saving;
+  });
 }
 
 function hasChanges() {
@@ -143,69 +154,71 @@ function parseIntOrNull(value) {
 
 // SAVE/SUBMIT
 async function submitForm(status) {
-  const name = document.getElementById("f-name").value.trim();
-  const sector = document.getElementById("f-sector").value.trim();
-  const mvp_status = document.getElementById("f-mvp_status").value.trim();
-  const goal = document.getElementById("f-funding_goal").value;
-
-  if (!name || !sector || !mvp_status || !goal) {
-    alert("Please fill in all required fields (Company Name, Industry, MVP Status, Funding Goal).");
-    return;
-  }
-
-  const funding_goal = parseFloat(goal);
-  if (isNaN(funding_goal) || funding_goal < 0) {
-    alert("Funding Goal must be a positive number.");
-    return;
-  }
- 
-  const team_size = parseIntOrNull(document.getElementById("f-team_size").value);
-  if (team_size !== null && team_size < 0) {
-    alert("Team Size can't be negative.");
-    return;
-  }
- 
-  const founded_year = parseIntOrNull(document.getElementById("f-founded_year").value);
-  if (founded_year !== null && (founded_year < 1900 || founded_year > 2100)) {
-    alert("Founded Year must be between 1900 and 2100.");
-    return;
-  }
-
-  const rawPayload = {
-    name, sector, mvp_status,
-    funding_goal: parseFloat(goal),
-    description: document.getElementById("f-description").value.trim(),
-    team_size, founded_year,
-    location: document.getElementById("f-location").value.trim(),
-    website: document.getElementById("f-website").value.trim(),
-    advisor_names: document.getElementById("f-advisor_names").value.trim(),
-    monthly_revenue: parseFloat(document.getElementById("f-monthly_revenue").value) || null,
-    user_count: parseIntOrNull(document.getElementById("f-user_count").value),
-    growth_rate: parseFloat(document.getElementById("f-growth_rate").value) || null,
-    market_size: document.getElementById("f-market_size").value.trim(),
-    competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
-    burn_rate: parseFloat(document.getElementById("f-burn_rate").value) || null,
-    runway_months: parseIntOrNull(document.getElementById("f-runway_months").value),
-  };
-  const payload = rawPayload;
+  if (isSaving) return;
+  setSaving(true);
 
   try {
+    const name = document.getElementById("f-name").value.trim();
+    const sector = document.getElementById("f-sector").value.trim();
+    const mvp_status = document.getElementById("f-mvp_status").value.trim();
+    const goal = document.getElementById("f-funding_goal").value;
+
+    if (!name || !sector || !mvp_status || !goal) {
+      alert("Please fill in all required fields (Company Name, Industry, MVP Status, Funding Goal).");
+      return;
+    }
+
+    const funding_goal = parseFloat(goal);
+    if (isNaN(funding_goal) || funding_goal < 0) {
+      alert("Funding Goal must be a positive number.");
+      return;
+    }
+
+    const team_size = parseIntOrNull(document.getElementById("f-team_size").value);
+    if (team_size !== null && team_size < 0) {
+      alert("Team Size can't be negative.");
+      return;
+    }
+
+    const founded_year = parseIntOrNull(document.getElementById("f-founded_year").value);
+    if (founded_year !== null && (founded_year < 1900 || founded_year > 2100)) {
+      alert("Founded Year must be between 1900 and 2100.");
+      return;
+    }
+
+    const payload = {
+      name, sector, mvp_status,
+      funding_goal,
+      description: document.getElementById("f-description").value.trim(),
+      team_size, founded_year,
+      location: document.getElementById("f-location").value.trim(),
+      website: document.getElementById("f-website").value.trim(),
+      advisor_names: document.getElementById("f-advisor_names").value.trim(),
+      monthly_revenue: parseFloat(document.getElementById("f-monthly_revenue").value) || null,
+      user_count: parseIntOrNull(document.getElementById("f-user_count").value),
+      growth_rate: parseFloat(document.getElementById("f-growth_rate").value) || null,
+      market_size: document.getElementById("f-market_size").value.trim(),
+      competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
+      burn_rate: parseFloat(document.getElementById("f-burn_rate").value) || null,
+      runway_months: parseIntOrNull(document.getElementById("f-runway_months").value),
+    };
+
     let portfolioId = editId;
 
     if (editId) {
       // UPDATE
       if (!originalPortfolio || hasChanges() || status === "pending") {
         const result = await API.updatePortfolio(editId, payload);
-        if (result.was_reset_to_draft) {
-          alert("Your changes have been saved. Because your portfolio was under review, it has been returned to Draft — please re-submit when ready.");
-          window.location.href = "mybusinesses.html";
-          return;
+        if (result.was_reset_to_draft && status === "draft") {
+          alert("Your changes were saved and the portfolio returned to Draft for a fresh review.");
         }
       }
     } else {
       // CREATE
       const created = await API.createPortfolio(payload);
+      editId = created.id;
       portfolioId = created.id;
+      history.replaceState(null, '', `createportfolio.html?id=${created.id}`);
     }
 
     // Upload any files now that there is a portfolio ID, has to happen after create/update
@@ -225,6 +238,8 @@ async function submitForm(status) {
     window.location.href = "mybusinesses.html";
   } catch (err) {
     alert("Couldn't save portfolio: " + err.message);
+  } finally {
+    setSaving(false);
   }
 }
 
@@ -234,7 +249,19 @@ let pendingFiles = [];
 
 function handleFiles(files) {
   for (const file of files) {
-    if (file.size > 10 * 1024 * 1024) { alert(`${file.name} exceeds 10MB.`); continue; }
+    const extension = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+      alert(`${file.name} is not a supported document type.`);
+      continue;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`${file.name} exceeds 10MB.`);
+      continue;
+    }
+    if (existingDocuments.length + pendingFiles.length >= MAX_UPLOAD_FILES) {
+      alert(`You can attach up to ${MAX_UPLOAD_FILES} documents.`);
+      break;
+    }
     pendingFiles.push(file);
   }
   renderFileList();

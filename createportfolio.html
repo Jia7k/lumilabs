@@ -23,7 +23,7 @@
         <i class="ti ti-building-store"></i> My Businesses
       </button>
       <div class="nav-btn-wrap">
-        <button class="nav-btn">
+        <button class="nav-btn" onclick="window.location.href='messages.html'">
           <i class="ti ti-message"></i> Messages
         </button>
         <span class="nav-badge" id="nav-msg-badge" style="display:none;"></span>
@@ -55,10 +55,10 @@
         </div>
       </div>
       <div class="pf-header-actions">
-        <button class="btn btn-outline" onclick="submitForm('draft')">
+        <button class="btn btn-outline" data-portfolio-save onclick="submitForm('draft')">
           <i class="ti ti-device-floppy"></i> Save as Draft
         </button>
-        <button id="submit-btn" class="btn btn-primary" onclick="submitForm('pending')">
+        <button id="submit-btn" class="btn btn-primary" data-portfolio-save onclick="submitForm('pending')">
           <i class="ti ti-send"></i> Submit for Review
         </button>
       </div>
