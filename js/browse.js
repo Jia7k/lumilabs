@@ -30,6 +30,53 @@ let allPortfolios = [];
 let interestedIds = new Set();
 let sortMode = "ai";
 let aiScores = {};
+let interestMutationInFlight = false;
+let interestDataStale = false;
+
+async function fetchBrowseSnapshot() {
+  const [portfolios, interests] = await Promise.all([
+    API.getAllPortfolios(),
+    API.getMyInterests(),
+  ]);
+  return {
+    portfolios,
+    interestedIds: new Set(interests.map(({ id }) => Number(id))),
+  };
+}
+
+function commitBrowseSnapshot(snapshot) {
+  allPortfolios = snapshot.portfolios;
+  interestedIds = snapshot.interestedIds;
+}
+
+function setBrowseStatus(message = "", type = "", retryable = false) {
+  const status = document.getElementById("browse-status");
+  status.hidden = !message;
+  status.className = type;
+  status.innerHTML = message
+    ? `<span>${escapeHtml(message)}</span>${retryable ? '<button class="btn-filter" type="button" data-retry-interest-refresh>Retry</button>' : ''}`
+    : "";
+}
+
+async function retryInterestRefresh() {
+  if (interestMutationInFlight) return false;
+  interestMutationInFlight = true;
+  applyFilters();
+  try {
+    const snapshot = await fetchBrowseSnapshot();
+    commitBrowseSnapshot(snapshot);
+    interestDataStale = false;
+    setBrowseStatus();
+    return true;
+  } catch (error) {
+    interestDataStale = true;
+    setBrowseStatus(`Could not refresh interest data: ${error.message}`, "error", true);
+    return false;
+  } finally {
+    interestMutationInFlight = false;
+    applyFilters();
+  }
+}
 
 function setSort(mode) {
   sortMode = mode;
@@ -61,6 +108,7 @@ function applyFilters() {
 
 function renderGrid(portfolios) {
   const grid = document.getElementById("card-grid");
+  const interestDisabled = interestMutationInFlight || interestDataStale ? " disabled" : "";
   document.getElementById("results-count").innerText = `${portfolios.length} startup${portfolios.length !== 1 ? "s" : ""} found`;
 
   if (!portfolios.length) {
@@ -102,7 +150,7 @@ function renderGrid(portfolios) {
           </div>
         </div>
         <div class="card-actions">
-          <button class="btn-interest ${liked ? "interested" : ""}" id="btn-interest-${p.id}" onclick="toggleInterest(${p.id})">
+          <button class="btn-interest ${liked ? "interested" : ""}" id="btn-interest-${p.id}" onclick="toggleInterest(${p.id})"${interestDisabled}>
             <i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i>
             ${liked ? "Interested" : "Express Interest"}
           </button>
@@ -114,30 +162,33 @@ function renderGrid(portfolios) {
 }
 
 async function toggleInterest(portfolioId) {
-  const btn = document.getElementById(`btn-interest-${portfolioId}`);
-  btn.disabled = true;
+  if (interestMutationInFlight || interestDataStale) return;
+  interestMutationInFlight = true;
+  applyFilters();
+  let mutationSaved = false;
   try {
-    if (interestedIds.has(portfolioId)) {
-      await API.removeInterest(portfolioId);
-      interestedIds.delete(portfolioId);
-      const portfolio = allPortfolios.find((item) => item.id === portfolioId);
-      if (portfolio) {
-        portfolio.conversation_id = null;
-        portfolio.conversation_status = null;
-        portfolio.chat_state = "awaiting_manager";
-      }
+    if (interestedIds.has(portfolioId)) await API.removeInterest(portfolioId);
+    else await API.expressInterest(portfolioId);
+    mutationSaved = true;
+
+    const snapshot = await fetchBrowseSnapshot();
+    commitBrowseSnapshot(snapshot);
+    interestDataStale = false;
+    setBrowseStatus();
+  } catch (error) {
+    if (mutationSaved) {
+      interestDataStale = true;
+      setBrowseStatus(
+        `Your change was saved, but the latest data could not refresh: ${error.message}`,
+        "warning",
+        true,
+      );
     } else {
-      await API.expressInterest(portfolioId);
-      interestedIds.add(portfolioId);
+      setBrowseStatus(`Could not update interest: ${error.message}`, "error");
     }
-    const liked = interestedIds.has(portfolioId);
-    btn.className = `btn-interest ${liked ? "interested" : ""}`;
-    btn.innerHTML = `<i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i> ${liked ? "Interested" : "Express Interest"}`;
-    applyFilters();
-  } catch (err) {
-    alert("Could not update interest: " + err.message);
   } finally {
-    btn.disabled = false;
+    interestMutationInFlight = false;
+    applyFilters();
   }
 }
 
@@ -158,6 +209,9 @@ async function init() {
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
+  document.getElementById("browse-status").addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry-interest-refresh]")) retryInterestRefresh();
+  });
 
   const [portfoliosRes, myInterestsRes, recsRes] = await Promise.allSettled([
     API.getAllPortfolios(),
@@ -178,7 +232,14 @@ async function init() {
   allPortfolios = portfoliosRes.value;
 
   if (myInterestsRes.status === "fulfilled") {
-    interestedIds = new Set(myInterestsRes.value.map(i => i.id));
+    interestedIds = new Set(myInterestsRes.value.map(({ id }) => Number(id)));
+  } else {
+    interestDataStale = true;
+    setBrowseStatus(
+      `Could not load your interest data: ${myInterestsRes.reason?.message || "Please retry"}`,
+      "error",
+      true,
+    );
   }
 
   if (recsRes.status === "fulfilled") {

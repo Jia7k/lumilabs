@@ -1,0 +1,94 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'browse.js'), 'utf8');
+
+function browseHarness() {
+  const hooks = { calls: [], statuses: [], renders: 0 };
+  const context = vm.createContext({
+    window: { location: { href: '' } },
+    document: { getElementById() { return { addEventListener() {} }; }, addEventListener() {} },
+    requirePageRole: async () => null,
+    API: {},
+    alert() {},
+    console,
+    Set,
+    hooks,
+  });
+  vm.runInContext(source, context);
+  vm.runInContext(`
+    applyFilters = () => { hooks.renders += 1; };
+    setBrowseStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });
+  `, context);
+  return { context, hooks, run: (code) => vm.runInContext(code, context) };
+}
+
+test('successful interest mutation commits the two refetched sources together', async () => {
+  const client = browseHarness();
+  client.run(`
+    allPortfolios = [{ id: 1, interest_count: 4, chat_state: 'awaiting_manager' }];
+    interestedIds = new Set();
+    API.expressInterest = async (id) => { hooks.calls.push(['express', id]); };
+    API.getAllPortfolios = async () => {
+      hooks.calls.push(['portfolios']);
+      return [{ id: 1, interest_count: 9, chat_state: 'open', conversation_id: 44 }];
+    };
+    API.getMyInterests = async () => { hooks.calls.push(['interests']); return [{ id: 1 }]; };
+  `);
+  await client.run('toggleInterest(1)');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(client.hooks.calls)),
+    [['express', 1], ['portfolios'], ['interests']],
+  );
+  assert.equal(client.run('allPortfolios[0].interest_count'), 9);
+  assert.equal(client.run('allPortfolios[0].chat_state'), 'open');
+  assert.equal(client.run('interestedIds.has(1)'), true);
+});
+
+test('one failed authoritative read commits neither source and Retry never resends mutation', async () => {
+  const client = browseHarness();
+  client.run(`
+    allPortfolios = [{ id: 1, interest_count: 4 }];
+    interestedIds = new Set();
+    API.expressInterest = async () => { hooks.calls.push(['express']); };
+    API.getAllPortfolios = async () => [{ id: 1, interest_count: 5 }];
+    API.getMyInterests = async () => { throw new Error('read failed'); };
+  `);
+  await client.run('toggleInterest(1)');
+  assert.equal(client.run('allPortfolios[0].interest_count'), 4);
+  assert.equal(client.run('interestedIds.has(1)'), false);
+  assert.equal(client.run('interestDataStale'), true);
+  assert.match(client.hooks.statuses.at(-1).message, /saved.*refresh/i);
+  assert.equal(client.hooks.statuses.at(-1).retryable, true);
+  client.run(`
+    API.getAllPortfolios = async () => [{ id: 1, interest_count: 5 }];
+    API.getMyInterests = async () => [{ id: 1 }];
+  `);
+  await client.run('retryInterestRefresh()');
+  assert.equal(client.hooks.calls.filter(([name]) => name === 'express').length, 1);
+  assert.equal(client.run('allPortfolios[0].interest_count'), 5);
+  assert.equal(client.run('interestedIds.has(1)'), true);
+  assert.equal(client.run('interestDataStale'), false);
+});
+
+test('overlapping card toggles are ignored while one reconciliation is pending', async () => {
+  const client = browseHarness();
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  client.context.pending = pending;
+  client.run(`
+    allPortfolios = [{ id: 1 }, { id: 2 }];
+    interestedIds = new Set();
+    API.expressInterest = async (id) => { hooks.calls.push(['express', id]); await pending; };
+    API.getAllPortfolios = async () => allPortfolios;
+    API.getMyInterests = async () => [];
+  `);
+  const first = client.run('toggleInterest(1)');
+  const second = client.run('toggleInterest(2)');
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(JSON.parse(JSON.stringify(client.hooks.calls)), [['express', 1]]);
+});

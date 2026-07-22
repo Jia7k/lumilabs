@@ -51,6 +51,10 @@
 
   .results-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
   .results-count { font-size: 13px; color: var(--text-secondary); }
+  #browse-status { color: var(--text-secondary); font-size: 13px; }
+  #browse-status.warning { color: #9A6700; }
+  #browse-status.error { color: #B42318; }
+  #browse-status button { margin-left: 8px; }
 
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
   .startup-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -136,6 +140,7 @@
 
   <div class="results-row">
     <span class="results-count" id="results-count">Loading...</span>
+    <div id="browse-status" role="status" aria-live="polite" hidden></div>
   </div>
 
   <div class="card-grid" id="card-grid">
