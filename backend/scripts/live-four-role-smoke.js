@@ -72,6 +72,17 @@ function assertTrackedIdsBelongToRows(trackedIds, rows, label) {
   }
 }
 
+function assertExistingTrackedIdsAreVerified(trackedIds, existingRows, verifiedRows, label) {
+  const normalizedTrackedIds = new Set(
+    [...trackedIds].map((value) => positiveId(value, `${label} ID`)),
+  );
+  const existingIds = new Set(existingRows.map((row) => positiveId(row.id, `${label} ID`)));
+  for (const id of existingIds) {
+    assert.ok(normalizedTrackedIds.has(id), `unexpected ${label} ${id} in tracked-ID query`);
+  }
+  assertTrackedIdsBelongToRows(existingIds, verifiedRows, label);
+}
+
 function placeholders(values) {
   assert.ok(values.length > 0, 'placeholder values cannot be empty');
   return values.map(() => '?').join(',');
@@ -374,8 +385,19 @@ async function verifyTrackedResources() {
     `SELECT id FROM notifications WHERE ${notificationScope.sql} FOR UPDATE`,
     notificationScope.params,
   );
-  assertTrackedIdsBelongToRows(
+  const trackedNotificationIds = [...tracked.notificationIds];
+  let existingTrackedNotifications = [];
+  if (trackedNotificationIds.length) {
+    [existingTrackedNotifications] = await db.query(
+      `SELECT id FROM notifications
+        WHERE id IN (${placeholders(trackedNotificationIds)})
+        FOR UPDATE`,
+      trackedNotificationIds,
+    );
+  }
+  assertExistingTrackedIdsAreVerified(
     tracked.notificationIds,
+    existingTrackedNotifications,
     resources.notifications,
     'notification',
   );
@@ -842,6 +864,7 @@ if (require.main === module) {
 
 module.exports = {
   assertCleanupComplete,
+  assertExistingTrackedIdsAreVerified,
   assertTrackedIdsBelongToRows,
   cleanTemporaryRecords,
   main,

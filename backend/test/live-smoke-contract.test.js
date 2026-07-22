@@ -113,3 +113,29 @@ test('notification cleanup never trusts a raw API-returned notification ID', () 
   assert.ok(cleanupFunction, 'notification cleanup predicate must exist');
   assert.doesNotMatch(cleanupFunction[0], /notificationIds|clauses\.push\(`id IN/);
 });
+
+test('already-deleted tracked notifications are harmless but existing misbound IDs fail', () => {
+  const { assertExistingTrackedIdsAreVerified } = loadSmokeHelpers();
+  assert.equal(typeof assertExistingTrackedIdsAreVerified, 'function');
+  assert.doesNotThrow(() => assertExistingTrackedIdsAreVerified(
+    new Set([21, 52]),
+    [],
+    [],
+    'notification',
+  ));
+  assert.doesNotThrow(() => assertExistingTrackedIdsAreVerified(
+    new Set([21, 52]),
+    [{ id: 21 }],
+    [{ id: 21 }],
+    'notification',
+  ));
+  assert.throws(
+    () => assertExistingTrackedIdsAreVerified(
+      new Set([21, 999]),
+      [{ id: 999 }],
+      [{ id: 21 }],
+      'notification',
+    ),
+    /tracked notification 999 is outside the verified temporary resources/,
+  );
+});
