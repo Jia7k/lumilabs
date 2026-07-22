@@ -116,15 +116,14 @@
 <body>
 
 <nav class="nav">
-  <a class="nav-logo" href="#"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
+  <a class="nav-logo" href="investordashboard.html"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
   <div class="nav-links">
-    <button class="nav-btn active"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
+    <button class="nav-btn active" onclick="window.location.href='investordashboard.html'"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
     <button class="nav-btn" onclick="window.location.href='browse.html'"><i class="ti ti-search"></i> Browse Startups</button>
     <button class="nav-btn" onclick="window.location.href='my-interests.html'"><i class="ti ti-heart"></i> My Interests</button>
     <button class="nav-btn" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
   </div>
   <div class="nav-right">
-    <button class="icon-btn"><i class="ti ti-bell"></i></button>
     <div class="role-menu" id="role-menu">
       <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
         <div class="avatar" id="user-avatar"></div>
@@ -186,7 +185,7 @@
       <div class="recommended-wrapper">
         <div class="rec-header">
           <div class="rec-title"><i class="ti ti-stars"></i> Recommended for You</div>
-          <button class="btn-refresh"><i class="ti ti-refresh"></i> Refresh</button>
+          <button class="btn-refresh" id="recommendations-refresh" type="button" onclick="refreshInvestorDashboard()"><i class="ti ti-refresh"></i> Refresh</button>
         </div>
         <div class="rec-list" id="recommended-list"></div>
         <button class="btn-full-width" onclick="window.location.href='browse.html'">See All Recommendations <i class="ti ti-arrow-right" style="vertical-align: middle;"></i></button>
@@ -219,156 +218,6 @@
   </div>
 </main>
 
-<script>
-  // Legacy stub — real logic is in js/investordashboard.js
-  async function getInvestorData() {
-    return {
-      user: { name: "Alpha", role: "Investor" },
-      pageDetails: { title: "Welcome back, Alpha", subtitle: "Discover promising startups and investment opportunities" },
-      stats: { available: 7, interests: 3, messages: 2, potential: 3 },
-      recommended: [
-        { id: "#1", name: "X3", industry: "Fintech", score: 85, isHighPotential: true },
-        { id: "#2", name: "Apple Intelligence", industry: "Ai Ml", score: 85, isHighPotential: true },
-        { id: "#3", name: "Teckkers", industry: "Fintech", score: 75, isHighPotential: true }
-      ],
-      recentAdded: [
-        { name: "X3", industry: "Fintech", funding: "$0.5M", score: 85, colorClass: "purple" },
-        { name: "Apple Intelligence", industry: "Ai Ml", funding: "$100.0M", score: 85, colorClass: "purple", titleColor: "var(--primary-green)" },
-        { name: "Teckkers", industry: "Fintech", funding: "$10.0M", score: 75, colorClass: "purple" },
-        { name: "X1", industry: "Fintech", funding: "$0.1M", score: 55, colorClass: "gray" }
-      ],
-      quickActions: [
-        { label: "Browse Startups", icon: "ti-search" },
-        { label: "My Interests", icon: "ti-heart", badge: 3 },
-        { label: "Messages", icon: "ti-message", action: "messages" }
-      ],
-      recentInterests: [
-        { name: "X3", status: "Interested" },
-        { name: "Teckkers", status: "Interested" },
-        { name: "Apple Intelligence", status: "Interested" }
-      ]
-    };
-  }
-
-  async function initInvestor() {
-    const data = await getInvestorData();
-    
-    document.getElementById("user-avatar").innerText = data.user.name[0].toUpperCase();
-    document.getElementById("user-name").innerText = data.user.name;
-    document.getElementById("user-role").innerText = data.user.role;
-    document.getElementById("page-title").innerText = data.pageDetails.title;
-    document.getElementById("page-subtitle").innerText = data.pageDetails.subtitle;
-    
-    document.getElementById("stat-available").innerText = data.stats.available;
-    document.getElementById("stat-interests").innerText = data.stats.interests;
-    document.getElementById("stat-messages").innerText = data.stats.messages;
-    document.getElementById("stat-potential").innerText = data.stats.potential;
-
-    const recList = document.getElementById("recommended-list");
-    recList.innerHTML = data.recommended.map(item => `
-      <div class="rec-item">
-        <div class="rec-rank">${item.id}</div>
-        <div class="rec-info">
-          <div class="rec-name-row">
-            <span class="rec-name">${item.name}</span>
-            ${item.isHighPotential ? `<span class="badge-purple"><i class="ti ti-star"></i> High Potential</span>` : ''}
-          </div>
-          <div class="rec-industry">${item.industry}</div>
-        </div>
-        <div class="score-text">${item.score}</div>
-        <i class="ti ti-arrow-right rec-arrow"></i>
-      </div>
-    `).join('');
-
-    const recentGrid = document.getElementById("recently-added-grid");
-    recentGrid.innerHTML = data.recentAdded.map(item => `
-      <div class="recent-card">
-        <div class="rc-top">
-          <div class="rc-icon"><i class="ti ti-briefcase"></i></div>
-          <div class="rc-star" style="background:${item.colorClass==='gray'?'var(--bg-page)':'var(--purple-light)'}; color:${item.colorClass==='gray'?'var(--text-muted)':'var(--purple-text)'}"><i class="ti ti-star"></i></div>
-        </div>
-        <div>
-          <div class="rc-name" style="color: ${item.titleColor || 'inherit'}">${item.name}</div>
-          <div class="rc-industry">${item.industry}</div>
-        </div>
-        <div class="rc-bottom">
-          <div class="rc-money" style="color:${item.score >= 70 ? 'var(--primary-green)' : 'var(--text-secondary)'}">${item.funding}</div>
-          <div class="rc-score" style="color:${item.score >= 70 ? 'var(--primary-green)' : '#D98F39'}; background:${item.score >= 70 ? 'rgba(82, 164, 117, 0.1)' : 'rgba(217, 143, 57, 0.1)'}">${item.score}</div>
-        </div>
-      </div>
-    `).join('');
-
-    const qaList = document.getElementById("quick-actions-list");
-    qaList.innerHTML = data.quickActions.map(action => `
-      <button class="quick-action-btn" ${action.action === 'messages' ? 'onclick="openMessagesTab()"' : ''}>
-        <div class="qa-left"><i class="ti ${action.icon}"></i> ${action.label}</div>
-        ${action.badge ? `<span class="badge-red">${action.badge}</span>` : ''}
-      </button>
-    `).join('');
-
-    const riList = document.getElementById("recent-interests-list");
-    riList.innerHTML = data.recentInterests.map(interest => `
-      <div class="interest-list-item">
-        <div class="il-icon"><i class="ti ti-heart"></i></div>
-        <div>
-          <div class="il-name">${interest.name}</div>
-          <div class="il-sub">${interest.status}</div>
-        </div>
-      </div>
-    `).join('');
-  }
-
-  const PROTOTYPE_USERS = {
-    beta: { key: "beta", name: "Beta", role: "business_owner", dashboard: "businessownerdashboard.html" },
-    alpha: { key: "alpha", name: "Alpha", role: "investor", dashboard: "investordashboard.html" }
-  };
-
-  function setSelectedUser(key) {
-    const user = PROTOTYPE_USERS[key];
-    if (!user) return;
-    localStorage.setItem("lumilabsSelectedUser", JSON.stringify({
-      key: user.key,
-      name: user.name,
-      role: user.role
-    }));
-  }
-
-  function switchRole(key) {
-    const user = PROTOTYPE_USERS[key];
-    if (!user) return;
-    setSelectedUser(key);
-    window.location.href = user.dashboard;
-  }
-
-  function openMessagesTab() {
-    setSelectedUser("alpha");
-    window.location.href = "messages.html";
-  }
-
-  function initRoleMenu() {
-    const menu = document.getElementById("role-menu");
-    const button = document.getElementById("role-menu-button");
-
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const isOpen = menu.classList.toggle("open");
-      button.setAttribute("aria-expanded", String(isOpen));
-    });
-
-    document.addEventListener("click", () => {
-      menu.classList.remove("open");
-      button.setAttribute("aria-expanded", "false");
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        menu.classList.remove("open");
-        button.setAttribute("aria-expanded", "false");
-      }
-    });
-  }
-
-</script>
 <script src="js/api.js"></script>
 <script src="js/investordashboard.js"></script>
 </body>

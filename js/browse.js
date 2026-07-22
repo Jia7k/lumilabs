@@ -137,11 +137,6 @@ async function toggleInterest(portfolioId) {
   }
 }
 
-function signOut() {
-  localStorage.removeItem("lumilabsToken");
-  window.location.href = "signin.html";
-}
-
 function initRoleMenu() {
   const menu = document.getElementById("role-menu");
   const button = document.getElementById("role-menu-button");
@@ -154,17 +149,8 @@ function initRoleMenu() {
 }
 
 async function init() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch {
-    window.location.href = "signin.html";
-    return;
-  }
-  if (user.role !== "investor") {
-    window.location.href = "signin.html";
-    return;
-  }
+  const user = await requirePageRole("investor");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
@@ -175,9 +161,17 @@ async function init() {
     API.getRecommendations(),
   ]);
 
-  if (portfoliosRes.status === "fulfilled") {
-    allPortfolios = portfoliosRes.value;
+  if (portfoliosRes.status === "rejected") {
+    document.getElementById("results-count").innerText = "Startups unavailable";
+    document.getElementById("card-grid").innerHTML = `
+      <div class="empty-state">
+        <i class="ti ti-alert-circle"></i>
+        Couldn't load startups: ${escapeHtml(portfoliosRes.reason?.message || "Please try again")}
+      </div>`;
+    initRoleMenu();
+    return;
   }
+  allPortfolios = portfoliosRes.value;
 
   if (myInterestsRes.status === "fulfilled") {
     interestedIds = new Set(myInterestsRes.value.map(i => i.id));

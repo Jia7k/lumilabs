@@ -35,12 +35,8 @@ let currentQueue = [];
 let activeReviewId = null; // portfolio id currently open in the review modal
 
 async function initAdmin() {
-  try {
-    currentUser = await API.getCurrentUser();
-  } catch (err) {
-    alert("Your session has expired or is invalid. Please log in again.");
-    return;
-  }
+  currentUser = await requirePageRole("admin");
+  if (!currentUser) return;
 
   document.getElementById("user-avatar").innerText = currentUser.name[0].toUpperCase();
   document.getElementById("user-name").innerText = currentUser.name;

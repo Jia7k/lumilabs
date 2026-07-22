@@ -30,7 +30,6 @@
       </div>
     </div>
     <div class="nav-right">
-      <button class="icon-btn"><i class="ti ti-bell"></i></button>
       <div class="role-menu" id="role-menu">
         <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
           <div class="avatar" id="user-avatar"></div>
@@ -125,7 +124,6 @@
         <div class="card">
           <div class="notif-header">
             <span class="card-title">Notifications</span>
-            <button class="view-all-link">View all</button>
           </div>
           <div id="notifications-list"></div>
         </div>
@@ -137,14 +135,23 @@
   <script>
     const statusLabel = { approved: "Approved", pending: "Pending Review", rejected: "Rejected", draft: "Draft" };
 
-    function signOut() {
-      localStorage.removeItem("lumilabsToken");
-      window.location.href = "signin.html";
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
 
-    function openMessageThread(partnerId, partnerName, portfolioId, portfolioName) {
-      const params = new URLSearchParams({ partnerId, partnerName, partnerRole: "investor", portfolioId, portfolioName });
-      window.location.href = `messages.html?${params.toString()}`;
+    function investorMessageUrl(interest) {
+      return `messages.html?${new URLSearchParams({
+        partnerId: interest.investor_id,
+        partnerName: interest.investor,
+        partnerRole: "investor",
+        portfolioId: interest.portfolio_id,
+        portfolioName: interest.portfolio,
+      }).toString()}`;
     }
 
     function initRoleMenu() {
@@ -158,17 +165,8 @@
     }
 
     async function init() {
-      let user;
-      try {
-        user = await API.getCurrentUser();
-      } catch {
-        window.location.href = "signin.html";
-        return;
-      }
-      if (user.role !== "business_owner") {
-        window.location.href = "signin.html";
-        return;
-      }
+      const user = await requirePageRole("business_owner");
+      if (!user) return;
 
       document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
       document.getElementById("user-name").innerText = user.name;
@@ -202,35 +200,41 @@
       document.getElementById("count-draft").innerText = data.portfolios.draft;
 
       document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.length
-        ? data.recentPortfolios.map(p => `
+        ? data.recentPortfolios.map(p => {
+          const status = statusLabel[p.status] ? p.status : "draft";
+          return `
             <div class="portfolio-item">
               <div>
-                <div class="portfolio-name">${p.name} <span class="badge ${p.status}">${statusLabel[p.status] || p.status}</span></div>
-                <div class="portfolio-meta">${p.sector} · Readiness: ${p.readiness_score}/100</div>
+                <div class="portfolio-name">${escapeHtml(p.name)} <span class="badge ${escapeHtml(status)}">${escapeHtml(statusLabel[status])}</span></div>
+                <div class="portfolio-meta">${escapeHtml(p.sector)} · Readiness: ${Number(p.readiness_score) || 0}/100</div>
               </div>
-              <button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${p.id}'"><i class="ti ti-eye"></i></button>
-            </div>`).join("")
+              <button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${Number(p.id)}'" aria-label="Open ${escapeHtml(p.name)}"><i class="ti ti-eye"></i></button>
+            </div>`;
+        }).join("")
         : `<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No portfolios yet. <a href="createportfolio.html">Create one</a>.</div>`;
 
       document.getElementById("interests-list").innerHTML = data.recentInterests.length
-        ? data.recentInterests.map(i => `
+        ? data.recentInterests.map(i => {
+          const messageUrl = escapeHtml(investorMessageUrl(i));
+          return `
             <div class="interest-item">
-              <div class="inv-avatar">${i.investor[0].toUpperCase()}</div>
+              <div class="inv-avatar">${escapeHtml((i.investor || "?")[0].toUpperCase())}</div>
               <div>
-                <div class="interest-name">${i.investor}</div>
-                <div class="interest-sub">Interested in ${i.portfolio}</div>
+                <div class="interest-name">${escapeHtml(i.investor)}</div>
+                <div class="interest-sub">Interested in ${escapeHtml(i.portfolio)}</div>
               </div>
-              <button class="btn-ghost" onclick="openMessageThread(${i.investor_id},'${encodeURIComponent(i.investor)}',${i.portfolio_id},'${encodeURIComponent(i.portfolio)}')">
+              <button class="btn-ghost" onclick="window.location.href='${messageUrl}'" aria-label="Message ${escapeHtml(i.investor)}">
                 <i class="ti ti-message"></i>
               </button>
-            </div>`).join("")
+            </div>`;
+        }).join("")
         : `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No investor interests yet.</div>`;
 
       document.getElementById("notifications-list").innerHTML = data.notifications.length
         ? data.notifications.map(n => `
             <div class="notif-item">
-              <div class="notif-title">${n.title}</div>
-              <div class="notif-body">${n.body}</div>
+              <div class="notif-title">${escapeHtml(n.title)}</div>
+              <div class="notif-body">${escapeHtml(n.body)}</div>
             </div>`).join("")
         : `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No notifications.</div>`;
     }

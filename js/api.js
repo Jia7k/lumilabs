@@ -1,5 +1,4 @@
 const API_BASE = window.LUMILABS_API_BASE || "/api";
-const FILE_BASE = "";
 
 function showScoreInfo() {
   let overlay = document.getElementById("score-info-overlay");
@@ -169,7 +168,6 @@ const API = {
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
-  resolveFileUrl: (fileUrl) => fileUrl,
   downloadDocument: downloadDocument,
 
   // Business owner dashboard
@@ -190,3 +188,15 @@ const API = {
     apiFetch(`/interests/${portfolioId}`, { method: "DELETE" }),
   getMyInterests: () => apiFetch("/interests/my"),
 };
+
+async function requirePageRole(requiredRole) {
+  try {
+    const user = await API.getCurrentUser();
+    if (user.role !== requiredRole) throw new Error("Incorrect role");
+    return user;
+  } catch (error) {
+    clearSession();
+    window.location.href = "signin.html";
+    return null;
+  }
+}

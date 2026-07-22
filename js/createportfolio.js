@@ -25,8 +25,23 @@ function escapeHtml(value) {
 function setSaving(saving) {
   isSaving = saving;
   document.querySelectorAll('[data-portfolio-save]').forEach((button) => {
-    button.disabled = saving;
+    button.disabled = saving || currentStatus === "pending";
   });
+}
+
+function setFormLocked(locked) {
+  document.querySelectorAll(".main input, .main textarea, .main select").forEach((field) => {
+    field.disabled = locked;
+  });
+  document.querySelectorAll('[data-portfolio-save]').forEach((button) => {
+    button.hidden = locked;
+    button.disabled = locked;
+  });
+  const uploadZone = document.getElementById("upload-zone");
+  if (uploadZone) {
+    uploadZone.setAttribute("aria-disabled", String(locked));
+    uploadZone.style.display = locked ? "none" : "";
+  }
 }
 
 function hasChanges() {
@@ -56,7 +71,9 @@ function hasChanges() {
 function updateSubmitBtn(status) {
   const submitBtn = document.getElementById("submit-btn");
 
-  if (status === "approved") {
+  if (status === "pending") {
+    submitBtn.style.display = "none";
+  } else if (status === "approved") {
     submitBtn.style.display = hasChanges() ? "inline-flex" : "none";
   } else {
     submitBtn.style.display = "inline-flex";
@@ -64,13 +81,8 @@ function updateSubmitBtn(status) {
 }
 
 async function init() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch (err) {
-    alert("Your session has expired or is invalid. Please log in again.");
-    return;
-  }
+  const user = await requirePageRole("business_owner");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0];
   document.getElementById("user-name").innerText = user.name;
@@ -95,6 +107,7 @@ async function init() {
 
     document.getElementById("page-sub").innerHTML = `
       <span class="badge ${p.status}">${statusLabel[p.status]}</span> · Readiness ${p.readiness_score}/100
+      ${p.status === "pending" ? " · Pending review is in progress; editing is temporarily locked." : ""}
     `;
 
     document.getElementById("f-name").value = p.name || "";
@@ -143,6 +156,7 @@ async function init() {
     });
 
     updateSubmitBtn(p.status);
+    setFormLocked(currentStatus === "pending");
   }
 }
 
@@ -248,6 +262,7 @@ let existingDocuments = [];
 let pendingFiles = [];
 
 function handleFiles(files) {
+  if (currentStatus === "pending") return;
   for (const file of files) {
     const extension = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
     if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
@@ -279,7 +294,7 @@ function removePendingFile(index) {
 }
 
 async function removeExistingDocument(docId) {
-  if (!editId) return;
+  if (!editId || currentStatus === "pending") return;
   if (!confirm("Delete this document? This cannot be undone.")) return;
 
   try {
@@ -299,7 +314,7 @@ function renderFileList() {
       <i class="ti ti-file"></i>
       <span>${escapeHtml(d.file_name)}</span>
       <span class="pf-file-size">Uploaded</span>
-      <button class="btn-ghost" onclick="removeExistingDocument(${d.id})"><i class="ti ti-x"></i></button>
+      ${currentStatus === "pending" ? "" : `<button class="btn-ghost" onclick="removeExistingDocument(${d.id})" aria-label="Remove ${escapeHtml(d.file_name)}"><i class="ti ti-x"></i></button>`}
     </div>
   `).join("");
 

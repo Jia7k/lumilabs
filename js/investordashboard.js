@@ -1,5 +1,10 @@
 function escapeHtml(v) {
-  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function formatFunding(n) {
@@ -11,17 +16,8 @@ function formatFunding(n) {
 }
 
 async function init() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch {
-    window.location.href = "signin.html";
-    return;
-  }
-  if (user.role !== "investor") {
-    window.location.href = "signin.html";
-    return;
-  }
+  const user = await requirePageRole("investor");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
@@ -120,7 +116,32 @@ async function init() {
     `;
   }
 
-  initRoleMenu();
+  if (!roleMenuInitialized) {
+    initRoleMenu();
+    roleMenuInitialized = true;
+  }
+}
+
+let isRefreshing = false;
+let roleMenuInitialized = false;
+
+async function refreshInvestorDashboard() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  const button = document.getElementById("recommendations-refresh");
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i class="ti ti-loader-2"></i> Refreshing';
+  }
+  try {
+    await init();
+  } finally {
+    isRefreshing = false;
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = '<i class="ti ti-refresh"></i> Refresh';
+    }
+  }
 }
 
 function initRoleMenu() {
@@ -145,11 +166,6 @@ function initRoleMenu() {
       button.setAttribute("aria-expanded", "false");
     }
   });
-}
-
-function signOut() {
-  localStorage.removeItem("lumilabsToken");
-  window.location.href = "signin.html";
 }
 
 init();

@@ -17,7 +17,7 @@
     </a>
     <div class="nav-links">
       <div class="nav-btn-wrap">
-        <button class="nav-btn active"><i class="ti ti-shield"></i> Moderation Dashboard</button>
+        <button class="nav-btn active" onclick="window.location.href='moderatordashboard.html'"><i class="ti ti-shield"></i> Moderation Dashboard</button>
         <span class="nav-badge" id="nav-pending-badge"></span>
       </div>
       <button class="nav-btn" onclick="window.location.href='audit-logs.html'">
@@ -32,6 +32,9 @@
           <div class="role" id="user-role"></div>
         </div>
       </div>
+      <button class="btn btn-outline" type="button" onclick="signOut()" aria-label="Sign out">
+        <i class="ti ti-logout"></i> Sign out
+      </button>
     </div>
   </nav>
 

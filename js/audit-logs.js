@@ -21,13 +21,8 @@ function formatTimestamp(iso) {
 }
 
 async function initAuditLogs() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch (err) {
-    alert("Your session has expired or is invalid. Please log in again.");
-    return;
-  }
+  const user = await requirePageRole("admin");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
@@ -80,7 +75,7 @@ async function renderAuditLogs() {
 
         <td>
           <span class="${badge.className}">
-            ${badge.label}
+            ${escapeHtml(badge.label)}
           </span>
         </td>
 

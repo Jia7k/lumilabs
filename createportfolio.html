@@ -19,7 +19,7 @@
       <button class="nav-btn" onclick="window.location.href='businessownerdashboard.html'">
         <i class="ti ti-layout-dashboard"></i> Dashboard
       </button>
-      <button class="nav-btn active">
+      <button class="nav-btn active" onclick="window.location.href='mybusinesses.html'">
         <i class="ti ti-building-store"></i> My Businesses
       </button>
       <div class="nav-btn-wrap">
@@ -30,15 +30,16 @@
       </div>
     </div>
     <div class="nav-right">
-      <button class="icon-btn"><i class="ti ti-bell"></i></button>
       <div class="user-chip">
         <div class="avatar" id="user-avatar"></div>
         <div class="user-info">
           <div class="name" id="user-name"></div>
           <div class="role" id="user-role"></div>
         </div>
-        <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
       </div>
+      <button class="btn btn-outline" type="button" onclick="signOut()" aria-label="Sign out">
+        <i class="ti ti-logout"></i> Sign out
+      </button>
     </div>
   </nav>
 

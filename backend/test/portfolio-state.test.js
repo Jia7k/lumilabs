@@ -39,3 +39,9 @@ test('save buttons remain disabled while a request is in flight', () => {
   assert.match(client, /finally\s*\{\s*setSaving\(false\)/);
   assert.equal((page.match(/data-portfolio-save/g) || []).length, 2);
 });
+
+test('the editor visibly locks pending portfolios', () => {
+  assert.match(client, /function setFormLocked/);
+  assert.match(client, /currentStatus === "pending"/);
+  assert.match(client, /Pending review is in progress/);
+});

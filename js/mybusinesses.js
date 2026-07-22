@@ -36,13 +36,8 @@ function formatDate(iso) {
 }
 
 async function init() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch (err) {
-    alert("Your session has expired or is invalid. Please log in again.");
-    return;
-  }
+  const user = await requirePageRole("business_owner");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0];
   document.getElementById("user-name").innerText = user.name;
@@ -60,7 +55,7 @@ async function render() {
   } catch (err) {
     document.getElementById("biz-list").innerHTML = `
       <div class="card" style="text-align:center; padding:48px; color:var(--text-secondary);">
-        Couldn't load your portfolios: ${err.message}
+        Couldn't load your portfolios: ${escapeHtml(err.message)}
       </div>`;
     return;
   }
@@ -83,7 +78,7 @@ async function render() {
           <div class="biz-meta" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
             ${escapeHtml(p.sector)}
             <span style="color:var(--text-muted);">&middot;</span>
-            <span class="badge ${p.status}">${statusLabel[p.status]}</span>
+            <span class="badge ${escapeHtml(p.status)}">${escapeHtml(statusLabel[p.status] || p.status)}</span>
           </div>
 
           <div class="biz-info-grid">
@@ -114,11 +109,11 @@ async function render() {
 
         <div class="biz-actions">
           <button class="btn btn-outline" onclick="window.location.href='createportfolio.html?id=${p.id}'">
-            <i class="ti ti-edit"></i> Edit
+            <i class="ti ${p.status === "pending" ? "ti-eye" : "ti-edit"}"></i> ${p.status === "pending" ? "View" : "Edit"}
           </button>
-          <button class="btn-text-danger" onclick="deletePortfolio(${p.id})">
+          ${["draft", "rejected"].includes(p.status) ? `<button class="btn-text-danger" onclick="deletePortfolio(${p.id})">
             <i class="ti ti-trash"></i> Delete
-          </button>
+          </button>` : ""}
         </div>
       </div>
     </div>
@@ -135,11 +130,6 @@ async function deletePortfolio(id) {
   } catch (err) {
     alert("Couldn't delete portfolio: " + err.message);
   }
-}
-
-function signOut() {
-  localStorage.removeItem("lumilabsToken");
-  window.location.href = "signin.html";
 }
 
 function initRoleMenu() {

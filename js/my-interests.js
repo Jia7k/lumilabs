@@ -93,11 +93,6 @@ async function removeInterest(portfolioId) {
   }
 }
 
-function signOut() {
-  localStorage.removeItem("lumilabsToken");
-  window.location.href = "signin.html";
-}
-
 function initRoleMenu() {
   const menu = document.getElementById("role-menu");
   const button = document.getElementById("role-menu-button");
@@ -110,17 +105,8 @@ function initRoleMenu() {
 }
 
 async function init() {
-  let user;
-  try {
-    user = await API.getCurrentUser();
-  } catch {
-    window.location.href = "signin.html";
-    return;
-  }
-  if (user.role !== "investor") {
-    window.location.href = "signin.html";
-    return;
-  }
+  const user = await requirePageRole("investor");
+  if (!user) return;
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
@@ -129,7 +115,7 @@ async function init() {
     interests = await API.getMyInterests();
   } catch (err) {
     document.getElementById("interests-list").innerHTML = `
-      <div class="empty-state"><i class="ti ti-alert-circle"></i><h3>Couldn't load interests</h3><p>${err.message}</p></div>`;
+      <div class="empty-state"><i class="ti ti-alert-circle"></i><h3>Couldn't load interests</h3><p>${escapeHtml(err.message)}</p></div>`;
     return;
   }
 
