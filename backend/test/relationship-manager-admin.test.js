@@ -80,6 +80,8 @@ test('invalid manager fields are rejected before querying the database', { concu
 
   assert.equal(response.status, 400);
   assert.ok(Array.isArray(payload.errors));
+  assert.equal(payload.errors.some((error) => Object.hasOwn(error, 'value')), false);
+  assert.doesNotMatch(JSON.stringify(payload), /short/);
   assert.equal(calls.length, 0);
 });
 

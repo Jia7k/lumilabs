@@ -13,6 +13,15 @@ const relationshipManagerValidation = [
   body('password').isLength({ min: 6, max: 128 }),
 ];
 
+function safeValidationErrors(req) {
+  return validationResult(req).array().map(({ type, msg, path, location }) => ({
+    type,
+    msg,
+    path,
+    location,
+  }));
+}
+
 function sendWorkflowError(res, error) {
   if (error && Number.isInteger(error.status)) {
     return res.status(error.status).json({ error: error.message });
@@ -28,8 +37,8 @@ router.post(
   requireRole('admin'),
   relationshipManagerValidation,
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const errors = safeValidationErrors(req);
+    if (errors.length) return res.status(400).json({ errors });
 
     const { email, name, password } = req.body;
     try {

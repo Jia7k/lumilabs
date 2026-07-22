@@ -109,3 +109,17 @@ test('rejects missing managed-room uniqueness and message-member foreign key', a
     /Missing schema invariants: conversations\.unique_conversation_portfolio[\s\S]*messages\.fk_messages_member/,
   );
 });
+
+test('rejects extra enum values instead of accepting schema drift', async () => {
+  const metadata = completeMetadata();
+  const role = metadata.columns.find((row) => (
+    row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'role'
+  ));
+  role.COLUMN_TYPE = role.COLUMN_TYPE.replace("'admin')", "'admin','super_admin')");
+  const results = [metadata.columns, metadata.indexes, metadata.foreignKeys];
+
+  await assert.rejects(
+    verifySchema({ query: async () => [results.shift(), []] }),
+    /users\.role enum values must exactly match/,
+  );
+});

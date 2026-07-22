@@ -271,9 +271,16 @@ async function verifySchema(database) {
   }
 
   for (const [field, requiredValues] of Object.entries(REQUIRED_ENUMS)) {
-    const actual = new Set(enumValues(property(columns.get(field), 'column_type', 'COLUMN_TYPE')));
+    const actualValues = enumValues(property(columns.get(field), 'column_type', 'COLUMN_TYPE'));
+    const actual = new Set(actualValues);
     for (const value of requiredValues) {
       if (!actual.has(value)) issues.push(`${field} missing enum value ${value}`);
+    }
+    if (
+      actualValues.length !== requiredValues.length
+      || actualValues.some((value, index) => value !== requiredValues[index])
+    ) {
+      issues.push(`${field} enum values must exactly match ${requiredValues.join(',')}`);
     }
   }
 

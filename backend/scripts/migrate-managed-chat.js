@@ -99,6 +99,11 @@ async function count(database, sql, params = []) {
   return Number(result[0]?.count || 0);
 }
 
+function enumValues(columnType) {
+  return [...String(columnType || '').matchAll(/'((?:''|[^'])*)'/g)]
+    .map((match) => match[1].replaceAll("''", "'"));
+}
+
 function chatNotificationCondition(notificationColumns, alias = 'n') {
   const prefix = alias ? `${alias}.` : '';
   const conditions = [
@@ -135,6 +140,38 @@ async function readProtectedCounts(database, notificationColumns) {
       WHERE NOT ${chatNotificationCondition(notificationColumns)}`,
   );
   return result;
+}
+
+async function unrelatedNotificationIdentities(database, notificationColumns) {
+  const identities = await rows(
+    database,
+    `SELECT id,type FROM notifications n
+      WHERE NOT ${chatNotificationCondition(notificationColumns)}
+      ORDER BY id`,
+  );
+  return identities.map(({ id, type }) => ({ id: Number(id), type }));
+}
+
+function assertUnrelatedNotificationIdentities(before, after) {
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    throw new Error('Unrelated notification identities changed during migration');
+  }
+}
+
+async function ensureColumn(database, table, column, definition) {
+  const existing = await rows(
+    database,
+    `SELECT COLUMN_NAME
+       FROM information_schema.columns
+      WHERE table_schema=DATABASE() AND table_name=? AND column_name=?
+      LIMIT 1`,
+    [table, column],
+  );
+  if (existing.length) return;
+  await database.query(
+    `ALTER TABLE ${quoteIdentifier(table)}
+       ADD COLUMN ${quoteIdentifier(column)} ${definition}`,
+  );
 }
 
 async function ensureIndex(database, table, name, definition) {
@@ -213,14 +250,43 @@ async function migrateManagedChat(database, environment = process.env) {
 
   const notificationColumnRows = await rows(
     database,
-    `SELECT COLUMN_NAME AS column_name
+    `SELECT COLUMN_NAME AS column_name,COLUMN_TYPE AS column_type
        FROM information_schema.columns
       WHERE table_schema=DATABASE() AND table_name='notifications'`,
   );
   const notificationColumnsBefore = new Set(
     notificationColumnRows.map((row) => row.column_name || row.COLUMN_NAME),
   );
+  const notificationTypeColumn = notificationColumnRows.find((row) => (
+    (row.column_name || row.COLUMN_NAME) === 'type'
+  ));
+  const configuredNotificationTypes = enumValues(
+    notificationTypeColumn?.column_type || notificationTypeColumn?.COLUMN_TYPE,
+  );
+  const unsupportedConfiguredTypes = configuredNotificationTypes.filter(
+    (type) => !NOTIFICATION_TYPES.includes(type),
+  );
+  const notificationTypeRows = await rows(
+    database,
+    'SELECT DISTINCT type FROM notifications',
+  );
+  const unsupportedStoredTypes = notificationTypeRows
+    .map((row) => row.type)
+    .filter((type) => !NOTIFICATION_TYPES.includes(type));
+  if (unsupportedConfiguredTypes.length || unsupportedStoredTypes.length) {
+    const unexpected = [...new Set([
+      ...unsupportedConfiguredTypes,
+      ...unsupportedStoredTypes,
+    ])];
+    throw new Error(
+      `Migration preflight found unsupported notification types: ${unexpected.join(', ')}`,
+    );
+  }
   const before = await readProtectedCounts(database, notificationColumnsBefore);
+  const unrelatedBefore = await unrelatedNotificationIdentities(
+    database,
+    notificationColumnsBefore,
+  );
   const chatCondition = chatNotificationCondition(notificationColumnsBefore, 'notifications');
   const [deletedNotifications] = await database.query(
     `DELETE FROM notifications WHERE ${chatCondition}`,
@@ -254,11 +320,17 @@ async function migrateManagedChat(database, environment = process.env) {
   await database.query(CREATE_MEMBERS);
   await database.query(CREATE_MESSAGES);
 
-  await database.query(
-    'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_conversation_id INT NULL AFTER related_portfolio_id',
+  await ensureColumn(
+    database,
+    'notifications',
+    'related_conversation_id',
+    'INT NULL AFTER related_portfolio_id',
   );
-  await database.query(
-    'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_message_id INT NULL AFTER related_conversation_id',
+  await ensureColumn(
+    database,
+    'notifications',
+    'related_message_id',
+    'INT NULL AFTER related_conversation_id',
   );
   await database.query(
     `ALTER TABLE notifications
@@ -297,7 +369,12 @@ async function migrateManagedChat(database, environment = process.env) {
     'related_message_id',
   ]);
   const after = await readProtectedCounts(database, notificationColumnsAfter);
+  const unrelatedAfter = await unrelatedNotificationIdentities(
+    database,
+    notificationColumnsAfter,
+  );
   assertProtectedCounts(before, after);
+  assertUnrelatedNotificationIdentities(unrelatedBefore, unrelatedAfter);
 
   return {
     before,
@@ -310,5 +387,6 @@ module.exports = {
   BACKUP_CONFIRMATION,
   CHAT_RESET_CONFIRMATION,
   assertMigrationGuards,
+  ensureColumn,
   migrateManagedChat,
 };

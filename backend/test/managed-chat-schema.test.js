@@ -102,3 +102,53 @@ test('guard rejection performs no database query', async () => {
   );
   assert.equal(queries, 0);
 });
+
+test('missing notification columns use MySQL 8 compatible conditional DDL', async () => {
+  const source = fs.readFileSync(migrationPath, 'utf8');
+  assert.doesNotMatch(source, /ADD COLUMN IF NOT EXISTS/);
+
+  const { ensureColumn } = require(migrationPath);
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql: String(sql).replace(/\s+/g, ' ').trim(), params });
+      if (String(sql).includes('information_schema.columns')) return [[], []];
+      return [{ affectedRows: 0 }, []];
+    },
+  };
+  await ensureColumn(database, 'notifications', 'related_message_id', 'INT NULL');
+  assert.match(calls.at(-1).sql, /ALTER TABLE `notifications` ADD COLUMN `related_message_id` INT NULL/);
+  assert.doesNotMatch(calls.at(-1).sql, /IF NOT EXISTS/);
+});
+
+test('migration cleanup closes the tunnel even when database close fails', async () => {
+  const { releaseMigrationResources } = require('../migrate');
+  const events = [];
+  await assert.rejects(
+    releaseMigrationResources({
+      connection: {
+        async end() {
+          events.push('database');
+          throw new Error('database close failed');
+        },
+      },
+      tunnel: {
+        server: {
+          close(callback) {
+            events.push('tunnel');
+            callback();
+          },
+        },
+      },
+    }),
+    /database close failed/,
+  );
+  assert.deepEqual(events, ['database', 'tunnel']);
+});
+
+test('migration validates and snapshots unrelated notification identities before reset', () => {
+  const source = fs.readFileSync(migrationPath, 'utf8');
+  assert.match(source, /SELECT DISTINCT type FROM notifications/);
+  assert.match(source, /unrelatedNotificationIdentities/);
+  assert.match(source, /Unrelated notification identities changed/);
+});

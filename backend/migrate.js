@@ -48,6 +48,26 @@ async function closeTunnel(tunnel) {
   });
 }
 
+async function releaseMigrationResources({ connection, tunnel }) {
+  const errors = [];
+  if (connection) {
+    try {
+      await connection.end();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  try {
+    await closeTunnel(tunnel);
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'Failed to release migration resources');
+  }
+}
+
 async function main(environment = process.env) {
   requireEnvironment(environment);
   let tunnel;
@@ -65,8 +85,7 @@ async function main(environment = process.env) {
     console.log(JSON.stringify({ status: 'managed chat migration complete', ...result }));
     return result;
   } finally {
-    if (connection) await connection.end();
-    await closeTunnel(tunnel);
+    await releaseMigrationResources({ connection, tunnel });
   }
 }
 
@@ -77,4 +96,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, openMigrationTunnel, requireEnvironment };
+module.exports = {
+  main,
+  openMigrationTunnel,
+  releaseMigrationResources,
+  requireEnvironment,
+};

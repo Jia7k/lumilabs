@@ -55,5 +55,12 @@ test('four-role smoke cleanup is transactionally scoped to tracked identities an
   assert.match(source, /DELETE FROM users/);
   assert.match(source, /email LIKE 'codex\\_e2e\\_%'/);
   assert.match(source, /assertCleanupComplete/);
+  assert.match(source, /reconcileTemporaryRecords/);
+  assert.match(source, /verifyTrackedResources/);
+  assert.match(source, /SELECT id,email,name,role FROM users WHERE email IN/);
+  assert.match(source, /p\.owner_id=\?/);
+  assert.match(source, /c\.relationship_manager_id=\?/);
+  assert.match(source, /FOR UPDATE/);
+  assert.match(source, /assertAffected/);
   assert.doesNotMatch(source, /victor@lumilabs\.com|admin123|password\s*=/i);
 });

@@ -190,17 +190,193 @@ async function purgeStagedFiles(staged) {
   }
 }
 
-async function verifyTrackedIdentities() {
+function userIdForEmail(email) {
+  return [...tracked.userEmails.entries()].find(([, value]) => value === email)?.[0] || null;
+}
+
+async function reconcileTemporaryRecords() {
+  const emailValues = Object.values(emails);
+  const [users] = await db.query(
+    `SELECT id,email,name,role FROM users WHERE email IN (${placeholders(emailValues)})`,
+    emailValues,
+  );
+  const expectedRoles = new Map([
+    [emails.admin, 'admin'],
+    [emails.manager, 'relationship_manager'],
+    [emails.otherManager, 'relationship_manager'],
+    [emails.owner, 'business_owner'],
+    [emails.investor, 'investor'],
+  ]);
+  for (const user of users) {
+    assert.equal(user.role, expectedRoles.get(String(user.email).toLowerCase()));
+    trackUser(user);
+  }
+
+  const ownerId = userIdForEmail(emails.owner);
+  if (!ownerId) return;
+  const [portfolios] = await db.query(
+    'SELECT id,owner_id,name FROM portfolios WHERE owner_id=? AND name=?',
+    [ownerId, `${prefix} Portfolio`],
+  );
+  assert.ok(portfolios.length <= 1, 'temporary portfolio identity is ambiguous');
+  if (!portfolios.length) return;
+  const discoveredPortfolioId = positiveId(portfolios[0].id, 'portfolio ID');
+  if (tracked.portfolioId) {
+    assert.equal(tracked.portfolioId, discoveredPortfolioId, 'tracked portfolio ID is misbound');
+  }
+  tracked.portfolioId = discoveredPortfolioId;
+
+  const investorId = userIdForEmail(emails.investor);
+  if (investorId) {
+    const [interests] = await db.query(
+      'SELECT id FROM investor_interests WHERE portfolio_id=? AND investor_id=?',
+      [tracked.portfolioId, investorId],
+    );
+    assert.ok(interests.length <= 1, 'temporary interest identity is ambiguous');
+    if (interests.length) {
+      const discoveredInterestId = positiveId(interests[0].id, 'interest ID');
+      if (tracked.interestId) {
+        assert.equal(tracked.interestId, discoveredInterestId, 'tracked interest ID is misbound');
+      }
+      tracked.interestId = discoveredInterestId;
+    }
+  }
+
+  const managerId = userIdForEmail(emails.manager);
+  if (managerId) {
+    const [conversations] = await db.query(
+      `SELECT c.id,c.portfolio_id,c.relationship_manager_id
+         FROM conversations c
+        WHERE c.portfolio_id=? AND c.relationship_manager_id=?`,
+      [tracked.portfolioId, managerId],
+    );
+    assert.ok(conversations.length <= 1, 'temporary conversation identity is ambiguous');
+    if (conversations.length) {
+      const discoveredConversationId = positiveId(conversations[0].id, 'conversation ID');
+      if (tracked.conversationId) {
+        assert.equal(
+          tracked.conversationId,
+          discoveredConversationId,
+          'tracked conversation ID is misbound',
+        );
+      }
+      tracked.conversationId = discoveredConversationId;
+      const [messages] = await db.query(
+        'SELECT id FROM messages WHERE conversation_id=?',
+        [tracked.conversationId],
+      );
+      for (const message of messages) tracked.messageIds.add(positiveId(message.id, 'message ID'));
+    }
+  }
+}
+
+async function verifyTrackedIdentities(lock = false) {
   const userIds = [...tracked.userIds];
   if (!userIds.length) return;
   const [rows] = await db.query(
-    `SELECT id,email FROM users WHERE id IN (${placeholders(userIds)}) AND ${temporaryEmailPredicate}`,
+    `SELECT id,email FROM users
+      WHERE id IN (${placeholders(userIds)}) AND ${temporaryEmailPredicate}
+      ${lock ? 'FOR UPDATE' : ''}`,
     userIds,
   );
   assert.equal(rows.length, userIds.length, 'every tracked user must retain its temporary identity');
   for (const row of rows) {
     assert.equal(String(row.email).toLowerCase(), tracked.userEmails.get(Number(row.id)));
   }
+}
+
+async function verifyTrackedResources() {
+  await verifyTrackedIdentities(true);
+  const resources = {
+    audits: [],
+    documents: [],
+    interests: [],
+    memberships: [],
+    messages: [],
+    notifications: [],
+  };
+  if (!tracked.portfolioId) return resources;
+
+  const ownerId = userIdForEmail(emails.owner);
+  const [portfolios] = await db.query(
+    `SELECT p.id,p.owner_id,p.name,owner.email AS owner_email
+       FROM portfolios p
+       JOIN users owner ON owner.id=p.owner_id
+      WHERE p.id=? AND p.owner_id=?
+      FOR UPDATE`,
+    [tracked.portfolioId, ownerId],
+  );
+  assert.equal(portfolios.length, 1, 'tracked portfolio does not belong to this run');
+  assert.equal(portfolios[0].name, `${prefix} Portfolio`);
+  assert.equal(String(portfolios[0].owner_email).toLowerCase(), emails.owner);
+
+  const investorId = userIdForEmail(emails.investor);
+  if (tracked.interestId) {
+    [resources.interests] = await db.query(
+      'SELECT id,portfolio_id,investor_id FROM investor_interests WHERE id=? FOR UPDATE',
+      [tracked.interestId],
+    );
+    if (resources.interests.length) {
+      assert.equal(Number(resources.interests[0].portfolio_id), tracked.portfolioId);
+      assert.equal(Number(resources.interests[0].investor_id), investorId);
+    }
+  }
+
+  [resources.documents] = await db.query(
+    'SELECT id,portfolio_id,file_url FROM portfolio_documents WHERE portfolio_id=? FOR UPDATE',
+    [tracked.portfolioId],
+  );
+  const documentIds = new Set(resources.documents.map(({ id }) => Number(id)));
+  for (const id of tracked.documentIds) {
+    assert.ok(documentIds.has(id), `tracked document ${id} is not owned by the temporary portfolio`);
+  }
+  for (const row of resources.documents) tracked.documentIds.add(positiveId(row.id, 'document ID'));
+
+  [resources.audits] = await db.query(
+    'SELECT id,portfolio_id FROM audit_logs WHERE portfolio_id=? FOR UPDATE',
+    [tracked.portfolioId],
+  );
+  for (const row of resources.audits) tracked.auditIds.add(positiveId(row.id, 'audit ID'));
+
+  if (tracked.conversationId) {
+    const managerId = userIdForEmail(emails.manager);
+    const [conversations] = await db.query(
+      `SELECT c.id,c.portfolio_id,c.relationship_manager_id
+         FROM conversations c
+        WHERE c.id=? AND c.portfolio_id=? AND c.relationship_manager_id=?
+        FOR UPDATE`,
+      [tracked.conversationId, tracked.portfolioId, managerId],
+    );
+    assert.equal(conversations.length, 1, 'tracked conversation does not belong to this run');
+
+    [resources.messages] = await db.query(
+      'SELECT id,conversation_id FROM messages WHERE conversation_id=? FOR UPDATE',
+      [tracked.conversationId],
+    );
+    for (const row of resources.messages) tracked.messageIds.add(positiveId(row.id, 'message ID'));
+    [resources.memberships] = await db.query(
+      'SELECT conversation_id,user_id FROM conversation_members WHERE conversation_id=? FOR UPDATE',
+      [tracked.conversationId],
+    );
+    for (const membership of resources.memberships) {
+      assert.ok(
+        tracked.userIds.has(Number(membership.user_id)),
+        'temporary conversation contains an untracked member',
+      );
+    }
+  }
+
+  const notificationScope = notificationCleanupWhere();
+  [resources.notifications] = await db.query(
+    `SELECT id FROM notifications WHERE ${notificationScope.sql} FOR UPDATE`,
+    notificationScope.params,
+  );
+  trackNotifications(resources.notifications);
+  return resources;
+}
+
+function assertAffected(result, expected, label) {
+  assert.equal(Number(result.affectedRows), Number(expected), `${label} cleanup count changed`);
 }
 
 async function assertCleanupComplete() {
@@ -242,84 +418,78 @@ async function assertCleanupComplete() {
 
 async function cleanTemporaryRecords() {
   if (!db) return;
-  const userIds = [...tracked.userIds];
-  if (!userIds.length) {
-    await db.end();
-    db = null;
-    return;
-  }
-
   let stagedFiles = [];
   let transactionOpen = false;
   let committed = false;
   try {
-    await verifyTrackedIdentities();
-
-    let documentRows = [];
-    if (tracked.portfolioId) {
-      [documentRows] = await db.query(
-        'SELECT id,file_url FROM portfolio_documents WHERE portfolio_id=?',
-        [tracked.portfolioId],
-      );
-      for (const row of documentRows) tracked.documentIds.add(positiveId(row.id, 'document ID'));
-    }
-    stagedFiles = await stageDocumentFiles(documentRows);
-
-    if (tracked.portfolioId) {
-      const [audits] = await db.query(
-        'SELECT id FROM audit_logs WHERE portfolio_id=?',
-        [tracked.portfolioId],
-      );
-      for (const row of audits) tracked.auditIds.add(positiveId(row.id, 'audit ID'));
-    }
-    const notificationScope = notificationCleanupWhere();
-    const [notifications] = await db.query(
-      `SELECT id FROM notifications WHERE ${notificationScope.sql}`,
-      notificationScope.params,
-    );
-    trackNotifications(notifications);
+    await reconcileTemporaryRecords();
+    const userIds = [...tracked.userIds];
+    if (!userIds.length) return;
 
     await db.beginTransaction();
     transactionOpen = true;
+    const resources = await verifyTrackedResources();
+    stagedFiles = await stageDocumentFiles(resources.documents);
+
     const finalNotificationScope = notificationCleanupWhere();
-    await db.query(
+    const [deletedNotifications] = await db.query(
       `DELETE FROM notifications WHERE ${finalNotificationScope.sql}`,
       finalNotificationScope.params,
     );
+    assertAffected(
+      deletedNotifications,
+      resources.notifications.length,
+      'notification',
+    );
     if (tracked.conversationId) {
-      await db.query('DELETE FROM messages WHERE conversation_id=?', [tracked.conversationId]);
-      await db.query(
+      const [deletedMessages] = await db.query(
+        'DELETE FROM messages WHERE conversation_id=?',
+        [tracked.conversationId],
+      );
+      assertAffected(deletedMessages, resources.messages.length, 'message');
+      const [deletedMemberships] = await db.query(
         'DELETE FROM conversation_members WHERE conversation_id=?',
         [tracked.conversationId],
       );
-      await db.query('DELETE FROM conversations WHERE id=?', [tracked.conversationId]);
+      assertAffected(deletedMemberships, resources.memberships.length, 'membership');
+      const [deletedConversation] = await db.query(
+        'DELETE FROM conversations WHERE id=?',
+        [tracked.conversationId],
+      );
+      assertAffected(deletedConversation, 1, 'conversation');
     }
     if (tracked.portfolioId) {
-      await db.query('DELETE FROM audit_logs WHERE portfolio_id=?', [tracked.portfolioId]);
-      const investorId = [...tracked.userEmails.entries()]
-        .find(([, email]) => email === emails.investor)?.[0];
+      const [deletedAudits] = await db.query(
+        'DELETE FROM audit_logs WHERE portfolio_id=?',
+        [tracked.portfolioId],
+      );
+      assertAffected(deletedAudits, resources.audits.length, 'audit');
+      const investorId = userIdForEmail(emails.investor);
       if (investorId) {
-        await db.query(
+        const [deletedInterests] = await db.query(
           'DELETE FROM investor_interests WHERE portfolio_id=? AND investor_id=?',
           [tracked.portfolioId, investorId],
         );
+        assertAffected(deletedInterests, resources.interests.length, 'interest');
       }
-      await db.query(
+      const [deletedDocuments] = await db.query(
         'DELETE FROM portfolio_documents WHERE portfolio_id=?',
         [tracked.portfolioId],
       );
-      const ownerId = [...tracked.userEmails.entries()]
-        .find(([, email]) => email === emails.owner)?.[0];
-      await db.query(
+      assertAffected(deletedDocuments, resources.documents.length, 'document');
+      const ownerId = userIdForEmail(emails.owner);
+      const [deletedPortfolio] = await db.query(
         'DELETE FROM portfolios WHERE id=? AND owner_id=?',
         [tracked.portfolioId, ownerId],
       );
+      assertAffected(deletedPortfolio, 1, 'portfolio');
     }
     const emailValues = userIds.map((id) => tracked.userEmails.get(id));
-    await db.query(
+    const [deletedUsers] = await db.query(
       `DELETE FROM users WHERE id IN (${placeholders(userIds)}) AND email IN (${placeholders(emailValues)}) AND ${temporaryEmailPredicate}`,
       [...userIds, ...emailValues],
     );
+    assertAffected(deletedUsers, userIds.length, 'user');
     await db.commit();
     transactionOpen = false;
     committed = true;
