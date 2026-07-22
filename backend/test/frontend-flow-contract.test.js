@@ -34,7 +34,7 @@ test('all protected role pages provide sign out', () => {
   const protectedPages = [
     'businessownerdashboard.html', 'mybusinesses.html', 'createportfolio.html',
     'investordashboard.html', 'browse.html', 'my-interests.html', 'messages.html',
-    'moderatordashboard.html', 'audit-logs.html',
+    'moderatordashboard.html', 'audit-logs.html', 'relationshipmanagerdashboard.html',
   ];
   for (const page of protectedPages) assert.match(read(page), /signOut|signout/i, page);
 });

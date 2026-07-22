@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Relationship Manager Dashboard — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="dashboard rm-dashboard">
+  <a class="skip-link" href="#main-content">Skip to dashboard</a>
+  <nav class="nav" aria-label="Relationship manager navigation">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>
+      Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <a class="nav-btn active" href="relationshipmanagerdashboard.html" aria-current="page">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
+      </a>
+      <a class="nav-btn" href="messages.html">
+        <i class="ti ti-messages"></i> Messages
+      </a>
+    </div>
+    <div class="nav-right">
+      <div class="user-chip">
+        <div class="avatar rm-avatar" id="user-avatar"></div>
+        <div class="user-info">
+          <div class="name" id="user-name"></div>
+          <div class="role" id="user-role"></div>
+        </div>
+      </div>
+      <button class="btn btn-outline" type="button" onclick="signOut()" aria-label="Sign out">
+        <i class="ti ti-logout"></i> Sign out
+      </button>
+    </div>
+  </nav>
+
+  <main class="main rm-dashboard-main" id="main-content">
+    <header class="rm-page-heading">
+      <div>
+        <p class="rm-eyebrow">Managed introductions</p>
+        <h1>Relationship Manager Dashboard</h1>
+        <p>Connect eligible investors with approved businesses and guide each group conversation.</p>
+      </div>
+      <a class="btn btn-primary rm-heading-cta" href="messages.html">
+        <i class="ti ti-message-circle"></i> Open messages
+      </a>
+    </header>
+
+    <div class="dashboard-status loading" id="dashboard-status" role="status" aria-live="polite">
+      Loading managed conversations…
+    </div>
+    <button class="btn btn-outline rm-retry" id="dashboard-retry" type="button" hidden>
+      <i class="ti ti-refresh"></i> Try again
+    </button>
+
+    <section class="stats-grid rm-stats-grid" aria-label="Relationship manager summary">
+      <article class="stat-card rm-stat-card rm-stat-eligible">
+        <div><div class="stat-label">Eligible interests</div><div class="stat-value" id="stat-eligible">—</div></div>
+        <div class="stat-icon icon-purple"><i class="ti ti-user-search"></i></div>
+      </article>
+      <article class="stat-card rm-stat-card rm-stat-active">
+        <div><div class="stat-label">Active rooms</div><div class="stat-value" id="stat-active">—</div></div>
+        <div class="stat-icon icon-green"><i class="ti ti-messages"></i></div>
+      </article>
+      <article class="stat-card rm-stat-card rm-stat-businesses">
+        <div><div class="stat-label">Businesses overseen</div><div class="stat-value" id="stat-businesses">—</div></div>
+        <div class="stat-icon icon-blue"><i class="ti ti-building-community"></i></div>
+      </article>
+      <article class="stat-card rm-stat-card rm-stat-unread">
+        <div><div class="stat-label">Unread messages</div><div class="stat-value" id="stat-unread">—</div></div>
+        <div class="stat-icon icon-orange"><i class="ti ti-mail"></i></div>
+      </article>
+    </section>
+
+    <section class="rm-dashboard-section" aria-labelledby="unclaimed-title">
+      <div class="rm-section-heading">
+        <div>
+          <p class="rm-section-kicker">Ready to connect</p>
+          <h2 id="unclaimed-title">Approved portfolios awaiting a room</h2>
+        </div>
+        <p>Select one or more interested investors when creating a managed group.</p>
+      </div>
+      <div class="rm-room-grid" id="unclaimed-room-list"></div>
+    </section>
+
+    <section class="rm-dashboard-section" aria-labelledby="rooms-title">
+      <div class="rm-section-heading">
+        <div>
+          <p class="rm-section-kicker">Your portfolio rooms</p>
+          <h2 id="rooms-title">Managed conversations</h2>
+        </div>
+        <p>Oversee participants, open the discussion, or update room status.</p>
+      </div>
+      <div class="rm-room-grid" id="managed-room-list"></div>
+    </section>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/relationshipmanagerdashboard.js"></script>
+</body>
+</html>
