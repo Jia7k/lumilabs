@@ -81,6 +81,14 @@ async function cleanTemporaryRecords() {
   }
 
   try {
+    await db.beginTransaction();
+    await db.query(
+      `DELETE n FROM notifications n
+        JOIN portfolios p ON p.id=n.related_portfolio_id
+        JOIN users u ON u.id=p.owner_id
+       WHERE u.email IN (?,?,?)`,
+      [emails.owner, emails.investor, emails.admin],
+    );
     await db.query(
       'DELETE FROM users WHERE email IN (?,?,?)',
       [emails.owner, emails.investor, emails.admin],
@@ -90,6 +98,10 @@ async function cleanTemporaryRecords() {
       [emails.owner, emails.investor, emails.admin],
     );
     assert.equal(remaining.length, 0, 'temporary users must be removed');
+    await db.commit();
+  } catch (error) {
+    await db.rollback().catch(() => {});
+    throw error;
   } finally {
     await db.end();
   }
