@@ -181,7 +181,7 @@ async function openReviewModal(id) {
           ${
             full.documents && full.documents.length > 0
               ? full.documents.map(d => `
-                  <a href="${API.resolveFileUrl(d.file_url)}" target="_blank" rel="noopener"
+                  <a href="${escapeHtml(d.download_url)}" data-document-download data-file-name="${escapeHtml(d.file_name)}"
                      style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
                     <i class="ti ti-file"></i> ${escapeHtml(d.file_name)}
                   </a>
@@ -262,6 +262,17 @@ function closeReviewModal() {
 
 document.getElementById("review-overlay").addEventListener("click", (e) => {
   if (e.target.id === "review-overlay") closeReviewModal();
+});
+
+document.getElementById("review-card").addEventListener("click", async (event) => {
+  const link = event.target.closest("[data-document-download]");
+  if (!link) return;
+  event.preventDefault();
+  try {
+    await API.downloadDocument(link.getAttribute("href"), link.dataset.fileName);
+  } catch (error) {
+    alert("Couldn't download document: " + error.message);
+  }
 });
 
 async function handleApprove() {

@@ -17,19 +17,18 @@ const ALLOWED_MIME_TYPES = {
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    // Unique name on disk, user-facing name is preserved separately in file_name
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname) || ALLOWED_MIME_TYPES[file.mimetype] || '';
-    cb(null, `${unique}${ext}`);
+    cb(null, `${unique}${ALLOWED_MIME_TYPES[file.mimetype]}`);
   },
 });
 
 function fileFilter(req, file, cb) {
-  if (ALLOWED_MIME_TYPES[file.mimetype]) {
-    cb(null, true);
-  } else {
-    cb(new Error('Unsupported file type. Allowed: PDF, PPT, PPTX, DOC, DOCX'));
+  const expected = ALLOWED_MIME_TYPES[file.mimetype];
+  const actual = path.extname(file.originalname).toLowerCase();
+  if (!expected || actual !== expected) {
+    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'documents'));
   }
+  return cb(null, true);
 }
 
 const upload = multer({
@@ -41,4 +40,4 @@ const upload = multer({
   },
 });
 
-module.exports = upload;
+module.exports = { upload, fileFilter, ALLOWED_MIME_TYPES };

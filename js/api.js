@@ -95,6 +95,44 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+async function downloadDocument(downloadUrl, fileName) {
+  const token = getToken();
+  if (!token) {
+    clearSession();
+    window.location.href = "signin.html";
+    throw new Error("Please sign in to download this document");
+  }
+
+  const response = await fetch(downloadUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`;
+    try {
+      const payload = await response.json();
+      message = payload?.error || message;
+    } catch {
+      // Keep the status-based error when the server did not return JSON.
+    }
+    if (response.status === 401) {
+      clearSession();
+      window.location.href = "signin.html";
+    }
+    throw new Error(message);
+  }
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName || "document";
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
 const API = {
   // Auth
   getCurrentUser: () => apiFetch("/auth/me"),
@@ -131,7 +169,8 @@ const API = {
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
-  resolveFileUrl: (fileUrl) => `${FILE_BASE}${fileUrl}`,
+  resolveFileUrl: (fileUrl) => fileUrl,
+  downloadDocument: downloadDocument,
 
   // Business owner dashboard
   getBusinessOwnerDashboard: () => apiFetch("/dashboard/business-owner"),

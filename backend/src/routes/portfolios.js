@@ -4,7 +4,7 @@ const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
-const upload = require('../middleware/upload');
+const { upload } = require('../middleware/upload');
 const { submitPortfolio } = require('../services/workflow');
 
 const router = express.Router();
@@ -42,6 +42,11 @@ async function loadOwnedEditablePortfolio(req, res, next) {
     return res.status(500).json({ error: 'Server error' });
   }
 }
+
+const withDownloadUrl = (doc) => ({
+  ...doc,
+  download_url: `/api/portfolios/${doc.portfolio_id}/documents/${doc.id}/download`,
+});
 
 const optFloat = (min = 0) => (v) => {
   if (v == null || v === '') return true;
@@ -169,10 +174,42 @@ router.get('/:id', authenticate, async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ ...portfolio, documents: docs });
+    res.json({ ...portfolio, documents: docs.map(withDownloadUrl) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/portfolios/:id/documents/:docId/download — authorized attachment
+router.get('/:id/documents/:docId/download', authenticate, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT d.*, p.owner_id, p.status
+         FROM portfolio_documents d
+         JOIN portfolios p ON p.id=d.portfolio_id
+        WHERE d.id=? AND p.id=?`,
+      [req.params.docId, req.params.id],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+
+    const doc = rows[0];
+    const allowed = req.user.role === 'admin'
+      || Number(doc.owner_id) === Number(req.user.id)
+      || (req.user.role === 'investor' && doc.status === 'approved');
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    const backendRoot = path.join(__dirname, '..', '..');
+    const uploadRoot = path.join(backendRoot, 'uploads');
+    const relative = doc.file_url.replace(/^\/uploads\//, 'uploads/');
+    const absolute = path.resolve(backendRoot, relative);
+    if (absolute !== uploadRoot && !absolute.startsWith(`${uploadRoot}${path.sep}`)) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    return res.download(absolute, doc.file_name);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -399,7 +436,7 @@ router.post(
         [req.params.id]
       );
  
-      res.status(201).json({ documents: docs, readiness_score });
+      res.status(201).json({ documents: docs.map(withDownloadUrl), readiness_score });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });
