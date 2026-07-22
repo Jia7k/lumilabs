@@ -30,7 +30,7 @@ function retrySection(message) {
   return `<div class="empty-state" role="alert">
     <i class="ti ti-alert-circle"></i>
     <p>${escapeHtml(message)}</p>
-    <button class="btn-refresh" type="button" onclick="refreshInvestorDashboard()">Retry</button>
+    <button class="btn-section-retry" type="button" onclick="refreshInvestorDashboard()">Retry</button>
   </div>`;
 }
 
@@ -120,14 +120,19 @@ function renderRecommendationResult(result) {
     : '<p style="color:var(--text-muted);">No startups yet.</p>';
 }
 
+let dashboardLoadVersion = 0;
+
 async function loadInvestorDashboard() {
+  const loadVersion = ++dashboardLoadVersion;
   const [dashboard, recommendations] = await Promise.allSettled([
     API.getInvestorDashboard(),
     API.getRecommendations(),
   ]);
+  if (loadVersion !== dashboardLoadVersion) return false;
   const interestCount = renderDashboardResult(dashboard);
   renderRecommendationResult(recommendations);
   renderQuickActions(interestCount);
+  return true;
 }
 
 async function init() {

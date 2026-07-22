@@ -10,11 +10,13 @@ const source = fs.readFileSync(path.join(root, 'js', 'messages.js'), 'utf8');
 const apiSource = fs.readFileSync(path.join(root, 'js', 'api.js'), 'utf8');
 
 test('messages page uses the shared authenticated API client without global collisions', () => {
-  const apiScriptIndex = html.indexOf('<script src="js/api.js"></script>');
-  const messagesScriptIndex = html.indexOf('<script src="js/messages.js"></script>');
+  const apiScript = html.match(/<script src="js\/api\.js\?v=([a-z0-9._-]+)"><\/script>/i);
+  const messagesScript = html.match(/<script src="js\/messages\.js\?v=([a-z0-9._-]+)"><\/script>/i);
 
-  assert.ok(apiScriptIndex >= 0, 'messages.html must load js/api.js');
-  assert.ok(messagesScriptIndex > apiScriptIndex, 'js/api.js must load before js/messages.js');
+  assert.ok(apiScript, 'messages.html must load a cache-keyed js/api.js');
+  assert.ok(messagesScript, 'messages.html must load a cache-keyed js/messages.js');
+  assert.equal(apiScript[1], messagesScript[1], 'message scripts must share one release cache key');
+  assert.ok(apiScript.index < messagesScript.index, 'js/api.js must load before js/messages.js');
   assert.match(html, /onclick="signOut\(\)"/);
   assert.doesNotMatch(source, /const API_BASE/);
   assert.doesNotMatch(source, /function apiFetch\s*\(/);

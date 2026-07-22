@@ -316,6 +316,54 @@ test('refresh removal clears the active thread and invalidates stale work', asyn
   assert.match(client.run('els.messageList.innerHTML'), /Conversation unavailable/);
 });
 
+test('failed manual refresh clears stale thread state and offers data-only Retry', async () => {
+  const client = clientHarness();
+  client.run("window.location.href = 'messages.html'");
+  client.hooks.request = async (requestPath) => {
+    assert.equal(requestPath, '/messages/conversations');
+    throw Object.assign(new Error('temporary outage'), {
+      status: 500,
+      isNetworkError: false,
+    });
+  };
+
+  assert.equal(await client.run('refreshMessages()'), false);
+
+  assert.equal(client.run('state.activeConversationId'), null);
+  assert.equal(client.run('state.activeThread'), null);
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+  assert.equal(client.run('els.archiveNotice.hidden'), true);
+  assert.match(client.run('els.conversationList.innerHTML'), /Messages unavailable/);
+  assert.match(client.run('els.conversationList.innerHTML'), /data-retry-messages/);
+  assert.equal(client.run('window.location.href'), 'messages.html');
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+});
+
+test('newer archived summary overrides an older active thread and disables sending', async () => {
+  const client = clientHarness();
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12') return thread([]);
+    if (requestPath === '/messages/conversations') {
+      return [{
+        ...summary,
+        status: 'archived',
+        archived_reason: 'manual',
+      }];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  await client.run("selectConversation('12')");
+
+  assert.equal(client.run('state.activeThread.conversation.status'), 'archived');
+  assert.equal(client.run('state.activeThread.conversation.archived_reason'), 'manual');
+  assert.equal(client.run('state.activeThread.conversation.can_send'), false);
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+  assert.equal(client.run('els.archiveNotice.hidden'), false);
+});
+
 test('a pending thread response cannot restore a room removed by refresh', async () => {
   const client = clientHarness();
   let resolveThread;
@@ -385,4 +433,31 @@ test('workspace retry is data-only and never binds handlers twice', async () => 
 
   assert.equal(identityCalls, 2);
   assert.equal(client.listenerCount(), listenersAfterInit);
+});
+
+test('overlapping workspace loads serialize identity and inbox requests', async () => {
+  const client = clientHarness();
+  let releaseIdentity;
+  const pendingIdentity = new Promise((resolve) => { releaseIdentity = resolve; });
+  client.context.pendingIdentity = pendingIdentity;
+  client.run('state.user = null');
+  let identityCalls = 0;
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/me') {
+      identityCalls += 1;
+      await pendingIdentity;
+      return { id: 8, name: 'Rachel Manager', role: 'relationship_manager' };
+    }
+    if (requestPath === '/messages/conversations') return [];
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  const first = client.run('loadMessagesWorkspace()');
+  const second = client.run('loadMessagesWorkspace()');
+  assert.equal(identityCalls, 1);
+  releaseIdentity();
+
+  assert.equal(await first, true);
+  assert.equal(await second, false);
+  assert.equal(identityCalls, 1);
 });

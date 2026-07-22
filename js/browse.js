@@ -51,6 +51,7 @@ function commitBrowseSnapshot(snapshot) {
 
 function setBrowseStatus(message = "", type = "", retryable = false) {
   const status = document.getElementById("browse-status");
+  if (!status) return;
   status.hidden = !message;
   status.className = type;
   status.innerHTML = message
@@ -209,9 +210,12 @@ async function init() {
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
-  document.getElementById("browse-status").addEventListener("click", (event) => {
-    if (event.target.closest("[data-retry-interest-refresh]")) retryInterestRefresh();
-  });
+  const browseStatus = document.getElementById("browse-status");
+  if (browseStatus) {
+    browseStatus.addEventListener("click", (event) => {
+      if (event.target.closest("[data-retry-interest-refresh]")) retryInterestRefresh();
+    });
+  }
 
   const [portfoliosRes, myInterestsRes, recsRes] = await Promise.allSettled([
     API.getAllPortfolios(),

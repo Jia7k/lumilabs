@@ -97,8 +97,8 @@ function inputValue(value) {
 function parseIntegerOrNull(value) {
   const text = String(value ?? "").trim();
   if (!text) return null;
-  const number = Number.parseInt(text, 10);
-  return Number.isFinite(number) ? number : null;
+  const number = Number(text);
+  return Number.isSafeInteger(number) ? number : null;
 }
 
 function parseDecimalOrNull(value) {
@@ -227,6 +227,19 @@ async function submitForm(status) {
 
     if (funding_goal === null || funding_goal < 0) {
       alert("Funding Goal must be zero or greater.");
+      return;
+    }
+
+    const invalidIntegerField = [
+      ["f-team_size", "team_size", "Team Size"],
+      ["f-founded_year", "founded_year", "Founded Year"],
+      ["f-user_count", "user_count", "User Count"],
+      ["f-runway_months", "runway_months", "Runway Months"],
+    ].find(([id, key]) => (
+      document.getElementById(id).value.trim() !== "" && payload[key] === null
+    ));
+    if (invalidIntegerField) {
+      alert(`${invalidIntegerField[2]} must be a whole number.`);
       return;
     }
 

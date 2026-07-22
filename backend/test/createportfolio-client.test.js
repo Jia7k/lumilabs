@@ -11,6 +11,7 @@ const source = fs.readFileSync(
 
 function editorHarness() {
   const fields = new Map();
+  const hooks = { alerts: [], created: [] };
   const document = {
     getElementById(id) {
       if (!fields.has(id)) fields.set(id, { value: '', addEventListener() {} });
@@ -23,15 +24,21 @@ function editorHarness() {
     document,
     URLSearchParams,
     requirePageRole: async () => null,
-    API: {},
+    API: {
+      async createPortfolio(payload) {
+        hooks.created.push(payload);
+        return { id: 99 };
+      },
+    },
     history: { replaceState() {} },
-    alert() {},
+    alert(message) { hooks.alerts.push(message); },
     confirm() { return false; },
     console,
     Set,
+    hooks,
   });
   vm.runInContext(source, context);
-  return { context, fields, run: (code) => vm.runInContext(code, context) };
+  return { context, fields, hooks, run: (code) => vm.runInContext(code, context) };
 }
 
 test('edit hydration preserves every numeric zero', () => {
@@ -69,7 +76,29 @@ test('payload serialization preserves integer and decimal zeroes', () => {
 test('optional numeric parsers distinguish blank and invalid input from zero', () => {
   const editor = editorHarness();
   assert.equal(editor.run("parseIntegerOrNull('0')"), 0);
+  assert.equal(editor.run("parseIntegerOrNull('1e3')"), 1000);
+  assert.equal(editor.run("parseIntegerOrNull('12.5')"), null);
+  assert.equal(editor.run("parseIntegerOrNull('-0.5')"), null);
+  assert.equal(editor.run("parseIntegerOrNull('12xyz')"), null);
   assert.equal(editor.run("parseDecimalOrNull('0.00')"), 0);
   assert.equal(editor.run("parseIntegerOrNull('')"), null);
   assert.equal(editor.run("parseDecimalOrNull('not-a-number')"), null);
+});
+
+test('nonblank fractional integer input is rejected instead of silently truncated', async () => {
+  const editor = editorHarness();
+  const values = {
+    'f-name': 'Exact Labs', 'f-sector': 'Fintech', 'f-mvp_status': 'beta',
+    'f-funding_goal': '1000', 'f-description': '', 'f-team_size': '12.5',
+    'f-founded_year': '2024', 'f-location': '', 'f-website': '',
+    'f-advisor_names': '', 'f-monthly_revenue': '', 'f-user_count': '',
+    'f-growth_rate': '', 'f-market_size': '', 'f-competitor_analysis': '',
+    'f-burn_rate': '', 'f-runway_months': '',
+  };
+  for (const [id, value] of Object.entries(values)) editor.fields.set(id, { value });
+
+  await editor.run("submitForm('draft')");
+
+  assert.equal(editor.hooks.created.length, 0);
+  assert.match(editor.hooks.alerts.at(-1), /Team Size.*whole number/i);
 });

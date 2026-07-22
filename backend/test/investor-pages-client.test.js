@@ -82,6 +82,65 @@ test('recommendation failure preserves dashboard data and uses its real interest
   assert.match(client.elements.get('quick-actions-list').innerHTML, /badge-red[^>]*>3</);
 });
 
+test('dashboard section Retry uses a visible card-specific button style', async () => {
+  const client = loadClient('js/investordashboard.js');
+  client.run(`
+    API.getInvestorDashboard = async () => { throw new Error('dashboard down'); };
+    API.getRecommendations = async () => { throw new Error('recommendations down'); };
+  `);
+
+  await client.run('loadInvestorDashboard()');
+
+  assert.match(client.elements.get('recent-interests-list').innerHTML, /btn-section-retry/);
+  const page = fs.readFileSync(path.join(root, 'investordashboard.html'), 'utf8');
+  assert.match(page, /\.btn-section-retry\s*\{[^}]*color:\s*var\(--text-primary\)/s);
+  assert.match(page, /\.btn-section-retry\s*\{[^}]*border:\s*1px solid var\(--border\)/s);
+});
+
+test('a superseded dashboard load cannot overwrite a newer result', async () => {
+  const client = loadClient('js/investordashboard.js');
+  let resolveOldDashboard;
+  let resolveOldRecommendations;
+  client.context.oldDashboard = new Promise((resolve) => { resolveOldDashboard = resolve; });
+  client.context.oldRecommendations = new Promise((resolve) => { resolveOldRecommendations = resolve; });
+  client.run(`
+    dashboardCalls = 0;
+    recommendationCalls = 0;
+    API.getInvestorDashboard = async () => {
+      dashboardCalls += 1;
+      if (dashboardCalls === 1) return oldDashboard;
+      return {
+        stats: { available: 8, interests: 4, messages: 2, highPotential: 5 },
+        recentInterests: [{ id: 2, name: 'New Result', sector: 'SaaS' }]
+      };
+    };
+    API.getRecommendations = async () => {
+      recommendationCalls += 1;
+      if (recommendationCalls === 1) return oldRecommendations;
+      return [{
+        id: 2, name: 'New Result', sector: 'SaaS', ai_score: 92,
+        readiness_score: 86, funding_goal: 900000, created_at: '2026-07-23T01:00:00Z'
+      }];
+    };
+  `);
+
+  const oldLoad = client.run('loadInvestorDashboard()');
+  await client.run('loadInvestorDashboard()');
+  resolveOldDashboard({
+    stats: { available: 1, interests: 1, messages: 0, highPotential: 0 },
+    recentInterests: [{ id: 1, name: 'Old Result', sector: 'Fintech' }],
+  });
+  resolveOldRecommendations([{
+    id: 1, name: 'Old Result', sector: 'Fintech', ai_score: 50,
+    readiness_score: 50, funding_goal: 100000, created_at: '2026-07-22T01:00:00Z',
+  }]);
+  await oldLoad;
+
+  assert.match(client.elements.get('recent-interests-list').innerHTML, /New Result/);
+  assert.doesNotMatch(client.elements.get('recent-interests-list').innerHTML, /Old Result/);
+  assert.equal(client.elements.get('stat-interests').innerText, 4);
+});
+
 test('My Interests binds its menu and retry before a failed data load', async () => {
   const client = loadClient('js/my-interests.js');
   client.run(`

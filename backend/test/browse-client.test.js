@@ -6,11 +6,17 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'browse.js'), 'utf8');
 
-function browseHarness() {
+function browseHarness({ includeStatus = true, captureStatus = true } = {}) {
   const hooks = { calls: [], statuses: [], renders: 0 };
   const context = vm.createContext({
     window: { location: { href: '' } },
-    document: { getElementById() { return { addEventListener() {} }; }, addEventListener() {} },
+    document: {
+      getElementById(id) {
+        if (id === 'browse-status' && !includeStatus) return null;
+        return { addEventListener() {} };
+      },
+      addEventListener() {},
+    },
     requirePageRole: async () => null,
     API: {},
     alert() {},
@@ -19,12 +25,18 @@ function browseHarness() {
     hooks,
   });
   vm.runInContext(source, context);
-  vm.runInContext(`
-    applyFilters = () => { hooks.renders += 1; };
-    setBrowseStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });
-  `, context);
+  vm.runInContext(
+    `applyFilters = () => { hooks.renders += 1; };
+    ${captureStatus ? 'setBrowseStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });' : ''}`,
+    context,
+  );
   return { context, hooks, run: (code) => vm.runInContext(code, context) };
 }
+
+test('new browse client tolerates a cached page without the status target', () => {
+  const client = browseHarness({ includeStatus: false, captureStatus: false });
+  assert.doesNotThrow(() => client.run("setBrowseStatus('Temporary', 'error', true)"));
+});
 
 test('successful interest mutation commits the two refetched sources together', async () => {
   const client = browseHarness();

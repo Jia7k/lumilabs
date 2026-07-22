@@ -24,9 +24,9 @@ const state = {
 
 const els = {};
 let conversationLoadVersion = 0;
-let lastConversationLoadError = null;
 let toastTimer = null;
 let eventsBound = false;
+let messagesWorkspaceLoading = false;
 
 document.addEventListener('DOMContentLoaded', initMessages);
 
@@ -36,7 +36,14 @@ async function initMessages() {
   await loadMessagesWorkspace();
 }
 
+function setMessagesWorkspaceLoading(loading) {
+  messagesWorkspaceLoading = loading;
+  if (els.refreshBtn) els.refreshBtn.disabled = loading;
+}
+
 async function loadMessagesWorkspace() {
+  if (messagesWorkspaceLoading) return false;
+  setMessagesWorkspaceLoading(true);
   try {
     const user = await apiFetch('/messages/me');
     state.user = {
@@ -47,17 +54,20 @@ async function loadMessagesWorkspace() {
     };
     renderUser();
 
-    const loaded = await loadConversations();
-    if (!loaded) {
-      if (lastConversationLoadError?.status !== 401) {
-        renderLoadError('Messages are temporarily unavailable.');
+    const loadResult = await loadConversations();
+    if (loadResult.status !== 'success') {
+      if (loadResult.status === 'failed' && loadResult.error?.status !== 401) {
+        renderLoadError(
+          loadResult.error?.isNetworkError
+            ? 'Messages could not be reached. Check your connection and retry.'
+            : 'Messages are temporarily unavailable.',
+        );
       }
       return false;
     }
 
     renderConversations();
-    await selectInitialConversation();
-    return true;
+    return await selectInitialConversation();
   } catch (error) {
     console.error(error);
     if (error?.status !== 401) {
@@ -68,6 +78,8 @@ async function loadMessagesWorkspace() {
       );
     }
     return false;
+  } finally {
+    setMessagesWorkspaceLoading(false);
   }
 }
 
@@ -182,23 +194,20 @@ function closeRoleMenu() {
 
 async function loadConversations(expectedSelectionVersion = null) {
   const loadVersion = ++conversationLoadVersion;
-  lastConversationLoadError = null;
   try {
     const rows = await apiFetch('/messages/conversations');
-    if (loadVersion !== conversationLoadVersion) return false;
+    if (loadVersion !== conversationLoadVersion) return { status: 'superseded' };
     if (
       expectedSelectionVersion !== null
       && expectedSelectionVersion !== state.selectionVersion
-    ) return false;
+    ) return { status: 'superseded' };
     state.conversations = rows.map(normalizeConversation);
-    return true;
+    return { status: 'success' };
   } catch (error) {
     console.error(error);
-    if (loadVersion === conversationLoadVersion) {
-      lastConversationLoadError = error;
-      if (error?.status !== 401) showToast('Could not load conversations');
-    }
-    return false;
+    if (loadVersion !== conversationLoadVersion) return { status: 'superseded' };
+    if (error?.status !== 401) showToast('Could not load conversations');
+    return { status: 'failed', error };
   }
 }
 
@@ -222,13 +231,14 @@ function normalizeLatestMessage(row) {
 }
 
 function normalizeConversation(row = {}) {
+  const status = row.status || 'archived';
   return {
     id: String(row.id ?? ''),
     portfolio_id: row.portfolio_id == null ? null : String(row.portfolio_id),
     title: row.title || 'Managed conversation',
-    status: row.status || 'archived',
+    status,
     archived_reason: row.archived_reason || null,
-    can_send: Boolean(row.can_send),
+    can_send: row.can_send == null ? status === 'active' : Boolean(row.can_send),
     unread_count: Number(row.unread_count) || 0,
     participants: Array.isArray(row.participants)
       ? row.participants.map(normalizeParticipant)
@@ -292,29 +302,45 @@ async function selectInitialConversation() {
 
 async function refreshMessages() {
   if (!state.user) return loadMessagesWorkspace();
+  if (messagesWorkspaceLoading) return false;
+  setMessagesWorkspaceLoading(true);
 
   const previousConversationId = state.activeConversationId;
   const refreshVersion = ++state.selectionVersion;
-  const loaded = await loadConversations(refreshVersion);
-  if (!loaded) return false;
-
-  renderConversations();
-  if (previousConversationId !== null) {
-    const stillAvailable = state.conversations.some(({ id }) => (
-      sameId(id, previousConversationId)
-    ));
-    if (!stillAvailable) {
-      showConversationUnavailable();
+  setComposeEnabled(false);
+  try {
+    const loadResult = await loadConversations(refreshVersion);
+    if (loadResult.status !== 'success') {
+      if (loadResult.status === 'failed' && loadResult.error?.status !== 401) {
+        renderLoadError(
+          loadResult.error?.isNetworkError
+            ? 'Messages could not be reached. Check your connection and retry.'
+            : 'Messages are temporarily unavailable.',
+        );
+      }
       return false;
     }
-    const selected = await selectConversation(previousConversationId);
+
+    renderConversations();
+    if (previousConversationId !== null) {
+      const stillAvailable = state.conversations.some(({ id }) => (
+        sameId(id, previousConversationId)
+      ));
+      if (!stillAvailable) {
+        showConversationUnavailable();
+        return false;
+      }
+      const selected = await selectConversation(previousConversationId);
+      if (selected) showToast('Conversations refreshed');
+      return selected;
+    }
+
+    const selected = await selectInitialConversation();
     if (selected) showToast('Conversations refreshed');
     return selected;
+  } finally {
+    setMessagesWorkspaceLoading(false);
   }
-
-  const selected = await selectInitialConversation();
-  if (selected) showToast('Conversations refreshed');
-  return selected;
 }
 
 function renderConversations() {
@@ -435,9 +461,9 @@ async function selectConversation(conversationId) {
     }
 
     if (!selectionIsCurrent(selectionVersion, id)) return false;
-    const listLoaded = await loadConversations(selectionVersion);
+    const listResult = await loadConversations(selectionVersion);
     if (!selectionIsCurrent(selectionVersion, id)) return false;
-    if (listLoaded) {
+    if (listResult.status === 'success') {
       if (!syncActiveConversationSummary()) return false;
       renderConversations();
       renderActiveHeader();
@@ -467,10 +493,11 @@ function syncActiveConversationSummary() {
     return false;
   }
   state.activeThread.conversation = {
-    ...summary,
     ...state.activeThread.conversation,
+    ...summary,
     participants: state.activeThread.participants,
   };
+  applyConversationAvailability();
   return true;
 }
 
@@ -637,9 +664,9 @@ async function reloadActiveConversationFromDatabase(conversationId) {
   }
 
   if (!selectionIsCurrent(selectionVersion, id)) return false;
-  const listLoaded = await loadConversations(selectionVersion);
+  const listResult = await loadConversations(selectionVersion);
   if (!selectionIsCurrent(selectionVersion, id)) return false;
-  if (listLoaded) {
+  if (listResult.status === 'success') {
     if (!syncActiveConversationSummary()) return false;
     renderConversations();
     renderActiveHeader();
