@@ -32,7 +32,101 @@ function formatSubmitted(iso) {
 
 let currentUser = null;
 let currentQueue = [];
+let relationshipManagers = [];
 let activeReviewId = null; // portfolio id currently open in the review modal
+
+function setRmFieldError(inputId, message) {
+  const input = document.getElementById(inputId);
+  const group = input.closest(".form-group");
+  group.classList.toggle("has-error", Boolean(message));
+  document.getElementById(`${inputId}-error`).textContent = message;
+}
+
+function setRmFormMessage(message, type = "") {
+  const element = document.getElementById("rm-form-message");
+  element.textContent = message;
+  element.className = message ? `form-message show ${type}` : "form-message";
+}
+
+function renderRelationshipManagers() {
+  const list = document.getElementById("rm-account-list");
+  document.getElementById("rm-account-count").textContent =
+    `${relationshipManagers.length} ${relationshipManagers.length === 1 ? "account" : "accounts"}`;
+  if (!relationshipManagers.length) {
+    list.innerHTML = '<tr class="rm-empty-row"><td colspan="3">No relationship manager accounts yet.</td></tr>';
+    return;
+  }
+  list.innerHTML = relationshipManagers.map((manager) => {
+    const created = manager.created_at
+      ? new Date(manager.created_at).toLocaleDateString("en-SG", {
+        day: "numeric", month: "short", year: "numeric"
+      })
+      : "—";
+    return `
+      <tr>
+        <td>
+          <span class="rm-account-name">${escapeHtml(manager.name)}</span>
+          <span class="rm-account-role">${escapeHtml(manager.role.replaceAll("_", " "))}</span>
+        </td>
+        <td>${escapeHtml(manager.email)}</td>
+        <td>${escapeHtml(created)}</td>
+      </tr>`;
+  }).join("");
+}
+
+function bindRelationshipManagerForm() {
+  const form = document.getElementById("rm-account-form");
+  const rmSubmit = document.getElementById("rm-submit");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = document.getElementById("rm-name");
+    const email = document.getElementById("rm-email");
+    const password = document.getElementById("rm-password");
+    const cleanName = name.value.trim();
+    const cleanEmail = email.value.trim();
+    let valid = true;
+
+    setRmFormMessage("");
+    setRmFieldError("rm-name", "");
+    setRmFieldError("rm-email", "");
+    setRmFieldError("rm-password", "");
+    if (!cleanName) {
+      setRmFieldError("rm-name", "Full name is required.");
+      valid = false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setRmFieldError("rm-email", "Enter a valid email address.");
+      valid = false;
+    }
+    if (password.value.length < 6 || password.value.length > 128) {
+      setRmFieldError("rm-password", "Use between 6 and 128 characters.");
+      valid = false;
+    }
+    if (!valid) {
+      setRmFormMessage("Please fix the highlighted fields.", "error");
+      return;
+    }
+
+    rmSubmit.disabled = true;
+    rmSubmit.innerHTML = '<i class="ti ti-loader-2"></i> Creating account…';
+    try {
+      await API.createRelationshipManager({
+        name: cleanName,
+        email: cleanEmail,
+        password: password.value,
+      });
+      password.value = "";
+      relationshipManagers = await API.getRelationshipManagers();
+      renderRelationshipManagers();
+      setRmFormMessage("Relationship manager account created.", "success");
+    } catch (error) {
+      setRmFormMessage(error.message, "error");
+    } finally {
+      rmSubmit.disabled = false;
+      rmSubmit.innerHTML = '<i class="ti ti-user-plus"></i> Create manager account';
+    }
+  });
+}
 
 async function initAdmin() {
   currentUser = await requirePageRole("admin");
@@ -47,14 +141,18 @@ async function initAdmin() {
   document.getElementById("page-title").innerText = "Moderation Dashboard";
   document.getElementById("page-subtitle").innerText = "Review and manage startup portfolios";
 
+  bindRelationshipManagerForm();
   await renderAdmin();
 }
 
 async function renderAdmin() {
   let stats;
   try {
-    stats = await API.getStats();
-    currentQueue = await API.getQueue();
+    [stats, currentQueue, relationshipManagers] = await Promise.all([
+      API.getStats(),
+      API.getQueue(),
+      API.getRelationshipManagers(),
+    ]);
   } catch (err) {
     alert("Couldn't load dashboard data: " + err.message);
     return;
@@ -66,6 +164,7 @@ async function renderAdmin() {
   document.getElementById("stat-rejected").innerText = stats.rejected;
   document.getElementById("stat-matches").innerText = stats.total_matches;
   document.getElementById("queue-badge").innerText = `${stats.pending} pending`;
+  renderRelationshipManagers();
 
   const tbody = document.getElementById("queue-list");
   tbody.innerHTML = "";

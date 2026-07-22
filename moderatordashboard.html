@@ -73,6 +73,56 @@
       </div>
     </div>
 
+    <section class="card rm-admin-card" aria-labelledby="rm-panel-title">
+      <div class="card-header rm-admin-header">
+        <div>
+          <div class="card-title" id="rm-panel-title">Relationship manager accounts</div>
+          <p class="rm-panel-copy">Create access for staff who coordinate managed investor introductions.</p>
+        </div>
+        <span class="rm-security-note"><i class="ti ti-lock"></i> Admin provisioned</span>
+      </div>
+
+      <div class="rm-admin-grid">
+        <form id="rm-account-form" class="rm-account-form" novalidate>
+          <div class="form-group">
+            <label for="rm-name">Full name <span class="required">*</span></label>
+            <input id="rm-name" name="name" type="text" maxlength="100" autocomplete="name" aria-describedby="rm-name-error" />
+            <div class="form-error-text" id="rm-name-error" aria-live="polite"></div>
+          </div>
+          <div class="form-group">
+            <label for="rm-email">Email <span class="required">*</span></label>
+            <input id="rm-email" name="email" type="email" maxlength="255" autocomplete="email" aria-describedby="rm-email-error" />
+            <div class="form-error-text" id="rm-email-error" aria-live="polite"></div>
+          </div>
+          <div class="form-group">
+            <label for="rm-password">Temporary password <span class="required">*</span></label>
+            <input id="rm-password" name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" aria-describedby="rm-password-help rm-password-error" />
+            <p class="rm-password-help" id="rm-password-help">The administrator must communicate it securely to the relationship manager.</p>
+            <div class="form-error-text" id="rm-password-error" aria-live="polite"></div>
+          </div>
+          <div class="form-message" id="rm-form-message" role="status" aria-live="polite"></div>
+          <button class="btn btn-primary rm-submit" id="rm-submit" type="submit">
+            <i class="ti ti-user-plus"></i> Create manager account
+          </button>
+        </form>
+
+        <div class="rm-account-directory" aria-labelledby="rm-directory-title">
+          <div class="rm-directory-heading">
+            <h2 id="rm-directory-title">Active relationship managers</h2>
+            <span id="rm-account-count" class="badge-purple">0 accounts</span>
+          </div>
+          <div class="rm-table-scroll">
+            <table class="table rm-table">
+              <thead>
+                <tr><th>Name</th><th>Email</th><th>Created</th></tr>
+              </thead>
+              <tbody id="rm-account-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div class="card">
       <div class="card-header">
         <div class="card-title">

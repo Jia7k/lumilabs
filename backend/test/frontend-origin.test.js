@@ -28,3 +28,13 @@ test('browser files use only the same-origin API namespace', () => {
     /(?:window\.LUMILABS_API_BASE \|\| )?["']\/api["']/,
   );
 });
+
+test('relationship-manager clients use same-origin API helper paths', () => {
+  const source = fs.readFileSync(path.join(root, 'js/api.js'), 'utf8');
+  for (const route of [
+    '/admin/relationship-managers',
+    '/relationship-manager/dashboard',
+    '/relationship-manager/conversations',
+  ]) assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
+  assert.doesNotMatch(source, /https?:\/\//);
+});

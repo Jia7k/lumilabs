@@ -168,7 +168,30 @@ const API = {
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
+  getRelationshipManagers: () => apiFetch("/admin/relationship-managers"),
+  createRelationshipManager: (payload) =>
+    apiFetch("/admin/relationship-managers", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   downloadDocument: downloadDocument,
+
+  // Relationship manager
+  getRelationshipManagerDashboard: () => apiFetch("/relationship-manager/dashboard"),
+  createManagedConversation: (portfolioId, interestIds) =>
+    apiFetch("/relationship-manager/conversations", {
+      method: "POST",
+      body: JSON.stringify({ portfolio_id: portfolioId, interest_ids: interestIds })
+    }),
+  addManagedInvestors: (conversationId, interestIds) =>
+    apiFetch(`/relationship-manager/conversations/${conversationId}/investors`, {
+      method: "POST",
+      body: JSON.stringify({ interest_ids: interestIds })
+    }),
+  archiveManagedConversation: (conversationId) =>
+    apiFetch(`/relationship-manager/conversations/${conversationId}/archive`, { method: "PUT" }),
+  reopenManagedConversation: (conversationId) =>
+    apiFetch(`/relationship-manager/conversations/${conversationId}/reopen`, { method: "PUT" }),
 
   // Business owner dashboard
   getBusinessOwnerDashboard: () => apiFetch("/dashboard/business-owner"),

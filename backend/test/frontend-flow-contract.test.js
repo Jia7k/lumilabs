@@ -60,6 +60,49 @@ test('public registration exposes only owner and investor roles', () => {
   assert.doesNotMatch(registerRoute, /isIn\([^\n]*relationship_manager/);
 });
 
+test('homepage offers four roles without public manager signup', () => {
+  const html = read('index.html');
+  assert.match(html, />Relationship Manager</);
+  assert.match(
+    html,
+    /href="signin\.html"[^>]*>\s*Sign In as Relationship Manager/s,
+  );
+  assert.doesNotMatch(html, /signup\.html\?role=relationship_manager/);
+  assert.doesNotMatch(html, /Direct messaging|Message investors/);
+});
+
+test('homepage role grid has explicit four, two, and one-column breakpoints', () => {
+  const css = read('css/style.css');
+  assert.match(css, /\.roles-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
+  assert.match(css, /@media \(max-width:\s*1199px\)[\s\S]*?\.roles-grid\s*\{[^}]*repeat\(2,/);
+  assert.match(css, /@media \(max-width:\s*699px\)[\s\S]*?\.roles-grid\s*\{[^}]*1fr/);
+});
+
+test('login maps relationship managers to their protected dashboard', () => {
+  assert.match(
+    read('js/script.js'),
+    /relationship_manager:\s*\{\s*dashboard:\s*'relationshipmanagerdashboard\.html'/,
+  );
+});
+
+test('administrator dashboard provisions managers with accessible recoverable form state', () => {
+  const html = read('moderatordashboard.html');
+  const client = read('js/moderatordashboard.js');
+  for (const id of [
+    'rm-name', 'rm-name-error', 'rm-email', 'rm-email-error',
+    'rm-password', 'rm-password-error', 'rm-submit', 'rm-form-message',
+    'rm-account-list',
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`), id);
+  assert.match(html, /Temporary password/);
+  assert.match(html, /communicate it securely/i);
+  assert.match(client, /Promise\.all/);
+  assert.match(client, /API\.createRelationshipManager/);
+  assert.match(client, /API\.getRelationshipManagers/);
+  assert.match(client, /rmSubmit\.disabled\s*=\s*true/);
+  assert.match(client, /escapeHtml\(manager\.name\)/);
+  assert.match(client, /escapeHtml\(manager\.email\)/);
+});
+
 test('browser JavaScript passes node syntax checking', () => {
   for (const name of fs.readdirSync(path.join(root, 'js')).filter((item) => item.endsWith('.js'))) {
     const result = spawnSync(process.execPath, ['--check', path.join(root, 'js', name)], {

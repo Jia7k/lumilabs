@@ -4,6 +4,7 @@ const API_BASE = window.LUMILABS_API_BASE || '/api';
 const ROLE_MAP = {
   business_owner: { dashboard: 'businessownerdashboard.html' },
   investor: { dashboard: 'investordashboard.html' },
+  relationship_manager: { dashboard: 'relationshipmanagerdashboard.html' },
   admin: { dashboard: 'moderatordashboard.html' },
 };
 
