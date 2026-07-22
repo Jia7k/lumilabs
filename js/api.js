@@ -1,4 +1,26 @@
-const API_BASE = window.LUMILABS_API_BASE || "/api";
+const SHARED_API_BASE = window.LUMILABS_API_BASE || "/api";
+
+const ROLE_DASHBOARDS = Object.freeze({
+  business_owner: "businessownerdashboard.html",
+  investor: "investordashboard.html",
+  relationship_manager: "relationshipmanagerdashboard.html",
+  admin: "moderatordashboard.html",
+});
+
+let signInTransitionStarted = false;
+
+class ApiRequestError extends Error {
+  constructor(message, { status = null, isNetworkError = false } = {}) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.isNetworkError = isNetworkError;
+  }
+}
+
+function dashboardForRole(role) {
+  return ROLE_DASHBOARDS[role] || "index.html";
+}
 
 function showScoreInfo() {
   let overlay = document.getElementById("score-info-overlay");
@@ -57,38 +79,70 @@ function clearSession() {
   localStorage.removeItem("lumilabsSelectedUser");
 }
 
-function signOut() {
+function redirectToSignIn() {
+  if (signInTransitionStarted) return;
+  signInTransitionStarted = true;
   clearSession();
   window.location.href = "signin.html";
+}
+
+function signOut() {
+  redirectToSignIn();
+}
+
+function showPageRecovery(message) {
+  let notice = document.getElementById("protected-page-recovery");
+  if (!notice) {
+    notice = document.createElement("section");
+    notice.id = "protected-page-recovery";
+    notice.setAttribute("role", "alert");
+    notice.setAttribute("aria-live", "assertive");
+    notice.className = "empty-state";
+    notice.innerHTML = `
+      <h2>Page temporarily unavailable</h2>
+      <p></p>
+      <button class="btn btn-primary" type="button">Retry</button>`;
+    notice.querySelector("button").addEventListener("click", () => window.location.reload());
+    (document.querySelector("main") || document.body).replaceChildren(notice);
+  }
+  notice.querySelector("p").textContent = message;
 }
 
 async function apiFetch(path, options = {}) {
   const token = getToken();
   const isFormData = options.body instanceof FormData;
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    }
-  });
+  let response;
+  try {
+    response = await fetch(`${SHARED_API_BASE}${path}`, {
+      ...options,
+      headers: {
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        ...(options.headers || {})
+      }
+    });
+  } catch {
+    throw new ApiRequestError(
+      "Unable to reach Lumi5 Labs. Check your connection and retry.",
+      { isNetworkError: true },
+    );
+  }
 
   let data = null;
   try {
-    data = await res.json();
+    data = await response.json();
   } catch {
     // Ignore JSON parse errors (e.g., empty response)
   }
 
-  if (res.status === 401) clearSession();
-  if (!res.ok) {
+  if (!response.ok) {
     const message =
       data?.error ||
       data?.errors?.[0]?.msg ||
-      `Request failed (${res.status})`;
-    throw new Error(message);
+      `Request failed (${response.status})`;
+    if (response.status === 401) redirectToSignIn();
+    throw new ApiRequestError(message, { status: response.status });
   }
 
   return data;
@@ -97,8 +151,7 @@ async function apiFetch(path, options = {}) {
 async function downloadDocument(downloadUrl, fileName) {
   const token = getToken();
   if (!token) {
-    clearSession();
-    window.location.href = "signin.html";
+    redirectToSignIn();
     throw new Error("Please sign in to download this document");
   }
 
@@ -115,8 +168,7 @@ async function downloadDocument(downloadUrl, fileName) {
       // Keep the status-based error when the server did not return JSON.
     }
     if (response.status === 401) {
-      clearSession();
-      window.location.href = "signin.html";
+      redirectToSignIn();
     }
     throw new Error(message);
   }
@@ -215,11 +267,18 @@ const API = {
 async function requirePageRole(requiredRole) {
   try {
     const user = await API.getCurrentUser();
-    if (user.role !== requiredRole) throw new Error("Incorrect role");
+    if (user.role !== requiredRole) {
+      window.location.href = dashboardForRole(user.role);
+      return null;
+    }
     return user;
   } catch (error) {
-    clearSession();
-    window.location.href = "signin.html";
+    if (error.status === 401) return null;
+    showPageRecovery(
+      error.isNetworkError
+        ? "We could not verify your access because the network is unavailable."
+        : "We could not verify your access right now. Your session has been preserved.",
+    );
     return null;
   }
 }
