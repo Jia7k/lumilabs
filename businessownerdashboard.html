@@ -144,14 +144,15 @@
         .replace(/'/g, "&#039;");
     }
 
-    function investorMessageUrl(interest) {
-      return `messages.html?${new URLSearchParams({
-        partnerId: interest.investor_id,
-        partnerName: interest.investor,
-        partnerRole: "investor",
-        portfolioId: interest.portfolio_id,
-        portfolioName: interest.portfolio,
-      }).toString()}`;
+    function managedChatAction(interest) {
+      const conversationId = Number(interest.conversation_id);
+      if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "open") {
+        return `<a class="managed-chat-action managed-chat-action--icon" href="messages.html?conversationId=${conversationId}" aria-label="Open managed chat for ${escapeHtml(interest.portfolio)}" title="Open Managed Chat"><i class="ti ti-messages"></i></a>`;
+      }
+      if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "archived") {
+        return `<a class="managed-chat-action managed-chat-action--icon managed-chat-archived" href="messages.html?conversationId=${conversationId}" aria-label="View archived chat for ${escapeHtml(interest.portfolio)}" title="View Archived Chat"><i class="ti ti-archive"></i></a>`;
+      }
+      return `<span class="managed-chat-awaiting managed-chat-awaiting--icon" title="Awaiting Relationship Manager" aria-label="Awaiting Relationship Manager"><i class="ti ti-clock"></i></span>`;
     }
 
     function initRoleMenu() {
@@ -215,7 +216,6 @@
 
       document.getElementById("interests-list").innerHTML = data.recentInterests.length
         ? data.recentInterests.map(i => {
-          const messageUrl = escapeHtml(investorMessageUrl(i));
           return `
             <div class="interest-item">
               <div class="inv-avatar">${escapeHtml((i.investor || "?")[0].toUpperCase())}</div>
@@ -223,9 +223,7 @@
                 <div class="interest-name">${escapeHtml(i.investor)}</div>
                 <div class="interest-sub">Interested in ${escapeHtml(i.portfolio)}</div>
               </div>
-              <button class="btn-ghost" onclick="window.location.href='${messageUrl}'" aria-label="Message ${escapeHtml(i.investor)}">
-                <i class="ti ti-message"></i>
-              </button>
+              ${managedChatAction(i)}
             </div>`;
         }).join("")
         : `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No investor interests yet.</div>`;

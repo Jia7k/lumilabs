@@ -46,12 +46,18 @@ test('business dashboard escapes database strings before interpolation', () => {
   }
 });
 
-test('investor message buttons include partner and portfolio context', () => {
-  for (const file of ['js/browse.js', 'js/my-interests.js']) {
+test('owner and investor entry points use only server-provided managed chat state', () => {
+  for (const file of [
+    'businessownerdashboard.html', 'js/browse.js', 'js/my-interests.js',
+    'js/mybusinesses.js', 'js/investordashboard.js',
+  ]) {
     const source = read(file);
-    assert.match(source, /partnerId: portfolio\.owner_id/);
-    assert.match(source, /portfolioId: portfolio\.id/);
+    assert.doesNotMatch(source, /partnerId|receiver_id|Message owner|Message investor/);
+    assert.match(source, /chat_state|messages\.html/);
   }
+  assert.match(read('js/browse.js'), /Awaiting Relationship Manager/);
+  assert.match(read('js/my-interests.js'), /Open Managed Chat/);
+  assert.match(read('js/mybusinesses.js'), /View Archived Chat/);
 });
 
 test('public registration exposes only owner and investor roles', () => {

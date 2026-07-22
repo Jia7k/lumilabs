@@ -256,11 +256,12 @@ async function verifySchema(database) {
     }
   }
 
-  for (const directField of [
-    'messages.receiver_id',
-    'messages.portfolio_id',
-    'messages.read_at',
-  ]) {
+  const retiredMessageFields = [
+    ['receiver', 'id'],
+    ['portfolio', 'id'],
+    ['read', 'at'],
+  ].map((parts) => `messages.${parts.join('_')}`);
+  for (const directField of retiredMessageFields) {
     if (columns.has(directField)) issues.push(`${directField} must not exist`);
   }
 

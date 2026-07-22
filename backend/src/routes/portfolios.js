@@ -126,9 +126,24 @@ router.get('/my', authenticate, requireRole('business_owner'), async (req, res) 
     const [portfolios] = await db.query(
       `SELECT p.*,
         (SELECT COUNT(*) FROM portfolio_documents WHERE portfolio_id = p.id) AS doc_count,
-        (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count
-       FROM portfolios p WHERE p.owner_id = ? ORDER BY p.updated_at DESC`,
-      [req.user.id]
+        (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count,
+        CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
+        CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+        CASE
+          WHEN owner_member.user_id IS NULL THEN 'awaiting_manager'
+          WHEN c.status='active' THEN 'open'
+          ELSE 'archived'
+        END AS chat_state
+       FROM portfolios p
+       LEFT JOIN conversations c ON c.portfolio_id=p.id
+       LEFT JOIN conversation_members owner_member
+         ON owner_member.conversation_id=c.id
+        AND owner_member.user_id=?
+        AND owner_member.member_role='business_owner'
+        AND owner_member.membership_status='active'
+       WHERE p.owner_id = ?
+       ORDER BY p.updated_at DESC`,
+      [req.user.id, req.user.id]
     );
     res.json(portfolios);
   } catch (err) {
@@ -144,12 +159,25 @@ router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res)
     let query = `
       SELECT p.id, p.owner_id, p.name, p.sector, p.description, p.funding_goal, p.readiness_score, p.created_at,
         u.name AS owner_name,
-        (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count
+        (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count,
+        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
+        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+        CASE
+          WHEN investor_member.user_id IS NULL THEN 'awaiting_manager'
+          WHEN c.status='active' THEN 'open'
+          ELSE 'archived'
+        END AS chat_state
       FROM portfolios p
       JOIN users u ON u.id = p.owner_id
+      LEFT JOIN conversations c ON c.portfolio_id=p.id
+      LEFT JOIN conversation_members investor_member
+        ON investor_member.conversation_id=c.id
+       AND investor_member.user_id=?
+       AND investor_member.member_role='investor'
+       AND investor_member.membership_status='active'
       WHERE p.status = 'approved'
     `;
-    const params = [];
+    const params = [req.user.id];
 
     if (sector) {
       query += ' AND p.sector = ?';

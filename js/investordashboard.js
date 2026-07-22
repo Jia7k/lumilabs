@@ -15,6 +15,17 @@ function formatFunding(n) {
   return "$" + n;
 }
 
+function managedChatAction(interest) {
+  const conversationId = Number(interest.conversation_id);
+  if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "open") {
+    return `<a class="managed-chat-action managed-chat-action--compact" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  }
+  if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "archived") {
+    return `<a class="managed-chat-action managed-chat-action--compact managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  }
+  return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+}
+
 async function init() {
   const user = await requirePageRole("investor");
   if (!user) return;
@@ -48,6 +59,7 @@ async function init() {
             <div class="il-name">${escapeHtml(i.name)}</div>
             <div class="il-sub">${escapeHtml(i.sector)}</div>
           </div>
+          ${managedChatAction(i)}
         </div>
       `).join("");
     }

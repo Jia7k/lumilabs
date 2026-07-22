@@ -37,6 +37,12 @@
     --bg-page: #F3F4F6;
   }
 
+  body.role-relationship-manager {
+    --primary: #C8752C;
+    --primary-dark: #A95F22;
+    --bg-page: #F7F4EF;
+  }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg-page);
@@ -331,6 +337,13 @@
     color: var(--text-muted);
     font-size: 11px;
   }
+  .conversation-state {
+    border-radius: 999px;
+    background: #F3F4F6;
+    color: #6B7280;
+    padding: 2px 6px;
+    font-weight: 700;
+  }
   .unread-dot {
     min-width: 20px;
     height: 20px;
@@ -365,9 +378,10 @@
   }
   .thread-person {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     min-width: 0;
+    flex: 1;
   }
   .thread-title { font-size: 16px; font-weight: 700; }
   .thread-subtitle {
@@ -378,6 +392,34 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
+  .participant-rail {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .participant-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 250px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: var(--bg-soft);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .participant-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    flex: 0 0 auto;
+  }
+  .participant-role { color: var(--text-secondary); font-weight: 500; }
   .status-chip {
     border: 1px solid var(--border);
     background: var(--bg-soft);
@@ -423,13 +465,26 @@
   }
   .message-row.mine .message-meta { color: rgba(255,255,255,0.72); }
 
-  .compose-form {
+  .composer-zone {
     border-top: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+  .archive-notice {
+    margin: 12px 14px 0;
+    border: 1px solid #F2D4B8;
+    border-radius: var(--radius-md);
+    background: #FFF8F1;
+    color: #8A4B17;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .compose-form {
     padding: 14px;
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 10px;
-    background: var(--bg-card);
+    background: transparent;
   }
   .compose-input {
     min-height: 44px;
@@ -519,6 +574,11 @@
       <button class="nav-btn active" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
     </div>
 
+    <div class="nav-links" id="relationship-manager-nav" hidden>
+      <button class="nav-btn" onclick="window.location.href='relationshipmanagerdashboard.html'"><i class="ti ti-layout-dashboard"></i> Manager Dashboard</button>
+      <button class="nav-btn active" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
+    </div>
+
     <div class="nav-right">
       <div class="role-menu" id="role-menu">
         <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
@@ -569,7 +629,8 @@
             <div class="conversation-avatar" id="thread-avatar">?</div>
             <div style="min-width:0;">
               <div class="thread-title" id="thread-title">Select a conversation</div>
-              <div class="thread-subtitle" id="thread-subtitle">Choose someone from your inbox to start messaging.</div>
+              <div class="thread-subtitle" id="thread-subtitle">Choose a managed room from your inbox.</div>
+              <div class="participant-rail" id="thread-participants" aria-label="Conversation participants"></div>
             </div>
           </div>
           <div class="status-chip" id="thread-status">Ready</div>
@@ -579,14 +640,17 @@
           <div class="empty-state">
             <i class="ti ti-message-circle"></i>
             <div class="empty-title">No conversation selected</div>
-            <div>Pick a thread or start one from an investor interest.</div>
+            <div>Pick a managed room to view its messages.</div>
           </div>
         </div>
 
-        <form class="compose-form" id="message-form">
-          <textarea class="compose-input" id="message-input" rows="1" maxlength="2000" placeholder="Write a message..." disabled></textarea>
-          <button class="btn primary" id="send-btn" type="submit" disabled><i class="ti ti-send"></i> Send</button>
-        </form>
+        <div class="composer-zone">
+          <div id="archive-notice" aria-live="polite" hidden></div>
+          <form class="compose-form" id="message-form">
+            <textarea class="compose-input" id="message-input" rows="1" maxlength="2000" placeholder="Write a message..." disabled></textarea>
+            <button class="btn primary" id="send-btn" type="submit" disabled><i class="ti ti-send"></i> Send</button>
+          </form>
+        </div>
       </section>
     </section>
   </main>

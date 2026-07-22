@@ -51,10 +51,10 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
     const [recentInterests] = await db.query(
       `SELECT u.name AS investor, u.id AS investor_id,
               p.id AS portfolio_id, p.name AS portfolio,
-              c.id AS conversation_id,
-              c.status AS conversation_status,
+              CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
+              CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
               CASE
-                WHEN c.id IS NULL THEN 'awaiting_manager'
+                WHEN owner_member.user_id IS NULL THEN 'awaiting_manager'
                 WHEN c.status = 'active' THEN 'open'
                 ELSE 'archived'
               END AS chat_state
@@ -62,6 +62,11 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
        JOIN users u ON u.id = ii.investor_id
        JOIN portfolios p ON p.id = ii.portfolio_id
        LEFT JOIN conversations c ON c.portfolio_id = p.id
+       LEFT JOIN conversation_members owner_member
+         ON owner_member.conversation_id = c.id
+        AND owner_member.user_id = p.owner_id
+        AND owner_member.member_role = 'business_owner'
+        AND owner_member.membership_status = 'active'
        WHERE p.owner_id = ? ORDER BY ii.created_at DESC LIMIT 5`,
       [userId]
     );

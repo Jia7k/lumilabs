@@ -7,15 +7,15 @@ function escapeHtml(v) {
     .replace(/'/g, "&#039;");
 }
 
-function messageOwnerUrl(portfolio) {
-  const params = new URLSearchParams({
-    partnerId: portfolio.owner_id,
-    partnerName: portfolio.owner_name,
-    partnerRole: 'business_owner',
-    portfolioId: portfolio.id,
-    portfolioName: portfolio.name,
-  });
-  return `messages.html?${params.toString()}`;
+function managedChatAction(portfolio) {
+  const conversationId = Number(portfolio.conversation_id);
+  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
+    return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  }
+  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
+    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  }
+  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
 }
 
 function formatFunding(n) {
@@ -72,7 +72,6 @@ function renderGrid(portfolios) {
     const liked = interestedIds.has(p.id);
     const score = aiScores[p.id] ?? p.readiness_score;
     const isHighPotential = p.readiness_score >= 75;
-    const messageUrl = escapeHtml(messageOwnerUrl(p));
     return `
       <div class="startup-card" id="card-${p.id}">
         <div class="card-top">
@@ -107,9 +106,7 @@ function renderGrid(portfolios) {
             <i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i>
             ${liked ? "Interested" : "Express Interest"}
           </button>
-          <button class="btn-message" onclick="window.location.href='${messageUrl}'" title="Message owner">
-            <i class="ti ti-message"></i>
-          </button>
+          ${managedChatAction(p)}
         </div>
       </div>
     `;
@@ -123,6 +120,12 @@ async function toggleInterest(portfolioId) {
     if (interestedIds.has(portfolioId)) {
       await API.removeInterest(portfolioId);
       interestedIds.delete(portfolioId);
+      const portfolio = allPortfolios.find((item) => item.id === portfolioId);
+      if (portfolio) {
+        portfolio.conversation_id = null;
+        portfolio.conversation_status = null;
+        portfolio.chat_state = "awaiting_manager";
+      }
     } else {
       await API.expressInterest(portfolioId);
       interestedIds.add(portfolioId);
@@ -130,6 +133,7 @@ async function toggleInterest(portfolioId) {
     const liked = interestedIds.has(portfolioId);
     btn.className = `btn-interest ${liked ? "interested" : ""}`;
     btn.innerHTML = `<i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i> ${liked ? "Interested" : "Express Interest"}`;
+    applyFilters();
   } catch (err) {
     alert("Could not update interest: " + err.message);
   } finally {

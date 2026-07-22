@@ -6,191 +6,205 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(
   path.join(__dirname, '..', '..', 'js', 'messages.js'),
-  'utf8'
+  'utf8',
 );
+
+const summary = {
+  id: 12,
+  portfolio_id: 1,
+  title: 'X3',
+  status: 'active',
+  archived_reason: null,
+  unread_count: 1,
+  participants: [
+    { id: 8, name: 'Rachel Manager', role: 'relationship_manager' },
+    { id: 3, name: 'Beta', role: 'business_owner' },
+    { id: 6, name: 'testing1', role: 'investor' },
+  ],
+  latest_message: null,
+};
+
+function thread(messages = []) {
+  return {
+    conversation: { ...summary, can_send: true },
+    participants: summary.participants,
+    messages,
+  };
+}
 
 function clientHarness() {
   const hooks = {
-    events: [],
     requests: [],
     toasts: [],
-    request: async () => {
-      throw new Error('request hook was not configured');
-    },
+    renders: [],
+    request: async () => { throw new Error('request hook missing'); },
   };
-
   const context = vm.createContext({
-    window: { LUMILABS_API_BASE: undefined },
+    window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
     document: { addEventListener() {} },
+    localStorage: { getItem() { return null; }, removeItem() {} },
     console: { error() {}, log() {} },
     setTimeout,
     clearTimeout,
     URLSearchParams,
+    encodeURIComponent,
     Intl,
     Date,
     testHooks: hooks,
   });
-
   vm.runInContext(source, context);
   vm.runInContext(`
     state.token = 'signed-test-token';
-    state.user = { id: 3, name: 'Beta', role: 'business_owner' };
-    state.active = {
-      partner_id: '2',
-      partner_name: 'Alpha',
-      partner_role: 'investor',
-      partner_role_label: 'Investor',
-      portfolio_id: '',
-      portfolio_name: ''
-    };
-    state.messages = [];
+    state.user = { id: '8', name: 'Rachel Manager', role: 'relationship_manager' };
+    state.conversations = [normalizeConversation(${JSON.stringify(summary)})];
+    state.activeConversationId = '12';
+    state.activeThread = normalizeThread(${JSON.stringify(thread())});
     Object.assign(els, {
-      messageInput: { value: 'Persist me', disabled: false },
-      sendBtn: { disabled: false, innerHTML: '' }
+      messageInput: { value: 'Hello group', disabled: false },
+      sendBtn: { disabled: false, innerHTML: '' },
+      messageList: { innerHTML: '', scrollTop: 0, scrollHeight: 0 },
+      archiveNotice: { hidden: true, textContent: '', className: '' }
     });
     globalThis.originalApiFetch = apiFetch;
     apiFetch = async (path, options) => {
-      testHooks.requests.push(path);
+      testHooks.requests.push({ path, options });
       return testHooks.request(path, options);
     };
-    renderThread = () => testHooks.events.push('render-thread');
-    renderConversations = () => testHooks.events.push('render-conversations');
-    renderActiveHeader = () => testHooks.events.push('render-header');
+    renderThread = () => testHooks.renders.push('thread');
+    renderConversations = () => testHooks.renders.push('list');
+    renderActiveHeader = () => testHooks.renders.push('header');
     showToast = (message) => testHooks.toasts.push(message);
   `, context);
-
-  return {
-    hooks,
-    run: (code) => vm.runInContext(code, context),
-  };
+  return { hooks, run: (code) => vm.runInContext(code, context) };
 }
 
-test('successful POSTs clear each draft and keep the composer reusable', async () => {
+test('a sent message reloads from the selected conversation and leaves composer reusable', async () => {
   const client = clientHarness();
-  const savedMessages = [];
+  const saved = {
+    id: 51,
+    conversation_id: 12,
+    sender_id: 8,
+    sender_name: 'Rachel Manager',
+    sender_role: 'relationship_manager',
+    content: 'Hello group',
+    created_at: '2026-07-22T09:10:00.000Z',
+  };
   client.hooks.request = async (requestPath, options) => {
-    if (requestPath === '/messages') {
+    if (requestPath === '/messages/conversations/12/messages') {
       assert.equal(options.method, 'POST');
-      const body = JSON.parse(options.body);
-      assert.equal(body.receiver_id, 2);
-      assert.equal(body.portfolio_id, null);
-      const saved = {
-        id: 51 + savedMessages.length,
-        sender_id: 3,
-        receiver_id: 2,
-        portfolio_id: null,
-        content: body.content,
-        read_at: null,
-        created_at: '2026-07-20T09:10:00.000Z',
-      };
-      savedMessages.push(saved);
+      assert.deepEqual(JSON.parse(options.body), { content: 'Hello group' });
       return saved;
     }
-    if (requestPath === '/messages/conversations/2') {
-      return savedMessages.map((message) => ({
-        ...message,
-        sender_name: 'Beta',
-      }));
+    if (requestPath === '/messages/conversations/12') return thread([saved]);
+    if (requestPath === '/messages/conversations/12/read') {
+      assert.equal(options.method, 'PUT');
+      assert.deepEqual(JSON.parse(options.body), { message_id: 51 });
+      return { conversation_id: 12, last_read_message_id: 51 };
     }
-    if (requestPath === '/messages/conversations') {
-      const latest = savedMessages[savedMessages.length - 1];
-      return [{
-        ...latest,
-        partner_id: 2,
-        partner_name: 'Alpha',
-        partner_role: 'investor',
-        portfolio_name: null,
-        unread_count: 0,
-      }];
-    }
+    if (requestPath === '/messages/conversations') return [{ ...summary, latest_message: saved }];
     throw new Error(`Unexpected request: ${requestPath}`);
   };
 
   await client.run('sendActiveMessage({ preventDefault() {} })');
 
   assert.equal(client.run('els.messageInput.value'), '');
-  assert.equal(client.run('state.messages.length'), 1);
-  assert.equal(client.run('state.messages[0].id'), 51);
   assert.equal(client.run('els.messageInput.disabled'), false);
   assert.equal(client.run('els.sendBtn.disabled'), false);
-
-  client.run("els.messageInput.value = 'Persist again'");
-  await client.run('sendActiveMessage({ preventDefault() {} })');
-
-  assert.deepEqual(savedMessages.map(({ content }) => content), [
-    'Persist me',
-    'Persist again',
-  ]);
-  assert.equal(client.run('els.messageInput.value'), '');
-  assert.equal(client.run('els.messageInput.disabled'), false);
-  assert.equal(client.run('els.sendBtn.disabled'), false);
-  assert.equal(client.run('state.messages.length'), 2);
-  assert.deepEqual(client.hooks.requests, [
-    '/messages',
-    '/messages/conversations/2',
-    '/messages/conversations',
-    '/messages',
-    '/messages/conversations/2',
+  assert.equal(client.run('state.activeThread.messages[0].content'), 'Hello group');
+  assert.deepEqual(client.hooks.requests.map(({ path: requestPath }) => requestPath), [
+    '/messages/conversations/12/messages',
+    '/messages/conversations/12',
+    '/messages/conversations/12/read',
     '/messages/conversations',
   ]);
-  assert.deepEqual(client.hooks.events, [
-    'render-thread',
-    'render-thread',
-    'render-conversations',
-    'render-header',
-    'render-thread',
-    'render-thread',
-    'render-conversations',
-    'render-header',
-  ]);
-  assert.ok(client.hooks.toasts.includes('Message sent'));
 });
 
-test('POST failure preserves the draft and does not reload', async () => {
+test('failed send preserves the exact draft and restores active composer', async () => {
   const client = clientHarness();
-  client.hooks.request = async () => {
-    throw new Error('Receiver not found');
+  client.run("els.messageInput.value = '  Keep my draft  '");
+  client.hooks.request = async () => { throw new Error('Room unavailable'); };
+
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.equal(client.run('els.messageInput.value'), '  Keep my draft  ');
+  assert.equal(client.run('els.messageInput.disabled'), false);
+  assert.equal(client.run('els.sendBtn.disabled'), false);
+  assert.deepEqual(client.hooks.requests.map(({ path: requestPath }) => requestPath), [
+    '/messages/conversations/12/messages',
+  ]);
+  assert.deepEqual(client.hooks.toasts, ['Room unavailable']);
+});
+
+test('successful thread load marks the last visible message read and refreshes unread list', async () => {
+  const client = clientHarness();
+  const message = {
+    id: 55,
+    conversation_id: 12,
+    sender_id: 3,
+    sender_name: 'Beta',
+    sender_role: 'business_owner',
+    content: 'Update',
+    created_at: '2026-07-22T09:12:00.000Z',
+  };
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12') return thread([message]);
+    if (requestPath === '/messages/conversations/12/read') return {};
+    if (requestPath === '/messages/conversations') return [{ ...summary, unread_count: 0 }];
+    throw new Error(`Unexpected request: ${requestPath}`);
   };
 
-  await client.run('sendActiveMessage({ preventDefault() {} })');
-
-  assert.equal(client.run('els.messageInput.value'), 'Persist me');
-  assert.deepEqual(client.hooks.requests, ['/messages']);
-  assert.deepEqual(client.hooks.events, []);
-  assert.deepEqual(client.hooks.toasts, ['Receiver not found']);
+  await client.run("selectConversation('12')");
+  assert.deepEqual(client.hooks.requests.map(({ path: requestPath }) => requestPath), [
+    '/messages/conversations/12',
+    '/messages/conversations/12/read',
+    '/messages/conversations',
+  ]);
 });
 
-test('reload failure after commit does not restore the draft', async () => {
+test('thread with no messages skips the read endpoint', async () => {
   const client = clientHarness();
   client.hooks.request = async (requestPath) => {
-    if (requestPath === '/messages') {
-      return {
-        id: 52,
-        sender_id: 3,
-        receiver_id: 2,
-        portfolio_id: null,
-        content: 'Persist me',
-        read_at: null,
-        created_at: '2026-07-20T09:11:00.000Z',
-      };
-    }
-    throw new Error('GET failed');
+    if (requestPath === '/messages/conversations/12') return thread([]);
+    if (requestPath === '/messages/conversations') return [summary];
+    throw new Error(`Unexpected request: ${requestPath}`);
   };
-
-  await client.run('sendActiveMessage({ preventDefault() {} })');
-
-  assert.equal(client.run('els.messageInput.value'), '');
-  assert.deepEqual(client.hooks.requests, [
-    '/messages',
-    '/messages/conversations/2',
-  ]);
-  assert.deepEqual(client.hooks.toasts, [
-    'Message sent',
-    'Message saved, but conversation could not be refreshed',
-  ]);
+  await client.run("selectConversation('12')");
+  assert.equal(
+    client.hooks.requests.some(({ path: requestPath }) => requestPath.endsWith('/read')),
+    false,
+  );
 });
 
-test('apiFetch surfaces the first express-validator message', async () => {
+test('a stale thread response cannot replace a newer room selection', async () => {
+  const client = clientHarness();
+  let resolveFirst;
+  const first = new Promise((resolve) => { resolveFirst = resolve; });
+  const secondSummary = { ...summary, id: 13, title: 'Second Room', unread_count: 0 };
+  client.run(`state.conversations.push(normalizeConversation(${JSON.stringify(secondSummary)}))`);
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12') return first;
+    if (requestPath === '/messages/conversations/13') {
+      return {
+        conversation: { ...secondSummary, can_send: true },
+        participants: summary.participants,
+        messages: []
+      };
+    }
+    if (requestPath === '/messages/conversations') return [summary, secondSummary];
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  const firstSelection = client.run("selectConversation('12')");
+  const secondSelection = client.run("selectConversation('13')");
+  await secondSelection;
+  resolveFirst(thread([{ id: 99, content: 'stale' }]));
+  await firstSelection;
+
+  assert.equal(client.run('state.activeConversationId'), '13');
+  assert.equal(client.run('state.activeThread.conversation.title'), 'Second Room');
+});
+
+test('apiFetch surfaces validator errors and sends no prototype identity header', async () => {
   const client = clientHarness();
   client.run(`
     fetch = async (_url, options) => {
@@ -202,96 +216,13 @@ test('apiFetch surfaces the first express-validator message', async () => {
       };
     };
   `);
-
   await assert.rejects(
-    client.run("originalApiFetch('/messages', { method: 'POST' })"),
-    /Message content is required/
+    client.run("originalApiFetch('/messages/conversations/12/messages', { method: 'POST' })"),
+    /Message content is required/,
   );
-
-  assert.equal(
-    client.run("testHooks.lastRequestOptions.headers.Authorization"),
-    'Bearer signed-test-token',
-  );
+  assert.equal(client.run('testHooks.lastRequestOptions.headers.Authorization'), 'Bearer signed-test-token');
   assert.equal(
     client.run("Object.keys(testHooks.lastRequestOptions.headers).some((name) => name.startsWith('X-LumiLabs-Prototype'))"),
     false,
   );
-});
-
-test('message client contains no prototype identity mechanism', () => {
-  assert.doesNotMatch(source, /X-LumiLabs-Prototype|PROTOTYPE_USERS|SELECTED_USER_KEY/);
-});
-
-test('initial inbox failures render the visible error state', () => {
-  assert.match(
-    source,
-    /const conversationsLoaded = await loadConversations\(\);[\s\S]*if \(!conversationsLoaded\) \{[\s\S]*renderLoadError/,
-  );
-  assert.doesNotMatch(source, /Alpha\/Beta exist/);
-});
-
-test('a stale thread response cannot replace a newer selection', async () => {
-  const client = clientHarness();
-  let resolveFirstThread;
-  const firstThread = new Promise((resolve) => {
-    resolveFirstThread = resolve;
-  });
-
-  client.run(`
-    state.active = null;
-    state.conversations = [
-      {
-        partner_id: '2', partner_name: 'Alpha', partner_role: 'investor',
-        partner_role_label: 'Investor', portfolio_id: '', portfolio_name: '',
-        content: '', created_at: new Date().toISOString(), unread_count: 0, sender_id: ''
-      },
-      {
-        partner_id: '4', partner_name: 'Gamma', partner_role: 'investor',
-        partner_role_label: 'Investor', portfolio_id: '', portfolio_name: '',
-        content: '', created_at: new Date().toISOString(), unread_count: 0, sender_id: ''
-      }
-    ];
-  `);
-  client.hooks.request = async (requestPath) => {
-    if (requestPath === '/messages/conversations/2') return firstThread;
-    if (requestPath === '/messages/conversations/4') {
-      return [{
-        id: 70,
-        sender_id: 4,
-        receiver_id: 3,
-        sender_name: 'Gamma',
-        content: 'newer thread',
-        created_at: '2026-07-22T10:00:00.000Z',
-      }];
-    }
-    if (requestPath === '/messages/conversations') {
-      return [{
-        id: 70,
-        partner_id: 4,
-        partner_name: 'Gamma',
-        partner_role: 'investor',
-        content: 'newer thread',
-        created_at: '2026-07-22T10:00:00.000Z',
-        unread_count: 0,
-        sender_id: 4,
-      }];
-    }
-    throw new Error(`Unexpected request: ${requestPath}`);
-  };
-
-  const firstSelection = client.run("selectConversation('2')");
-  const secondSelection = client.run("selectConversation('4')");
-  await secondSelection;
-  resolveFirstThread([{
-    id: 69,
-    sender_id: 2,
-    receiver_id: 3,
-    sender_name: 'Alpha',
-    content: 'stale thread',
-    created_at: '2026-07-22T09:59:00.000Z',
-  }]);
-  await firstSelection;
-
-  assert.equal(client.run('state.active.partner_id'), '4');
-  assert.equal(client.run('state.messages[0].content'), 'newer thread');
 });

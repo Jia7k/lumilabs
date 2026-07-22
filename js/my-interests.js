@@ -7,15 +7,15 @@ function escapeHtml(v) {
     .replace(/'/g, "&#039;");
 }
 
-function messageOwnerUrl(portfolio) {
-  const params = new URLSearchParams({
-    partnerId: portfolio.owner_id,
-    partnerName: portfolio.owner_name,
-    partnerRole: 'business_owner',
-    portfolioId: portfolio.id,
-    portfolioName: portfolio.name,
-  });
-  return `messages.html?${params.toString()}`;
+function managedChatAction(portfolio) {
+  const conversationId = Number(portfolio.conversation_id);
+  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
+    return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  }
+  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
+    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  }
+  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
 }
 
 function formatFunding(n) {
@@ -51,7 +51,6 @@ function render() {
   }
 
   list.innerHTML = interests.map((p) => {
-    const messageUrl = escapeHtml(messageOwnerUrl(p));
     return `
     <div class="interest-card" id="interest-${p.id}">
       <div class="interest-icon"><i class="ti ti-briefcase"></i></div>
@@ -66,9 +65,7 @@ function render() {
         <div class="interest-date">Interested since ${formatDate(p.interested_at)}</div>
       </div>
       <div class="interest-actions">
-        <button class="btn-action" onclick="window.location.href='${messageUrl}'" title="Message owner">
-          <i class="ti ti-message"></i> Message
-        </button>
+        ${managedChatAction(p)}
         <button class="btn-action btn-remove" onclick="removeInterest(${p.id})" id="remove-${p.id}">
           <i class="ti ti-heart-off"></i> Remove
         </button>

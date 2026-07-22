@@ -39,3 +39,9 @@ test('narrow layout gives the thread a bounded height', () => {
   assert.match(match[1], /height:\s*560px\s*;/);
   assert.match(match[1], /min-height:\s*0\s*;/);
 });
+
+test('participant rail and archive notice remain inside the fixed thread shell', () => {
+  assert.match(html, /id="thread-participants"/);
+  assert.match(html, /class="composer-zone"[\s\S]*id="archive-notice"[\s\S]*id="message-form"/);
+  assert.match(firstRule('.composer-zone'), /border-top:\s*1px solid var\(--border\)/);
+});
