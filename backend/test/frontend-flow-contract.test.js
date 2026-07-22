@@ -109,6 +109,17 @@ test('administrator dashboard provisions managers with accessible recoverable fo
   assert.match(client, /escapeHtml\(manager\.email\)/);
 });
 
+test('investor pages use the exact pinned Tabler dist stylesheet', () => {
+  const expected = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css';
+  for (const page of ['browse.html', 'investordashboard.html', 'my-interests.html']) {
+    const source = read(page);
+    const urls = [...source.matchAll(/<link[^>]+href=["']([^"']*tabler-icons[^"']*)["']/g)]
+      .map((match) => match[1]);
+    assert.deepEqual(urls, [expected], page);
+    assert.doesNotMatch(source, /@latest|@3\.0\.0\/tabler-icons\.min\.css/);
+  }
+});
+
 test('browser JavaScript passes node syntax checking', () => {
   for (const name of fs.readdirSync(path.join(root, 'js')).filter((item) => item.endsWith('.js'))) {
     const result = spawnSync(process.execPath, ['--check', path.join(root, 'js', name)], {
