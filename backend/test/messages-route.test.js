@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const jwt = require('jsonwebtoken');
 const db = require('../src/config/db');
 const { createMessagingApp } = require('../messages-server');
+
+process.env.JWT_SECRET = 'messages-route-test-secret';
 
 async function listen(app) {
   const server = await new Promise((resolve, reject) => {
@@ -17,17 +20,10 @@ async function listen(app) {
   };
 }
 
-function prototypeHeaders(key) {
-  const users = {
-    alpha: { name: 'Alpha', role: 'investor' },
-    beta: { name: 'Beta', role: 'business_owner' },
-  };
-
+function authHeaders(user) {
   return {
     'Content-Type': 'application/json',
-    'X-LumiLabs-Prototype-User': key,
-    'X-LumiLabs-Prototype-Name': users[key].name,
-    'X-LumiLabs-Prototype-Role': users[key].role,
+    Authorization: `Bearer ${jwt.sign(user, process.env.JWT_SECRET)}`,
   };
 }
 
@@ -90,14 +86,8 @@ function fakeConnection({
   };
 }
 
-function stubPool(t, { sender, connection }) {
+function stubPool(t, { connection }) {
   let getConnectionCalls = 0;
-
-  db.query = async (sql, params) => {
-    assert.match(sql, /SELECT id, email, name, role FROM users WHERE id/);
-    assert.deepEqual(params, [sender.id]);
-    return [[sender], []];
-  };
 
   db.getConnection = async () => {
     getConnectionCalls += 1;
@@ -105,20 +95,19 @@ function stubPool(t, { sender, connection }) {
   };
 
   t.after(() => {
-    delete db.query;
     delete db.getConnection;
   });
 
   return () => getConnectionCalls;
 }
 
-async function postMessage(t, key, body) {
+async function postMessage(t, sender, body) {
   const server = await listen(createMessagingApp());
   t.after(server.close);
 
   const response = await fetch(`${server.origin}/api/messages`, {
     method: 'POST',
-    headers: prototypeHeaders(key),
+    headers: authHeaders(sender),
     body: JSON.stringify(body),
   });
   const payload = await response.json();
@@ -127,6 +116,12 @@ async function postMessage(t, key, body) {
 }
 
 test('Beta send commits one message and notification', { concurrency: false }, async (t) => {
+  const sender = {
+    id: 3,
+    email: 'beta@example.com',
+    name: 'Beta',
+    role: 'business_owner',
+  };
   const saved = {
     id: 41,
     sender_id: 3,
@@ -141,17 +136,9 @@ test('Beta send commits one message and notification', { concurrency: false }, a
     receiver: { id: 2, name: 'Alpha' },
     portfolio: { id: 1, name: 'X3', owner_id: 3 },
   });
-  const getConnectionCalls = stubPool(t, {
-    sender: {
-      id: 3,
-      email: 'beta@example.com',
-      name: 'Beta',
-      role: 'business_owner',
-    },
-    connection,
-  });
+  const getConnectionCalls = stubPool(t, { connection });
 
-  const { response, payload } = await postMessage(t, 'beta', {
+  const { response, payload } = await postMessage(t, sender, {
     receiver_id: 2,
     content: '  Beta persistence test  ',
     portfolio_id: 1,
@@ -182,6 +169,12 @@ test('Beta send commits one message and notification', { concurrency: false }, a
 });
 
 test('Alpha send uses Alpha as sender and Beta as receiver', { concurrency: false }, async (t) => {
+  const sender = {
+    id: 2,
+    email: 'alpha@example.com',
+    name: 'Alpha',
+    role: 'investor',
+  };
   const saved = {
     id: 42,
     sender_id: 2,
@@ -195,17 +188,9 @@ test('Alpha send uses Alpha as sender and Beta as receiver', { concurrency: fals
     saved,
     receiver: { id: 3, name: 'Beta' },
   });
-  stubPool(t, {
-    sender: {
-      id: 2,
-      email: 'alpha@example.com',
-      name: 'Alpha',
-      role: 'investor',
-    },
-    connection,
-  });
+  stubPool(t, { connection });
 
-  const { response } = await postMessage(t, 'alpha', {
+  const { response } = await postMessage(t, sender, {
     receiver_id: 3,
     content: 'Alpha persistence test',
     portfolio_id: null,
@@ -220,23 +205,21 @@ test('Alpha send uses Alpha as sender and Beta as receiver', { concurrency: fals
 
 test('notification failure rolls back the message transaction', { concurrency: false }, async (t) => {
   t.mock.method(console, 'error', () => {});
+  const sender = {
+    id: 3,
+    email: 'beta@example.com',
+    name: 'Beta',
+    role: 'business_owner',
+  };
 
   const connection = fakeConnection({
     saved: { id: 43 },
     receiver: { id: 2, name: 'Alpha' },
     failNotification: true,
   });
-  stubPool(t, {
-    sender: {
-      id: 3,
-      email: 'beta@example.com',
-      name: 'Beta',
-      role: 'business_owner',
-    },
-    connection,
-  });
+  stubPool(t, { connection });
 
-  const { response, payload } = await postMessage(t, 'beta', {
+  const { response, payload } = await postMessage(t, sender, {
     receiver_id: 2,
     content: 'Rollback test',
     portfolio_id: null,
@@ -250,21 +233,19 @@ test('notification failure rolls back the message transaction', { concurrency: f
 });
 
 test('invalid content does not acquire a transaction connection', { concurrency: false }, async (t) => {
+  const sender = {
+    id: 3,
+    email: 'beta@example.com',
+    name: 'Beta',
+    role: 'business_owner',
+  };
   const connection = fakeConnection({
     saved: { id: 44 },
     receiver: { id: 2, name: 'Alpha' },
   });
-  const getConnectionCalls = stubPool(t, {
-    sender: {
-      id: 3,
-      email: 'beta@example.com',
-      name: 'Beta',
-      role: 'business_owner',
-    },
-    connection,
-  });
+  const getConnectionCalls = stubPool(t, { connection });
 
-  const { response, payload } = await postMessage(t, 'beta', {
+  const { response, payload } = await postMessage(t, sender, {
     receiver_id: 2,
     content: '   ',
     portfolio_id: null,
@@ -273,4 +254,15 @@ test('invalid content does not acquire a transaction connection', { concurrency:
   assert.equal(response.status, 400);
   assert.ok(Array.isArray(payload.errors));
   assert.equal(getConnectionCalls(), 0);
+});
+
+test('prototype headers cannot authenticate an anonymous message request', { concurrency: false }, async (t) => {
+  const server = await listen(createMessagingApp());
+  t.after(server.close);
+
+  const response = await fetch(`${server.origin}/api/messages/me`, {
+    headers: { 'X-LumiLabs-Prototype-User': 'beta' },
+  });
+
+  assert.equal(response.status, 401);
 });

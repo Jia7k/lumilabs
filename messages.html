@@ -514,8 +514,8 @@
 
     <div class="nav-links" id="investor-nav" hidden>
       <button class="nav-btn" onclick="window.location.href='investordashboard.html'"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
-      <button class="nav-btn"><i class="ti ti-search"></i> Browse Startups</button>
-      <button class="nav-btn"><i class="ti ti-heart"></i> My Interests</button>
+      <button class="nav-btn" onclick="window.location.href='browse.html'"><i class="ti ti-search"></i> Browse Startups</button>
+      <button class="nav-btn" onclick="window.location.href='my-interests.html'"><i class="ti ti-heart"></i> My Interests</button>
       <button class="nav-btn active" onclick="window.location.href='messages.html'"><i class="ti ti-message"></i> Messages</button>
     </div>
 
@@ -531,15 +531,9 @@
           <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
         </button>
         <div class="role-dropdown" role="menu">
-          <button class="role-option" id="role-option-beta" type="button" data-role-key="beta" role="menuitem">
-            <span class="role-option-avatar blue">B</span>
-            <span class="role-option-name">Beta</span>
-            <i class="ti ti-check role-check" hidden></i>
-          </button>
-          <button class="role-option" id="role-option-alpha" type="button" data-role-key="alpha" role="menuitem">
-            <span class="role-option-avatar green">A</span>
-            <span class="role-option-name">Alpha</span>
-            <i class="ti ti-check role-check" hidden></i>
+          <button class="role-option" id="messages-signout" type="button" onclick="signOutMessages()" role="menuitem">
+            <span class="role-option-avatar"><i class="ti ti-logout"></i></span>
+            <span class="role-option-name">Sign out</span>
           </button>
         </div>
       </div>

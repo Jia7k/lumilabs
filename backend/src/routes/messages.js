@@ -1,82 +1,12 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-const prototypeUsers = {
-  alpha: { id: 2, name: 'Alpha', role: 'investor' },
-  beta: { id: 3, name: 'Beta', role: 'business_owner' },
-  victor: { name: 'Victor', role: 'admin' },
-};
-
-async function resolveMessageUser(req, res, next) {
-  const selectedKey = String(req.get('X-LumiLabs-Prototype-User') || '').toLowerCase();
-  const selectedRole = String(req.get('X-LumiLabs-Prototype-Role') || '').toLowerCase();
-  const selectedName = String(req.get('X-LumiLabs-Prototype-Name') || '').trim();
-  const prototypeUser = prototypeUsers[selectedKey] || (
-    selectedName && selectedRole ? { name: selectedName, role: selectedRole } : null
-  );
-
-  if (prototypeUser) {
-    try {
-      if (prototypeUser.id) {
-        const [rows] = await db.query(
-          'SELECT id, email, name, role FROM users WHERE id = ? LIMIT 1',
-          [prototypeUser.id]
-        );
-
-        if (rows.length === 0) {
-          return res.status(404).json({
-            error: `Prototype user ${prototypeUser.name} must exist as user id ${prototypeUser.id}`,
-          });
-        }
-
-        req.user = {
-          ...rows[0],
-          name: prototypeUser.name,
-          role: prototypeUser.role,
-        };
-        return next();
-      }
-
-      const [rows] = await db.query(
-        'SELECT id, email, name, role FROM users WHERE name = ? AND role = ? ORDER BY id LIMIT 1',
-        [prototypeUser.name, prototypeUser.role]
-      );
-
-      if (rows.length === 0) {
-        return res.status(404).json({
-          error: `Prototype user ${prototypeUser.name} (${prototypeUser.role}) was not found in the database`,
-        });
-      }
-
-      req.user = rows[0];
-      return next();
-    } catch (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Server error' });
-    }
-  }
-
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (token) {
-    try {
-      req.user = jwt.verify(token, process.env.JWT_SECRET);
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'Invalid or expired token' });
-    }
-  }
-
-  return res.status(401).json({ error: 'Select a role before opening messages' });
-}
-
-// GET /api/messages/me — current message user for the prototype flow
-router.get('/me', resolveMessageUser, (req, res) => {
+// GET /api/messages/me — current authenticated message user
+router.get('/me', authenticate, (req, res) => {
   res.json({
     id: req.user.id,
     email: req.user.email,
@@ -86,7 +16,7 @@ router.get('/me', resolveMessageUser, (req, res) => {
 });
 
 // GET /api/messages/conversations  — list all conversations for current user
-router.get('/conversations', resolveMessageUser, async (req, res) => {
+router.get('/conversations', authenticate, async (req, res) => {
   try {
     const userId = Number(req.user.id);
 
@@ -94,16 +24,8 @@ router.get('/conversations', resolveMessageUser, async (req, res) => {
       `SELECT
         m.id, m.sender_id, m.receiver_id, m.content, m.created_at, m.read_at,
         latest.partner_id,
-        CASE latest.partner_id
-          WHEN 2 THEN 'Alpha'
-          WHEN 3 THEN 'Beta'
-          ELSE COALESCE(u.name, CONCAT('User ', latest.partner_id))
-        END AS partner_name,
-        CASE latest.partner_id
-          WHEN 2 THEN 'investor'
-          WHEN 3 THEN 'business_owner'
-          ELSE COALESCE(u.role, '')
-        END AS partner_role,
+        COALESCE(u.name, CONCAT('User ', latest.partner_id)) AS partner_name,
+        COALESCE(u.role, '') AS partner_role,
         p.id AS portfolio_id, p.name AS portfolio_name,
         COALESCE(unread.unread_count, 0) AS unread_count
        FROM (
@@ -135,7 +57,7 @@ router.get('/conversations', resolveMessageUser, async (req, res) => {
 });
 
 // GET /api/messages/conversations/:partnerId  — get full thread with a user
-router.get('/conversations/:partnerId', resolveMessageUser, async (req, res) => {
+router.get('/conversations/:partnerId', authenticate, async (req, res) => {
   const userId = Number(req.user.id);
   const partnerId = parseInt(req.params.partnerId, 10);
 
@@ -147,11 +69,7 @@ router.get('/conversations/:partnerId', resolveMessageUser, async (req, res) => 
     const [messages] = await db.query(
       `SELECT
         m.*,
-        CASE m.sender_id
-          WHEN 2 THEN 'Alpha'
-          WHEN 3 THEN 'Beta'
-          ELSE COALESCE(u.name, CONCAT('User ', m.sender_id))
-        END AS sender_name,
+        COALESCE(u.name, CONCAT('User ', m.sender_id)) AS sender_name,
         p.name AS portfolio_name
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
@@ -178,7 +96,7 @@ router.get('/conversations/:partnerId', resolveMessageUser, async (req, res) => 
 // POST /api/messages  — send a message
 router.post(
   '/',
-  resolveMessageUser,
+  authenticate,
   [
     body('receiver_id').isInt({ min: 1 }).toInt(),
     body('content').trim().notEmpty().isLength({ max: 2000 }),

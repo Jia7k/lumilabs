@@ -1,13 +1,7 @@
 const API_BASE = window.LUMILABS_API_BASE || '/api';
-const SELECTED_USER_KEY = 'lumilabsSelectedUser';
-const PROTOTYPE_USERS = {
-  beta: { key: 'beta', name: 'Beta', role: 'business_owner' },
-  alpha: { key: 'alpha', name: 'Alpha', role: 'investor' },
-};
 
 const state = {
   token: '',
-  selectedUser: null,
   user: null,
   conversations: [],
   active: null,
@@ -24,8 +18,10 @@ async function initMessages() {
   bindEvents();
 
   state.token = getAuthToken();
-  state.selectedUser = getSelectedUser();
-  renderSelectedUser();
+  if (!state.token) {
+    window.location.href = 'signin.html';
+    return;
+  }
 
   try {
     const user = await apiFetch('/messages/me');
@@ -37,14 +33,8 @@ async function initMessages() {
     };
   } catch (err) {
     console.error(err);
-    state.user = {
-      id: null,
-      name: state.selectedUser.name,
-      role: state.selectedUser.role,
-      roleLabel: roleLabel(state.selectedUser.role),
-    };
-    renderUser();
-    renderLoadError('Could not load messages from the database.');
+    clearMessageSession();
+    window.location.href = 'signin.html';
     return;
   }
 
@@ -72,7 +62,6 @@ function cacheElements() {
   els.navMsgBadge = document.getElementById('nav-msg-badge');
   els.roleMenu = document.getElementById('role-menu');
   els.roleMenuButton = document.getElementById('role-menu-button');
-  els.roleOptions = document.querySelectorAll('[data-role-key]');
   els.userAvatar = document.getElementById('user-avatar');
   els.userName = document.getElementById('user-name');
   els.userRole = document.getElementById('user-role');
@@ -99,10 +88,6 @@ function bindEvents() {
     els.roleMenuButton.setAttribute('aria-expanded', String(isOpen));
   });
 
-  els.roleOptions.forEach((option) => {
-    option.addEventListener('click', () => switchPrototypeRole(option.dataset.roleKey));
-  });
-
   document.addEventListener('click', () => closeRoleMenu());
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -112,9 +97,11 @@ function bindEvents() {
 
   els.refreshBtn.addEventListener('click', async () => {
     if (!state.user) return;
-    await loadConversations();
-    renderConversations();
-    showToast('Conversations refreshed');
+    const refreshed = await loadConversations();
+    if (refreshed) {
+      renderConversations();
+      showToast('Conversations refreshed');
+    }
   });
 
   els.search.addEventListener('input', () => {
@@ -146,16 +133,6 @@ function renderLoadError(message) {
   renderEmptyThread();
 }
 
-function renderSelectedUser() {
-  state.user = {
-    id: null,
-    name: state.selectedUser.name,
-    role: state.selectedUser.role,
-    roleLabel: roleLabel(state.selectedUser.role),
-  };
-  renderUser();
-}
-
 function renderUser() {
   const user = state.user;
 
@@ -165,7 +142,6 @@ function renderUser() {
   document.body.classList.toggle('role-business-owner', isBusinessOwner);
   document.body.classList.toggle('role-investor', isInvestor);
   renderRoleNav(user.role);
-  updateRoleMenu(user.role);
   els.userAvatar.textContent = initials(user.name);
   els.userName.textContent = user.name;
   els.userRole.textContent = user.roleLabel;
@@ -183,33 +159,16 @@ function closeRoleMenu() {
   els.roleMenuButton.setAttribute('aria-expanded', 'false');
 }
 
-function updateRoleMenu(role) {
-  const currentKey = role === 'business_owner' ? 'beta' : role === 'investor' ? 'alpha' : '';
-
-  els.roleOptions.forEach((option) => {
-    const isCurrent = option.dataset.roleKey === currentKey;
-    option.classList.toggle('active', isCurrent);
-    const check = option.querySelector('.role-check');
-    if (check) check.hidden = !isCurrent;
-  });
-}
-
-function switchPrototypeRole(key) {
-  const user = PROTOTYPE_USERS[key];
-  if (!user) return;
-
-  localStorage.setItem(SELECTED_USER_KEY, JSON.stringify(user));
-  window.location.href = 'messages.html';
-}
-
 async function loadConversations() {
   try {
     const rows = await apiFetch('/messages/conversations');
     state.conversations = rows.map(normalizeConversation);
+    return true;
   } catch (err) {
     console.error(err);
     showToast('Could not load conversations');
     state.conversations = [];
+    return false;
   }
 }
 
@@ -539,12 +498,6 @@ async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${state.token}`;
   }
 
-  if (state.selectedUser) {
-    headers['X-LumiLabs-Prototype-User'] = state.selectedUser.key;
-    headers['X-LumiLabs-Prototype-Name'] = state.selectedUser.name;
-    headers['X-LumiLabs-Prototype-Role'] = state.selectedUser.role;
-  }
-
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
@@ -564,25 +517,18 @@ async function apiFetch(path, options = {}) {
 }
 
 function getAuthToken() {
-  return localStorage.getItem('lumilabsToken')
-    || localStorage.getItem('lumiToken')
-    || localStorage.getItem('authToken')
-    || localStorage.getItem('token')
-    || '';
+  return localStorage.getItem('lumilabsToken') || '';
 }
 
-function getSelectedUser() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SELECTED_USER_KEY));
-    if (saved && PROTOTYPE_USERS[saved.key]) {
-      return PROTOTYPE_USERS[saved.key];
-    }
-  } catch {
-    localStorage.removeItem(SELECTED_USER_KEY);
-  }
+function clearMessageSession() {
+  localStorage.removeItem('lumilabsToken');
+  localStorage.removeItem('lumilabsUser');
+  localStorage.removeItem('lumilabsSelectedUser');
+}
 
-  localStorage.setItem(SELECTED_USER_KEY, JSON.stringify(PROTOTYPE_USERS.beta));
-  return PROTOTYPE_USERS.beta;
+function signOutMessages() {
+  clearMessageSession();
+  window.location.href = 'signin.html';
 }
 
 function roleLabel(role) {

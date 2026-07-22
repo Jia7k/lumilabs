@@ -33,7 +33,7 @@ function clientHarness() {
 
   vm.runInContext(source, context);
   vm.runInContext(`
-    state.selectedUser = PROTOTYPE_USERS.beta;
+    state.token = 'signed-test-token';
     state.user = { id: 3, name: 'Beta', role: 'business_owner' };
     state.active = {
       partner_id: '2',
@@ -193,15 +193,31 @@ test('reload failure after commit does not restore the draft', async () => {
 test('apiFetch surfaces the first express-validator message', async () => {
   const client = clientHarness();
   client.run(`
-    fetch = async () => ({
-      ok: false,
-      headers: { get: () => 'application/json' },
-      json: async () => ({ errors: [{ msg: 'Message content is required' }] })
-    });
+    fetch = async (_url, options) => {
+      testHooks.lastRequestOptions = options;
+      return {
+        ok: false,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ errors: [{ msg: 'Message content is required' }] })
+      };
+    };
   `);
 
   await assert.rejects(
     client.run("originalApiFetch('/messages', { method: 'POST' })"),
     /Message content is required/
   );
+
+  assert.equal(
+    client.run("testHooks.lastRequestOptions.headers.Authorization"),
+    'Bearer signed-test-token',
+  );
+  assert.equal(
+    client.run("Object.keys(testHooks.lastRequestOptions.headers).some((name) => name.startsWith('X-LumiLabs-Prototype'))"),
+    false,
+  );
+});
+
+test('message client contains no prototype identity mechanism', () => {
+  assert.doesNotMatch(source, /X-LumiLabs-Prototype|PROTOTYPE_USERS|SELECTED_USER_KEY/);
 });

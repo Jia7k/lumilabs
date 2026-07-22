@@ -1,5 +1,21 @@
 function escapeHtml(v) {
-  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function messageOwnerUrl(portfolio) {
+  const params = new URLSearchParams({
+    partnerId: portfolio.owner_id,
+    partnerName: portfolio.owner_name,
+    partnerRole: 'business_owner',
+    portfolioId: portfolio.id,
+    portfolioName: portfolio.name,
+  });
+  return `messages.html?${params.toString()}`;
 }
 
 function formatFunding(n) {
@@ -34,7 +50,9 @@ function render() {
     return;
   }
 
-  list.innerHTML = interests.map(p => `
+  list.innerHTML = interests.map((p) => {
+    const messageUrl = escapeHtml(messageOwnerUrl(p));
+    return `
     <div class="interest-card" id="interest-${p.id}">
       <div class="interest-icon"><i class="ti ti-briefcase"></i></div>
       <div class="interest-info">
@@ -48,7 +66,7 @@ function render() {
         <div class="interest-date">Interested since ${formatDate(p.interested_at)}</div>
       </div>
       <div class="interest-actions">
-        <button class="btn-action" onclick="window.location.href='messages.html'" title="Message owner">
+        <button class="btn-action" onclick="window.location.href='${messageUrl}'" title="Message owner">
           <i class="ti ti-message"></i> Message
         </button>
         <button class="btn-action btn-remove" onclick="removeInterest(${p.id})" id="remove-${p.id}">
@@ -56,7 +74,8 @@ function render() {
         </button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 }
 
 async function removeInterest(portfolioId) {
