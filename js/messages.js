@@ -1,5 +1,3 @@
-const API_BASE = window.LUMILABS_API_BASE || '/api';
-
 const ROLE_LABELS = Object.freeze({
   business_owner: 'Business Owner',
   investor: 'Investor',
@@ -15,7 +13,6 @@ const ARCHIVE_REASON_LABELS = Object.freeze({
 });
 
 const state = {
-  token: '',
   user: null,
   conversations: [],
   activeConversationId: null,
@@ -27,20 +24,19 @@ const state = {
 
 const els = {};
 let conversationLoadVersion = 0;
+let lastConversationLoadError = null;
 let toastTimer = null;
+let eventsBound = false;
 
 document.addEventListener('DOMContentLoaded', initMessages);
 
 async function initMessages() {
   cacheElements();
   bindEvents();
+  await loadMessagesWorkspace();
+}
 
-  state.token = getAuthToken();
-  if (!state.token) {
-    window.location.href = 'signin.html';
-    return;
-  }
-
+async function loadMessagesWorkspace() {
   try {
     const user = await apiFetch('/messages/me');
     state.user = {
@@ -49,29 +45,29 @@ async function initMessages() {
       role: user.role,
       roleLabel: roleLabel(user.role),
     };
+    renderUser();
+
+    const loaded = await loadConversations();
+    if (!loaded) {
+      if (lastConversationLoadError?.status !== 401) {
+        renderLoadError('Messages are temporarily unavailable.');
+      }
+      return false;
+    }
+
+    renderConversations();
+    await selectInitialConversation();
+    return true;
   } catch (error) {
     console.error(error);
-    clearMessageSession();
-    window.location.href = 'signin.html';
-    return;
-  }
-
-  renderUser();
-  const loaded = await loadConversations();
-  if (!loaded) {
-    renderLoadError('Messages are temporarily unavailable.');
-    return;
-  }
-
-  renderConversations();
-  const requestedId = getStarterConversationId();
-  const initial = state.conversations.find(({ id }) => sameId(id, requestedId))
-    || state.conversations[0];
-
-  if (initial) {
-    await selectConversation(initial.id);
-  } else {
-    renderEmptyThread();
+    if (error?.status !== 401) {
+      renderLoadError(
+        error?.isNetworkError
+          ? 'Messages could not be reached. Check your connection and retry.'
+          : 'Messages are temporarily unavailable.',
+      );
+    }
+    return false;
   }
 }
 
@@ -104,6 +100,9 @@ function cacheElements() {
 }
 
 function bindEvents() {
+  if (eventsBound) return;
+  eventsBound = true;
+
   els.roleMenuButton.addEventListener('click', (event) => {
     event.stopPropagation();
     const open = els.roleMenu.classList.toggle('open');
@@ -115,13 +114,7 @@ function bindEvents() {
     if (event.key === 'Escape') closeRoleMenu();
   });
 
-  els.refreshBtn.addEventListener('click', async () => {
-    const loaded = await loadConversations();
-    if (!loaded) return;
-    renderConversations();
-    if (state.activeConversationId) await selectConversation(state.activeConversationId);
-    showToast('Conversations refreshed');
-  });
+  els.refreshBtn.addEventListener('click', refreshMessages);
 
   els.search.addEventListener('input', () => {
     state.search = els.search.value.trim().toLowerCase();
@@ -129,6 +122,12 @@ function bindEvents() {
   });
 
   els.conversationList.addEventListener('click', async (event) => {
+    const retry = event.target.closest('[data-retry-messages]');
+    if (retry) {
+      await loadMessagesWorkspace();
+      return;
+    }
+
     const button = event.target.closest('[data-conversation-id]');
     if (!button) return;
     await selectConversation(button.dataset.conversationId);
@@ -138,6 +137,9 @@ function bindEvents() {
 }
 
 function renderLoadError(message) {
+  state.selectionVersion += 1;
+  conversationLoadVersion += 1;
+  state.conversations = [];
   state.activeConversationId = null;
   state.activeThread = null;
   setComposeEnabled(false);
@@ -148,7 +150,8 @@ function renderLoadError(message) {
     <div class="empty-state">
       <i class="ti ti-alert-circle"></i>
       <div class="empty-title">Messages unavailable</div>
-      <div>Please try Refresh or sign in again.</div>
+      <div>${escapeHtml(message)}</div>
+      <button class="btn" type="button" data-retry-messages>Retry</button>
     </div>
   `;
   renderEmptyThread();
@@ -179,6 +182,7 @@ function closeRoleMenu() {
 
 async function loadConversations(expectedSelectionVersion = null) {
   const loadVersion = ++conversationLoadVersion;
+  lastConversationLoadError = null;
   try {
     const rows = await apiFetch('/messages/conversations');
     if (loadVersion !== conversationLoadVersion) return false;
@@ -190,7 +194,10 @@ async function loadConversations(expectedSelectionVersion = null) {
     return true;
   } catch (error) {
     console.error(error);
-    if (loadVersion === conversationLoadVersion) showToast('Could not load conversations');
+    if (loadVersion === conversationLoadVersion) {
+      lastConversationLoadError = error;
+      if (error?.status !== 401) showToast('Could not load conversations');
+    }
     return false;
   }
 }
@@ -262,6 +269,52 @@ function getStarterConversationId() {
   const params = new URLSearchParams(window.location.search);
   const requested = Number(params.get('conversationId'));
   return Number.isInteger(requested) && requested > 0 ? String(requested) : null;
+}
+
+async function selectInitialConversation() {
+  const requestedId = getStarterConversationId();
+  if (requestedId !== null) {
+    const requested = state.conversations.find(({ id }) => sameId(id, requestedId));
+    if (!requested) {
+      showConversationUnavailable();
+      return false;
+    }
+    return selectConversation(requested.id);
+  }
+
+  const firstConversation = state.conversations[0];
+  if (!firstConversation) {
+    renderEmptyThread();
+    return true;
+  }
+  return selectConversation(firstConversation.id);
+}
+
+async function refreshMessages() {
+  if (!state.user) return loadMessagesWorkspace();
+
+  const previousConversationId = state.activeConversationId;
+  const refreshVersion = ++state.selectionVersion;
+  const loaded = await loadConversations(refreshVersion);
+  if (!loaded) return false;
+
+  renderConversations();
+  if (previousConversationId !== null) {
+    const stillAvailable = state.conversations.some(({ id }) => (
+      sameId(id, previousConversationId)
+    ));
+    if (!stillAvailable) {
+      showConversationUnavailable();
+      return false;
+    }
+    const selected = await selectConversation(previousConversationId);
+    if (selected) showToast('Conversations refreshed');
+    return selected;
+  }
+
+  const selected = await selectInitialConversation();
+  if (selected) showToast('Conversations refreshed');
+  return selected;
 }
 
 function renderConversations() {
@@ -341,7 +394,10 @@ async function selectConversation(conversationId) {
   if (state.sending) return false;
   const id = String(conversationId);
   const summary = state.conversations.find((conversation) => sameId(conversation.id, id));
-  if (!summary) return false;
+  if (!summary) {
+    showConversationUnavailable();
+    return false;
+  }
 
   const selectionVersion = ++state.selectionVersion;
   state.activeConversationId = id;
@@ -382,7 +438,7 @@ async function selectConversation(conversationId) {
     const listLoaded = await loadConversations(selectionVersion);
     if (!selectionIsCurrent(selectionVersion, id)) return false;
     if (listLoaded) {
-      syncActiveConversationSummary();
+      if (!syncActiveConversationSummary()) return false;
       renderConversations();
       renderActiveHeader();
     }
@@ -404,14 +460,34 @@ function selectionIsCurrent(version, id) {
 }
 
 function syncActiveConversationSummary() {
-  if (!state.activeThread) return;
+  if (!state.activeThread) return false;
   const summary = state.conversations.find(({ id }) => sameId(id, state.activeConversationId));
-  if (!summary) return;
+  if (!summary) {
+    showConversationUnavailable();
+    return false;
+  }
   state.activeThread.conversation = {
     ...summary,
     ...state.activeThread.conversation,
     participants: state.activeThread.participants,
   };
+  return true;
+}
+
+function showConversationUnavailable() {
+  state.selectionVersion += 1;
+  state.activeConversationId = null;
+  state.activeThread = null;
+  hideArchiveNotice();
+  setComposeEnabled(false);
+
+  if (state.user) renderConversations();
+  els.threadAvatar.textContent = '!';
+  els.threadTitle.textContent = 'Conversation unavailable';
+  els.threadSubtitle.textContent = 'This managed room is no longer available to you.';
+  els.threadParticipants.innerHTML = '';
+  els.threadStatus.textContent = 'Unavailable';
+  renderThreadError();
 }
 
 function renderActiveHeader() {
@@ -564,7 +640,7 @@ async function reloadActiveConversationFromDatabase(conversationId) {
   const listLoaded = await loadConversations(selectionVersion);
   if (!selectionIsCurrent(selectionVersion, id)) return false;
   if (listLoaded) {
-    syncActiveConversationSummary();
+    if (!syncActiveConversationSummary()) return false;
     renderConversations();
     renderActiveHeader();
   }
@@ -621,38 +697,6 @@ function setSending(sending) {
   els.sendBtn.innerHTML = sending
     ? '<i class="ti ti-loader-2"></i> Sending'
     : '<i class="ti ti-send"></i> Send';
-}
-
-async function apiFetch(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  const isJson = response.headers.get('content-type')?.includes('application/json');
-  const payload = isJson ? await response.json() : null;
-  if (!response.ok) {
-    const message = payload?.error || payload?.errors?.[0]?.msg || 'API request failed';
-    throw new Error(message);
-  }
-  return payload;
-}
-
-function getAuthToken() {
-  return localStorage.getItem('lumilabsToken') || '';
-}
-
-function clearMessageSession() {
-  localStorage.removeItem('lumilabsToken');
-  localStorage.removeItem('lumilabsUser');
-  localStorage.removeItem('lumilabsSelectedUser');
-}
-
-function signOutMessages() {
-  clearMessageSession();
-  window.location.href = 'signin.html';
 }
 
 function roleLabel(role) {

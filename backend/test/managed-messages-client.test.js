@@ -7,6 +7,53 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(root, 'messages.html'), 'utf8');
 const source = fs.readFileSync(path.join(root, 'js', 'messages.js'), 'utf8');
+const apiSource = fs.readFileSync(path.join(root, 'js', 'api.js'), 'utf8');
+
+test('messages page uses the shared authenticated API client without global collisions', () => {
+  const apiScriptIndex = html.indexOf('<script src="js/api.js"></script>');
+  const messagesScriptIndex = html.indexOf('<script src="js/messages.js"></script>');
+
+  assert.ok(apiScriptIndex >= 0, 'messages.html must load js/api.js');
+  assert.ok(messagesScriptIndex > apiScriptIndex, 'js/api.js must load before js/messages.js');
+  assert.match(html, /onclick="signOut\(\)"/);
+  assert.doesNotMatch(source, /const API_BASE/);
+  assert.doesNotMatch(source, /function apiFetch\s*\(/);
+  assert.doesNotMatch(source, /function getAuthToken\s*\(/);
+  assert.doesNotMatch(source, /function clearMessageSession\s*\(/);
+  assert.doesNotMatch(source, /function signOutMessages\s*\(/);
+
+  const sandbox = {
+    window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
+    document: {
+      addEventListener() {},
+      getElementById() { return null; },
+      querySelector() { return null; },
+    },
+    localStorage: {
+      getItem() { return null; },
+      removeItem() {},
+    },
+    FormData: class {},
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get() { return 'application/json'; } },
+      json: async () => ({}),
+    }),
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    encodeURIComponent,
+    Intl,
+    Date,
+  };
+  vm.createContext(sandbox);
+  assert.doesNotThrow(() => {
+    vm.runInContext(apiSource, sandbox);
+    vm.runInContext(source, sandbox);
+  });
+});
 
 test('messages page supports relationship-manager navigation and permanent archive-aware composer', () => {
   assert.match(html, /id="relationship-manager-nav"/);
