@@ -40,7 +40,7 @@ The unified backend lives at `/var/www/lumilabs-backend`, outside Apache's docum
 - production-installed `node_modules/`; and
 - `uploads/portfolio-documents/`.
 
-One systemd unit, `lumilabs-backend.service`, runs `server.js` on `127.0.0.1:3100`. Apache proxies `/api/*` and `/uploads/*` to that service. Loopback networking is intentionally retained between Apache and Node because it is server-internal; only browser-facing `localhost` references are removed.
+One systemd unit, `lumilabs-backend.service`, runs `server.js` on `127.0.0.1:3100`. Apache proxies `/api/*` to that service. Uploaded documents remain outside the public document root and are downloaded through authenticated `/api/portfolios/:portfolioId/documents/:documentId/download` routes. Loopback networking is intentionally retained between Apache and Node because it is server-internal; only browser-facing `localhost` references are removed.
 
 Node is the only component that connects to MySQL. It reads database and JWT configuration from the private production `.env` without printing secrets.
 
@@ -181,7 +181,7 @@ Because a production `.env` has previously been tracked, credential rotation is 
 - Confirm health succeeds.
 - Confirm MySQL connectivity through the production `.env`.
 - Confirm unauthenticated and wrong-role requests are rejected.
-- Confirm uploaded-file URLs resolve through Apache.
+- Confirm authenticated document-download URLs resolve through Apache and unauthorized downloads are rejected.
 
 ### Temporary end-to-end data
 
