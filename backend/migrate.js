@@ -1,56 +1,80 @@
 require('dotenv').config();
-const { createTunnel } = require('tunnel-ssh');
+
 const mysql = require('mysql2/promise');
+const { createTunnel } = require('tunnel-ssh');
+const { migrateManagedChat } = require('./scripts/migrate-managed-chat');
 
-async function migrate() {
-  const tunnelPort = parseInt(process.env.DB_TUNNEL_PORT || '3307');
-
-  console.log('Setting up SSH tunnel...');
-  const [server] = await createTunnel(
-    { autoClose: true },
-    { port: tunnelPort },
-    {
-      host: process.env.SSH_HOST,
-      port: parseInt(process.env.SSH_PORT || '22'),
-      username: process.env.SSH_USER,
-      password: process.env.SSH_PASSWORD,
-      tryKeyboard: true,
-    },
-    { srcAddr: '127.0.0.1', srcPort: tunnelPort, dstAddr: '127.0.0.1', dstPort: 3306 }
-  );
-  console.log('Tunnel up. Connecting to MySQL...');
-
-  const conn = await mysql.createConnection({
-    host: '127.0.0.1',
-    port: tunnelPort,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    multipleStatements: true,
-  });
-
-  console.log('Running migration...');
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS investor_interests (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      investor_id INT NOT NULL,
-      portfolio_id INT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY unique_interest (investor_id, portfolio_id),
-      FOREIGN KEY (investor_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
-    );
-
-    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
-  `);
-
-  console.log('Migration complete!');
-  await conn.end();
-  server.close();
-  process.exit(0);
+function requireEnvironment(environment) {
+  const names = ['DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+  if (environment.SSH_HOST) {
+    names.push('SSH_USER', 'SSH_PASSWORD');
+  }
+  const missing = names.filter((name) => !String(environment[name] || '').trim());
+  if (missing.length) {
+    throw new Error(`Missing migration environment variables: ${missing.join(', ')}`);
+  }
 }
 
-migrate().catch(err => {
-  console.error('Migration failed:', err.message);
-  process.exit(1);
-});
+async function openMigrationTunnel(environment) {
+  if (!environment.SSH_HOST) return null;
+  const localPort = Number(environment.DB_TUNNEL_PORT || 3307);
+  const [server] = await createTunnel(
+    { autoClose: true },
+    { port: localPort },
+    {
+      host: environment.SSH_HOST,
+      port: Number(environment.SSH_PORT || 22),
+      username: environment.SSH_USER,
+      password: environment.SSH_PASSWORD,
+      tryKeyboard: true,
+    },
+    {
+      srcAddr: '127.0.0.1',
+      srcPort: localPort,
+      dstAddr: environment.DB_REMOTE_HOST || '127.0.0.1',
+      dstPort: Number(environment.DB_REMOTE_PORT || 3306),
+    },
+  );
+  return { server, localPort };
+}
+
+async function closeTunnel(tunnel) {
+  if (!tunnel?.server) return;
+  await new Promise((resolve, reject) => {
+    tunnel.server.close((error) => {
+      if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') reject(error);
+      else resolve();
+    });
+  });
+}
+
+async function main(environment = process.env) {
+  requireEnvironment(environment);
+  let tunnel;
+  let connection;
+  try {
+    tunnel = await openMigrationTunnel(environment);
+    connection = await mysql.createConnection({
+      host: tunnel ? '127.0.0.1' : (environment.DB_HOST || '127.0.0.1'),
+      port: tunnel ? tunnel.localPort : Number(environment.DB_PORT || 3306),
+      user: environment.DB_USER,
+      password: environment.DB_PASSWORD,
+      database: environment.DB_NAME,
+    });
+    const result = await migrateManagedChat(connection, environment);
+    console.log(JSON.stringify({ status: 'managed chat migration complete', ...result }));
+    return result;
+  } finally {
+    if (connection) await connection.end();
+    await closeTunnel(tunnel);
+  }
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`Migration failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { main, openMigrationTunnel, requireEnvironment };
