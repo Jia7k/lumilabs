@@ -90,6 +90,71 @@ function renderPortfolioSummary(status, readinessScore) {
   setFormLocked(status === "pending");
 }
 
+function inputValue(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function parseIntegerOrNull(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const number = Number.parseInt(text, 10);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseDecimalOrNull(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function populatePortfolioForm(portfolio) {
+  const values = {
+    "f-name": portfolio.name,
+    "f-sector": portfolio.sector,
+    "f-mvp_status": portfolio.mvp_status,
+    "f-funding_goal": portfolio.funding_goal,
+    "f-description": portfolio.description,
+    "f-team_size": portfolio.team_size,
+    "f-founded_year": portfolio.founded_year,
+    "f-location": portfolio.location,
+    "f-website": portfolio.website,
+    "f-advisor_names": portfolio.advisor_names,
+    "f-monthly_revenue": portfolio.monthly_revenue,
+    "f-user_count": portfolio.user_count,
+    "f-growth_rate": portfolio.growth_rate,
+    "f-market_size": portfolio.market_size,
+    "f-competitor_analysis": portfolio.competitor_analysis,
+    "f-burn_rate": portfolio.burn_rate,
+    "f-runway_months": portfolio.runway_months,
+  };
+  for (const [id, value] of Object.entries(values)) {
+    document.getElementById(id).value = inputValue(value);
+  }
+}
+
+function buildPortfolioPayload() {
+  return {
+    name: document.getElementById("f-name").value.trim(),
+    sector: document.getElementById("f-sector").value.trim(),
+    mvp_status: document.getElementById("f-mvp_status").value.trim(),
+    funding_goal: parseDecimalOrNull(document.getElementById("f-funding_goal").value),
+    description: document.getElementById("f-description").value.trim(),
+    team_size: parseIntegerOrNull(document.getElementById("f-team_size").value),
+    founded_year: parseIntegerOrNull(document.getElementById("f-founded_year").value),
+    location: document.getElementById("f-location").value.trim(),
+    website: document.getElementById("f-website").value.trim(),
+    advisor_names: document.getElementById("f-advisor_names").value.trim(),
+    monthly_revenue: parseDecimalOrNull(document.getElementById("f-monthly_revenue").value),
+    user_count: parseIntegerOrNull(document.getElementById("f-user_count").value),
+    growth_rate: parseDecimalOrNull(document.getElementById("f-growth_rate").value),
+    market_size: document.getElementById("f-market_size").value.trim(),
+    competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
+    burn_rate: parseDecimalOrNull(document.getElementById("f-burn_rate").value),
+    runway_months: parseIntegerOrNull(document.getElementById("f-runway_months").value),
+  };
+}
+
 async function init() {
   const user = await requirePageRole("business_owner");
   if (!user) return;
@@ -113,23 +178,7 @@ async function init() {
       return;
     }
 
-    document.getElementById("f-name").value = p.name || "";
-    document.getElementById("f-sector").value = p.sector || "";
-    document.getElementById("f-mvp_status").value = p.mvp_status || "";
-    document.getElementById("f-funding_goal").value = p.funding_goal || "";
-    document.getElementById("f-description").value = p.description || "";
-    document.getElementById("f-team_size").value = p.team_size || "";
-    document.getElementById("f-founded_year").value = p.founded_year || "";
-    document.getElementById("f-location").value = p.location || "";
-    document.getElementById("f-website").value = p.website || "";
-    document.getElementById("f-advisor_names").value = p.advisor_names || "";
-    document.getElementById("f-monthly_revenue").value = p.monthly_revenue || "";
-    document.getElementById("f-user_count").value = p.user_count || "";
-    document.getElementById("f-growth_rate").value = p.growth_rate || "";
-    document.getElementById("f-market_size").value = p.market_size || "";
-    document.getElementById("f-competitor_analysis").value = p.competitor_analysis || "";
-    document.getElementById("f-burn_rate").value = p.burn_rate || "";
-    document.getElementById("f-runway_months").value = p.runway_months || "";
+    populatePortfolioForm(p);
     existingDocuments = p.documents || [];
     renderFileList();
     
@@ -162,62 +211,34 @@ async function init() {
   }
 }
 
-function parseIntOrNull(value) {
-  if (value === "" || value === null || value === undefined) return null;
-  const n = parseInt(value, 10);
-  return isNaN(n) ? null : n;
-}
-
 // SAVE/SUBMIT
 async function submitForm(status) {
   if (isSaving) return;
   setSaving(true);
 
   try {
-    const name = document.getElementById("f-name").value.trim();
-    const sector = document.getElementById("f-sector").value.trim();
-    const mvp_status = document.getElementById("f-mvp_status").value.trim();
-    const goal = document.getElementById("f-funding_goal").value;
+    const payload = buildPortfolioPayload();
+    const { name, sector, mvp_status, funding_goal, team_size, founded_year } = payload;
 
-    if (!name || !sector || !mvp_status || !goal) {
+    if (!name || !sector || !mvp_status || document.getElementById("f-funding_goal").value.trim() === "") {
       alert("Please fill in all required fields (Company Name, Industry, MVP Status, Funding Goal).");
       return;
     }
 
-    const funding_goal = parseFloat(goal);
-    if (isNaN(funding_goal) || funding_goal < 0) {
-      alert("Funding Goal must be a positive number.");
+    if (funding_goal === null || funding_goal < 0) {
+      alert("Funding Goal must be zero or greater.");
       return;
     }
 
-    const team_size = parseIntOrNull(document.getElementById("f-team_size").value);
     if (team_size !== null && team_size < 0) {
       alert("Team Size can't be negative.");
       return;
     }
 
-    const founded_year = parseIntOrNull(document.getElementById("f-founded_year").value);
     if (founded_year !== null && (founded_year < 1900 || founded_year > 2100)) {
       alert("Founded Year must be between 1900 and 2100.");
       return;
     }
-
-    const payload = {
-      name, sector, mvp_status,
-      funding_goal,
-      description: document.getElementById("f-description").value.trim(),
-      team_size, founded_year,
-      location: document.getElementById("f-location").value.trim(),
-      website: document.getElementById("f-website").value.trim(),
-      advisor_names: document.getElementById("f-advisor_names").value.trim(),
-      monthly_revenue: parseFloat(document.getElementById("f-monthly_revenue").value) || null,
-      user_count: parseIntOrNull(document.getElementById("f-user_count").value),
-      growth_rate: parseFloat(document.getElementById("f-growth_rate").value) || null,
-      market_size: document.getElementById("f-market_size").value.trim(),
-      competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
-      burn_rate: parseFloat(document.getElementById("f-burn_rate").value) || null,
-      runway_months: parseIntOrNull(document.getElementById("f-runway_months").value),
-    };
 
     let portfolioId = editId;
 
