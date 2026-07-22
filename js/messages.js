@@ -12,6 +12,8 @@ const ARCHIVE_REASON_LABELS = Object.freeze({
   portfolio_deleted: 'The portfolio was removed. This history is retained for reference.',
 });
 
+const MESSAGES_API_SCRIPT_SRC = 'js/api.js?v=20260723.2';
+
 const state = {
   user: null,
   conversations: [],
@@ -27,6 +29,7 @@ let conversationLoadVersion = 0;
 let toastTimer = null;
 let eventsBound = false;
 let messagesWorkspaceLoading = false;
+let messagesApiLoadPromise = null;
 
 document.addEventListener('DOMContentLoaded', initMessages);
 
@@ -38,13 +41,49 @@ async function initMessages() {
 
 function setMessagesWorkspaceLoading(loading) {
   messagesWorkspaceLoading = loading;
-  if (els.refreshBtn) els.refreshBtn.disabled = loading;
+  updateRefreshDisabled();
+}
+
+function updateRefreshDisabled() {
+  if (els.refreshBtn) {
+    els.refreshBtn.disabled = messagesWorkspaceLoading || state.sending;
+  }
+}
+
+function ensureMessagesApiClient() {
+  if (typeof apiFetch === 'function') return null;
+  if (messagesApiLoadPromise) return messagesApiLoadPromise;
+
+  messagesApiLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = MESSAGES_API_SCRIPT_SRC;
+    script.onload = () => {
+      if (typeof apiFetch === 'function') {
+        resolve();
+      } else {
+        reject(new Error('Shared API client did not initialize'));
+      }
+    };
+    script.onerror = () => {
+      script.remove?.();
+      reject(Object.assign(new Error('Shared API client could not load'), {
+        isNetworkError: true,
+      }));
+    };
+    document.head.appendChild(script);
+  }).finally(() => {
+    messagesApiLoadPromise = null;
+  });
+
+  return messagesApiLoadPromise;
 }
 
 async function loadMessagesWorkspace() {
   if (messagesWorkspaceLoading) return false;
   setMessagesWorkspaceLoading(true);
   try {
+    const apiClientLoad = ensureMessagesApiClient();
+    if (apiClientLoad) await apiClientLoad;
     const user = await apiFetch('/messages/me');
     state.user = {
       id: String(user.id),
@@ -301,8 +340,8 @@ async function selectInitialConversation() {
 }
 
 async function refreshMessages() {
+  if (state.sending || messagesWorkspaceLoading) return false;
   if (!state.user) return loadMessagesWorkspace();
-  if (messagesWorkspaceLoading) return false;
   setMessagesWorkspaceLoading(true);
 
   const previousConversationId = state.activeConversationId;
@@ -714,6 +753,7 @@ function setComposeEnabled(enabled) {
 
 function setSending(sending) {
   state.sending = sending;
+  updateRefreshDisabled();
   const canSend = Boolean(
     !sending
     && state.activeThread?.conversation?.status === 'active'
@@ -724,6 +764,15 @@ function setSending(sending) {
   els.sendBtn.innerHTML = sending
     ? '<i class="ti ti-loader-2"></i> Sending'
     : '<i class="ti ti-send"></i> Send';
+}
+
+function signOutMessages() {
+  if (typeof signOut === 'function') return signOut();
+
+  localStorage.removeItem('lumilabsToken');
+  localStorage.removeItem('lumilabsUser');
+  localStorage.removeItem('lumilabsSelectedUser');
+  window.location.href = 'signin.html';
 }
 
 function roleLabel(role) {

@@ -188,6 +188,57 @@ test('failed send preserves the exact draft and restores active composer', async
   assert.deepEqual(client.hooks.toasts, ['Room unavailable']);
 });
 
+test('refresh is blocked during send while the send reconciliation applies an archived summary', async () => {
+  const client = clientHarness();
+  const saved = {
+    id: 52,
+    conversation_id: 12,
+    sender_id: 8,
+    sender_name: 'Rachel Manager',
+    sender_role: 'relationship_manager',
+    content: 'Hello group',
+    created_at: '2026-07-22T09:11:00.000Z',
+  };
+  let resolveThread;
+  const pendingThread = new Promise((resolve) => { resolveThread = resolve; });
+  let inboxCalls = 0;
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12/messages') return saved;
+    if (requestPath === '/messages/conversations/12') return pendingThread;
+    if (requestPath === '/messages/conversations/12/read') return {};
+    if (requestPath === '/messages/conversations') {
+      inboxCalls += 1;
+      return [{
+        ...summary,
+        status: 'archived',
+        archived_reason: 'manual',
+      }];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  const send = client.run('sendActiveMessage({ preventDefault() {} })');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(client.run('state.sending'), true);
+  assert.equal(client.run('els.refreshBtn.disabled'), true);
+  const selectionVersion = client.run('state.selectionVersion');
+  assert.equal(await client.run('refreshMessages()'), false);
+  assert.equal(client.run('state.selectionVersion'), selectionVersion);
+  assert.equal(inboxCalls, 0);
+
+  resolveThread(thread([saved]));
+  await send;
+
+  assert.equal(inboxCalls, 1);
+  assert.equal(client.run('state.activeThread.conversation.status'), 'archived');
+  assert.equal(client.run('state.activeThread.conversation.can_send'), false);
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+  assert.equal(client.run('els.archiveNotice.hidden'), false);
+  assert.equal(client.run('els.refreshBtn.disabled'), false);
+});
+
 test('successful thread load marks the last visible message read and refreshes unread list', async () => {
   const client = clientHarness();
   const message = {

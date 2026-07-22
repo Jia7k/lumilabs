@@ -22,7 +22,7 @@ test('messages page uses the shared authenticated API client without global coll
   assert.doesNotMatch(source, /function apiFetch\s*\(/);
   assert.doesNotMatch(source, /function getAuthToken\s*\(/);
   assert.doesNotMatch(source, /function clearMessageSession\s*\(/);
-  assert.doesNotMatch(source, /function signOutMessages\s*\(/);
+  assert.match(source, /function signOutMessages\s*\(/);
 
   const sandbox = {
     window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
@@ -55,6 +55,60 @@ test('messages page uses the shared authenticated API client without global coll
     vm.runInContext(apiSource, sandbox);
     vm.runInContext(source, sandbox);
   });
+});
+
+test('new messages client remains functional with the previous standalone HTML shell', async () => {
+  const injectedScripts = [];
+  const storage = new Map([
+    ['lumilabsToken', 'standalone-token'],
+    ['lumilabsUser', '{}'],
+    ['lumilabsSelectedUser', '{}'],
+  ]);
+  const sandbox = {
+    window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
+    document: {
+      addEventListener() {},
+      createElement(tagName) {
+        assert.equal(tagName, 'script');
+        return {};
+      },
+      head: {
+        appendChild(script) {
+          injectedScripts.push(script.src);
+          vm.runInContext(apiSource, sandbox);
+          queueMicrotask(() => script.onload());
+        },
+      },
+    },
+    localStorage: {
+      getItem(key) { return storage.get(key) || null; },
+      removeItem(key) { storage.delete(key); },
+    },
+    FormData: class {},
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ id: 8 }) }),
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    encodeURIComponent,
+    Intl,
+    Date,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+
+  await vm.runInContext('ensureMessagesApiClient()', sandbox);
+  await vm.runInContext('ensureMessagesApiClient()', sandbox);
+
+  const cacheKey = html.match(/js\/api\.js\?v=([a-z0-9._-]+)/i)[1];
+  assert.deepEqual(injectedScripts, [`js/api.js?v=${cacheKey}`]);
+  assert.equal(vm.runInContext("typeof apiFetch === 'function'", sandbox), true);
+
+  vm.runInContext('signOutMessages()', sandbox);
+  assert.equal(storage.has('lumilabsToken'), false);
+  assert.equal(storage.has('lumilabsUser'), false);
+  assert.equal(storage.has('lumilabsSelectedUser'), false);
+  assert.equal(sandbox.window.location.href, 'signin.html');
 });
 
 test('messages page supports relationship-manager navigation and permanent archive-aware composer', () => {
