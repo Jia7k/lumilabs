@@ -2,8 +2,17 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { moderatePortfolio } = require('../services/workflow');
 
 const router = express.Router();
+
+function sendWorkflowError(res, error) {
+  if (error && Number.isInteger(error.status)) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(error);
+  return res.status(500).json({ error: 'Server error' });
+}
 
 // GET /api/admin/queue  — pending portfolios
 router.get('/queue', authenticate, requireRole('admin'), async (req, res) => {
@@ -26,40 +35,15 @@ router.get('/queue', authenticate, requireRole('admin'), async (req, res) => {
 // PUT /api/admin/portfolios/:id/approve
 router.put('/portfolios/:id/approve', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const [rows] = await db.query(
-      "SELECT * FROM portfolios WHERE id = ? AND status = 'pending'",
-      [req.params.id]
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Pending portfolio not found' });
-    }
-
-    await db.query(
-      "UPDATE portfolios SET status='approved', rejection_reason=NULL WHERE id=?",
-      [req.params.id]
-    );
-
-    await db.query(
-      `INSERT INTO audit_logs (admin_id, action, portfolio_id, reason) VALUES (?, 'approved', ?, ?)`,
-      [req.user.id, req.params.id, null]
-    );
-
-    // Notify business owner
-    await db.query(
-      `INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id)
-       VALUES (?, 'portfolio_approved', 'Portfolio Approved!', ?, ?, ?)`,
-      [
-        rows[0].owner_id,
-        `Your portfolio "${rows[0].name}" has been approved and is now visible to investors`,
-        req.params.id,
-        req.user.id,
-      ]
-    );
-
-    res.json({ message: 'Portfolio approved' });
+    const result = await moderatePortfolio({
+      portfolioId: req.params.id,
+      adminId: req.user.id,
+      action: 'approved',
+      reason: null,
+    });
+    res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    sendWorkflowError(res, err);
   }
 });
 
@@ -74,40 +58,15 @@ router.put(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      const [rows] = await db.query(
-        "SELECT * FROM portfolios WHERE id = ? AND status = 'pending'",
-        [req.params.id]
-      );
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Pending portfolio not found' });
-      }
-
-      await db.query(
-        "UPDATE portfolios SET status='rejected', rejection_reason=? WHERE id=?",
-        [req.body.reason, req.params.id]
-      );
-
-      await db.query(
-        `INSERT INTO audit_logs (admin_id, action, portfolio_id, reason) VALUES (?, 'rejected', ?, ?)`,
-        [req.user.id, req.params.id, req.body.reason]
-      );
-
-      // Notify business owner
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id)
-         VALUES (?, 'portfolio_rejected', 'Portfolio Rejected', ?, ?, ?)`,
-        [
-          rows[0].owner_id,
-          `Your portfolio "${rows[0].name}" was rejected: ${req.body.reason}`,
-          req.params.id,
-          req.user.id,
-        ]
-      );
-
-      res.json({ message: 'Portfolio rejected' });
+      const result = await moderatePortfolio({
+        portfolioId: req.params.id,
+        adminId: req.user.id,
+        action: 'rejected',
+        reason: req.body.reason,
+      });
+      res.json(result);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      sendWorkflowError(res, err);
     }
   }
 );

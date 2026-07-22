@@ -1,43 +1,34 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { expressInterest } = require('../services/workflow');
 
 const router = express.Router();
+
+function sendWorkflowError(res, error) {
+  if (error && Number.isInteger(error.status)) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(error);
+  return res.status(500).json({ error: 'Server error' });
+}
 
 // POST /api/interests/:portfolioId  — investor expresses interest
 router.post('/:portfolioId', authenticate, requireRole('investor'), async (req, res) => {
   const portfolioId = req.params.portfolioId;
 
   try {
-    const [portfolio] = await db.query(
-      "SELECT * FROM portfolios WHERE id = ? AND status = 'approved'",
-      [portfolioId]
-    );
-    if (portfolio.length === 0) {
-      return res.status(404).json({ error: 'Approved portfolio not found' });
+    const result = await expressInterest({
+      portfolioId,
+      investorId: req.user.id,
+      investorName: req.user.name,
+    });
+    if (!result.created) {
+      return res.status(200).json({ message: 'Interest already recorded' });
     }
-
-    await db.query(
-      'INSERT IGNORE INTO investor_interests (investor_id, portfolio_id) VALUES (?, ?)',
-      [req.user.id, portfolioId]
-    );
-
-    // Notify the business owner
-    await db.query(
-      `INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id)
-       VALUES (?, 'new_interest', 'New Investor Interest!', ?, ?, ?)`,
-      [
-        portfolio[0].owner_id,
-        `${req.user.name} is interested in "${portfolio[0].name}"`,
-        portfolioId,
-        req.user.id,
-      ]
-    );
-
     res.status(201).json({ message: 'Interest expressed' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    sendWorkflowError(res, err);
   }
 });
 

@@ -41,11 +41,7 @@ async function migrate() {
       FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
     );
 
-    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS notes TEXT;
-
-    INSERT INTO users (email, password_hash, name, role)
-    VALUES ('victor@lumilabs.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Victor', 'admin')
-    ON DUPLICATE KEY UPDATE name = name;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
   `);
 
   console.log('Migration complete!');

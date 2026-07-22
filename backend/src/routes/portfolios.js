@@ -5,8 +5,17 @@ const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const { submitPortfolio } = require('../services/workflow');
 
 const router = express.Router();
+
+function sendWorkflowError(res, error) {
+  if (error && Number.isInteger(error.status)) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(error);
+  return res.status(500).json({ error: 'Server error' });
+}
 
 const optFloat = (min = 0) => (v) => {
   if (v == null || v === '') return true;
@@ -302,44 +311,14 @@ router.put(
 // POST /api/portfolios/:id/submit  — submit for admin review
 router.post('/:id/submit', authenticate, requireRole('business_owner'), async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM portfolios WHERE id = ? AND owner_id = ?',
-      [req.params.id, req.user.id]
-    );
-
-    if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
-    const portfolio = rows[0];
-
-    if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
-      return res.status(400).json({ error: 'Portfolio is already pending review' });
-    }
-
-    await db.query(
-      "UPDATE portfolios SET status='pending', submitted_at=NOW(), rejection_reason=NULL WHERE id=?",
-      [req.params.id]
-    );
-
-    // Notify admins
-    const [admins] = await db.query("SELECT id FROM users WHERE role='admin'");
-    const notifValues = admins.map((a) => [
-      a.id,
-      'portfolio_submitted',
-      'New Portfolio Submitted',
-      `${req.user.name} submitted "${portfolio.name}" for review`,
-      req.params.id,
-      req.user.id,
-    ]);
-    if (notifValues.length > 0) {
-      await db.query(
-        'INSERT INTO notifications (user_id, type, title, body, related_portfolio_id, related_user_id) VALUES ?',
-        [notifValues]
-      );
-    }
-
-    res.json({ message: 'Portfolio submitted for review' });
+    const result = await submitPortfolio({
+      portfolioId: req.params.id,
+      ownerId: req.user.id,
+      ownerName: req.user.name,
+    });
+    res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    sendWorkflowError(res, err);
   }
 });
 

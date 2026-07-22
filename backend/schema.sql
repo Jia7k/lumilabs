@@ -22,9 +22,22 @@ CREATE TABLE IF NOT EXISTS portfolios (
   name VARCHAR(255) NOT NULL,
   sector VARCHAR(100) NOT NULL,
   description TEXT,
-  funding_goal DECIMAL(15, 2) DEFAULT 0,
+  mvp_status ENUM('Idea','Prototype','Beta','Launched') NOT NULL DEFAULT 'Idea',
+  funding_goal DECIMAL(15,2) DEFAULT 0,
+  team_size INT,
+  founded_year YEAR,
+  location VARCHAR(255),
+  website VARCHAR(500),
+  monthly_revenue DECIMAL(15,2),
+  user_count INT,
+  growth_rate DECIMAL(5,2),
+  market_size VARCHAR(500),
+  competitor_analysis TEXT,
+  advisor_names VARCHAR(500),
+  burn_rate DECIMAL(15,2),
+  runway_months INT,
   readiness_score INT DEFAULT 0 CHECK (readiness_score BETWEEN 0 AND 100),
-  status ENUM('draft', 'pending', 'approved', 'rejected') NOT NULL DEFAULT 'draft',
+  status ENUM('draft','pending','approved','rejected') NOT NULL DEFAULT 'draft',
   rejection_reason TEXT,
   submitted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -90,13 +103,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   admin_id INT NOT NULL,
   action ENUM('approved', 'rejected', 'requested_changes') NOT NULL,
   portfolio_id INT NOT NULL,
-  notes TEXT,
+  reason TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
 );
-
--- Seed data: default admin account (password: admin123)
-INSERT INTO users (email, password_hash, name, role)
-VALUES ('victor@lumilabs.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Victor', 'admin')
-ON DUPLICATE KEY UPDATE name = name;
