@@ -1,10 +1,17 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { moderatePortfolio } = require('../services/workflow');
 
 const router = express.Router();
+
+const relationshipManagerValidation = [
+  body('name').trim().isLength({ min: 1, max: 100 }),
+  body('email').isEmail().normalizeEmail().isLength({ max: 255 }),
+  body('password').isLength({ min: 6, max: 128 }),
+];
 
 function sendWorkflowError(res, error) {
   if (error && Number.isInteger(error.status)) {
@@ -13,6 +20,60 @@ function sendWorkflowError(res, error) {
   console.error(error);
   return res.status(500).json({ error: 'Server error' });
 }
+
+// POST /api/admin/relationship-managers — administrator-provisioned accounts only
+router.post(
+  '/relationship-managers',
+  authenticate,
+  requireRole('admin'),
+  relationshipManagerValidation,
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const { email, name, password } = req.body;
+    try {
+      const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+      if (existing.length) {
+        return res.status(409).json({ error: 'Email already registered' });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const [result] = await db.query(
+        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+        [email, passwordHash, name, 'relationship_manager'],
+      );
+      const [created] = await db.query(
+        'SELECT id, name, email, role, created_at FROM users WHERE id = ?',
+        [result.insertId],
+      );
+      if (created.length !== 1) throw new Error('Created relationship manager could not be read');
+      return res.status(201).json(created[0]);
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: 'Email already registered' });
+      }
+      console.error(error);
+      return res.status(500).json({ error: 'Server error' });
+    }
+  },
+);
+
+// GET /api/admin/relationship-managers — safe account metadata
+router.get('/relationship-managers', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, name, email, role, created_at
+         FROM users
+        WHERE role = 'relationship_manager'
+        ORDER BY created_at DESC, id DESC`,
+    );
+    return res.json(rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // GET /api/admin/queue  — pending portfolios
 router.get('/queue', authenticate, requireRole('admin'), async (req, res) => {

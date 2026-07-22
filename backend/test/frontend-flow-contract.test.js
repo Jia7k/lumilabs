@@ -54,6 +54,12 @@ test('investor message buttons include partner and portfolio context', () => {
   }
 });
 
+test('public registration exposes only owner and investor roles', () => {
+  const registerRoute = read('backend/src/routes/auth.js').split('// POST /api/auth/login')[0];
+  assert.match(registerRoute, /isIn\(\['business_owner', 'investor'\]\)/);
+  assert.doesNotMatch(registerRoute, /isIn\([^\n]*relationship_manager/);
+});
+
 test('browser JavaScript passes node syntax checking', () => {
   for (const name of fs.readdirSync(path.join(root, 'js')).filter((item) => item.endsWith('.js'))) {
     const result = spawnSync(process.execPath, ['--check', path.join(root, 'js', name)], {
