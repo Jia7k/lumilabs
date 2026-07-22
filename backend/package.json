@@ -9,7 +9,7 @@
     "test": "node --test test/*.test.js",
     "migrate:managed-chat": "node migrate.js",
     "seed:managed-chat": "node scripts/seed-managed-chat.js",
-    "smoke:live": "node scripts/live-three-role-smoke.js"
+    "smoke:live": "node scripts/live-four-role-smoke.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
