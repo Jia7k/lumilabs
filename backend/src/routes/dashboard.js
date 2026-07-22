@@ -150,7 +150,7 @@ router.get('/admin', authenticate, requireRole('admin'), async (req, res) => {
     );
 
     const [recentLogs] = await db.query(
-      `SELECT al.action, al.created_at, al.notes, u.name AS admin_name, p.name AS portfolio_name
+      `SELECT al.action, al.created_at, al.reason, u.name AS admin_name, p.name AS portfolio_name
        FROM audit_logs al
        JOIN users u ON u.id = al.admin_id
        JOIN portfolios p ON p.id = al.portfolio_id

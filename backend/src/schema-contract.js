@@ -61,13 +61,15 @@ const REQUIRED_COLUMNS = {
 
 async function verifySchema(database) {
   const [rows] = await database.query(
-    `SELECT table_name, column_name
+    `SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name
        FROM information_schema.columns
       WHERE table_schema = DATABASE()`,
   );
 
   const available = new Set(
-    rows.map((row) => `${row.table_name}.${row.column_name}`),
+    rows.map((row) => (
+      `${row.table_name || row.TABLE_NAME}.${row.column_name || row.COLUMN_NAME}`
+    )),
   );
   const missing = [];
 

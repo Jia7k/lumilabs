@@ -148,34 +148,89 @@ function createApp(options = {}) {
   return app;
 }
 
-async function main() {
-  validateEnvironment();
-  const tunnel = await openSshTunnel();
-  const host = process.env.HOST || '127.0.0.1';
-  const port = Number(process.env.PORT || 3100);
-  const app = createApp();
-
-  const server = await new Promise((resolve, reject) => {
-    const listener = app.listen(port, host, () => resolve(listener));
-    listener.once('error', reject);
-  }).catch(async (error) => {
-    if (tunnel) await tunnel.close();
-    throw error;
-  });
-
-  console.log(`LumiLabs API listening at http://${host}:${port}`);
-
-  let closing = false;
-  const close = async () => {
-    if (closing) return;
-    closing = true;
-    await new Promise((resolve) => server.close(resolve));
-    if (tunnel) await tunnel.close();
+async function releaseResources({ server, database, tunnel }) {
+  const errors = [];
+  const attempt = async (action) => {
+    try {
+      await action();
+    } catch (error) {
+      errors.push(error);
+    }
   };
-  process.once('SIGTERM', close);
-  process.once('SIGINT', close);
 
-  return { app, server, tunnel, close };
+  if (server) {
+    await attempt(() => new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') reject(error);
+        else resolve();
+      });
+    }));
+  }
+  if (database && typeof database.end === 'function') {
+    await attempt(() => database.end());
+  }
+  if (tunnel && typeof tunnel.close === 'function') {
+    await attempt(() => tunnel.close());
+  }
+
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'Failed to release server resources');
+  }
+}
+
+async function main(options = {}) {
+  const environment = options.environment || process.env;
+  const connectTunnel = options.openTunnel || openSshTunnel;
+  const createApplication = options.createApplication || createApp;
+
+  validateEnvironment(environment);
+
+  let tunnel;
+  let database;
+  let server;
+
+  try {
+    tunnel = await connectTunnel(environment);
+    database = options.database || require('./src/config/db');
+    const app = createApplication({ database });
+    const host = environment.HOST || '127.0.0.1';
+    const port = Number(environment.PORT || 3100);
+
+    await new Promise((resolve, reject) => {
+      server = app.listen(port, host, resolve);
+      server.once('error', reject);
+    });
+
+    const address = server.address();
+    const listeningPort = typeof address === 'object' ? address.port : port;
+    console.log(`LumiLabs API listening at http://${host}:${listeningPort}`);
+
+    let closePromise;
+    const onSignal = () => {
+      close().catch((error) => {
+        console.error('Graceful shutdown failed:', error.message);
+        process.exitCode = 1;
+      });
+    };
+    const close = () => {
+      if (!closePromise) {
+        process.removeListener('SIGTERM', onSignal);
+        process.removeListener('SIGINT', onSignal);
+        closePromise = releaseResources({ server, database, tunnel });
+      }
+      return closePromise;
+    };
+    process.once('SIGTERM', onSignal);
+    process.once('SIGINT', onSignal);
+
+    return { app, server, tunnel, database, close };
+  } catch (error) {
+    await releaseResources({ server, database, tunnel }).catch((cleanupError) => {
+      console.error('Startup cleanup failed:', cleanupError.message);
+    });
+    throw error;
+  }
 }
 
 if (require.main === module) {
