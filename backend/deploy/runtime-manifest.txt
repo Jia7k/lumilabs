@@ -37,4 +37,5 @@ backend/src/routes/messages.js
 backend/src/routes/notifications.js
 backend/src/routes/portfolios.js
 backend/src/routes/recommendations.js
+backend/src/services/document-workflow.js
 backend/src/services/workflow.js

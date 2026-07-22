@@ -7,6 +7,8 @@ const state = {
   active: null,
   messages: [],
   search: '',
+  selectionVersion: 0,
+  sending: false,
 };
 
 const els = {};
@@ -39,7 +41,11 @@ async function initMessages() {
   }
 
   renderUser();
-  await loadConversations();
+  const conversationsLoaded = await loadConversations();
+  if (!conversationsLoaded) {
+    renderLoadError('Messages are temporarily unavailable.');
+    return;
+  }
 
   const starter = getStarterConversation();
   if (starter) {
@@ -127,7 +133,7 @@ function renderLoadError(message) {
     <div class="empty-state">
       <i class="ti ti-alert-circle"></i>
       <div class="empty-title">Messages unavailable</div>
-      <div>Check that the backend is running and Alpha/Beta exist in the database.</div>
+      <div>Please try Refresh or sign in again.</div>
     </div>
   `;
   renderEmptyThread();
@@ -303,8 +309,10 @@ function updateUnreadIndicators(unreadTotal) {
 }
 
 async function selectConversation(partnerId) {
+  if (state.sending) return;
   const conversation = state.conversations.find((item) => sameId(item.partner_id, partnerId));
   if (!conversation) return;
+  const selectionVersion = ++state.selectionVersion;
 
   state.active = conversation;
   renderActiveHeader();
@@ -312,14 +320,20 @@ async function selectConversation(partnerId) {
 
   try {
     const rows = await apiFetch(`/messages/conversations/${encodeURIComponent(partnerId)}`);
+    if (selectionVersion !== state.selectionVersion) return;
+    const conversationRows = await apiFetch('/messages/conversations');
+    if (selectionVersion !== state.selectionVersion) return;
+
     state.messages = rows.map(normalizeMessage);
+    state.conversations = conversationRows.map(normalizeConversation);
     state.active.unread_count = 0;
-    renderThread();
-    await loadConversations();
     state.active = state.conversations.find((item) => sameId(item.partner_id, partnerId)) || state.active;
+    if (state.active) state.active.unread_count = 0;
+    renderThread();
     renderConversations();
     renderActiveHeader();
   } catch (err) {
+    if (selectionVersion !== state.selectionVersion) return;
     console.error(err);
     showToast('Could not open this conversation');
     state.messages = [];
@@ -404,10 +418,18 @@ function renderEmptyThread() {
 }
 
 async function reloadActiveConversationFromDatabase(partnerId) {
+  const selectionVersion = state.selectionVersion;
   const messageRows = await apiFetch(
     `/messages/conversations/${encodeURIComponent(partnerId)}`
   );
   const conversationRows = await apiFetch('/messages/conversations');
+  if (
+    selectionVersion !== state.selectionVersion
+    || !state.active
+    || !sameId(state.active.partner_id, partnerId)
+  ) {
+    return false;
+  }
 
   state.messages = messageRows.map(normalizeMessage);
   state.conversations = conversationRows.map(normalizeConversation);
@@ -419,6 +441,7 @@ async function reloadActiveConversationFromDatabase(partnerId) {
   renderThread();
   renderConversations();
   renderActiveHeader();
+  return true;
 }
 
 async function sendActiveMessage(event) {
@@ -481,6 +504,7 @@ function setComposeEnabled(enabled) {
 }
 
 function setSending(isSending) {
+  state.sending = isSending;
   els.messageInput.disabled = isSending;
   els.sendBtn.disabled = isSending;
   els.sendBtn.innerHTML = isSending

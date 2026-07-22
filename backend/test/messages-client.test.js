@@ -221,3 +221,77 @@ test('apiFetch surfaces the first express-validator message', async () => {
 test('message client contains no prototype identity mechanism', () => {
   assert.doesNotMatch(source, /X-LumiLabs-Prototype|PROTOTYPE_USERS|SELECTED_USER_KEY/);
 });
+
+test('initial inbox failures render the visible error state', () => {
+  assert.match(
+    source,
+    /const conversationsLoaded = await loadConversations\(\);[\s\S]*if \(!conversationsLoaded\) \{[\s\S]*renderLoadError/,
+  );
+  assert.doesNotMatch(source, /Alpha\/Beta exist/);
+});
+
+test('a stale thread response cannot replace a newer selection', async () => {
+  const client = clientHarness();
+  let resolveFirstThread;
+  const firstThread = new Promise((resolve) => {
+    resolveFirstThread = resolve;
+  });
+
+  client.run(`
+    state.active = null;
+    state.conversations = [
+      {
+        partner_id: '2', partner_name: 'Alpha', partner_role: 'investor',
+        partner_role_label: 'Investor', portfolio_id: '', portfolio_name: '',
+        content: '', created_at: new Date().toISOString(), unread_count: 0, sender_id: ''
+      },
+      {
+        partner_id: '4', partner_name: 'Gamma', partner_role: 'investor',
+        partner_role_label: 'Investor', portfolio_id: '', portfolio_name: '',
+        content: '', created_at: new Date().toISOString(), unread_count: 0, sender_id: ''
+      }
+    ];
+  `);
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/2') return firstThread;
+    if (requestPath === '/messages/conversations/4') {
+      return [{
+        id: 70,
+        sender_id: 4,
+        receiver_id: 3,
+        sender_name: 'Gamma',
+        content: 'newer thread',
+        created_at: '2026-07-22T10:00:00.000Z',
+      }];
+    }
+    if (requestPath === '/messages/conversations') {
+      return [{
+        id: 70,
+        partner_id: 4,
+        partner_name: 'Gamma',
+        partner_role: 'investor',
+        content: 'newer thread',
+        created_at: '2026-07-22T10:00:00.000Z',
+        unread_count: 0,
+        sender_id: 4,
+      }];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  const firstSelection = client.run("selectConversation('2')");
+  const secondSelection = client.run("selectConversation('4')");
+  await secondSelection;
+  resolveFirstThread([{
+    id: 69,
+    sender_id: 2,
+    receiver_id: 3,
+    sender_name: 'Alpha',
+    content: 'stale thread',
+    created_at: '2026-07-22T09:59:00.000Z',
+  }]);
+  await firstSelection;
+
+  assert.equal(client.run('state.active.partner_id'), '4');
+  assert.equal(client.run('state.messages[0].content'), 'newer thread');
+});

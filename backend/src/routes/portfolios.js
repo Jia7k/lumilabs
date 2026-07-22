@@ -1,15 +1,25 @@
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
+const {
+  deleteEditablePortfolio,
+  deletePortfolioDocument,
+  resolveStoredUploadPath,
+  saveUploadedDocuments,
+} = require('../services/document-workflow');
 const { submitPortfolio } = require('../services/workflow');
 
 const router = express.Router();
 
 function sendWorkflowError(res, error) {
+  if (error && error.cleanupError) {
+    console.error('Document file cleanup failed', error.cleanupError);
+  }
+  if (error && error.restoreError) {
+    console.error('Document file restore failed', error.restoreError);
+  }
   if (error && Number.isInteger(error.status)) {
     return res.status(error.status).json({ error: error.message });
   }
@@ -199,11 +209,10 @@ router.get('/:id/documents/:docId/download', authenticate, async (req, res) => {
       || (req.user.role === 'investor' && doc.status === 'approved');
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    const backendRoot = path.join(__dirname, '..', '..');
-    const uploadRoot = path.join(backendRoot, 'uploads');
-    const relative = doc.file_url.replace(/^\/uploads\//, 'uploads/');
-    const absolute = path.resolve(backendRoot, relative);
-    if (absolute !== uploadRoot && !absolute.startsWith(`${uploadRoot}${path.sep}`)) {
+    let absolute;
+    try {
+      absolute = resolveStoredUploadPath(doc.file_url);
+    } catch (error) {
       return res.status(404).json({ error: 'Document not found' });
     }
     return res.download(absolute, doc.file_name);
@@ -402,44 +411,21 @@ router.post(
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({ error: 'No files uploaded' });
       }
- 
-      const values = req.files.map((f) => [
-        req.params.id,
-        f.originalname,
-        `/uploads/portfolio-documents/${f.filename}`,
-        f.mimetype,
-      ]);
- 
-      await db.query(
-        'INSERT INTO portfolio_documents (portfolio_id, file_name, file_url, file_type) VALUES ?',
-        [values]
-      );
- 
-      const [docCount] = await db.query(
-        'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
-        [req.params.id]
-      );
-      const readiness_score = calcReadinessScore(req.portfolio, docCount[0].c);
-      await db.query(
-        'UPDATE portfolios SET readiness_score=?, status=?, submitted_at=?, rejection_reason=? WHERE id=?',
-        [
-        readiness_score,
-        'draft',
-        null,
-        null,
-        req.params.id,
-        ],
-      );
- 
-      const [docs] = await db.query(
-        'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
-        [req.params.id]
-      );
- 
-      res.status(201).json({ documents: docs.map(withDownloadUrl), readiness_score });
+
+      const result = await saveUploadedDocuments({
+        database: db,
+        portfolioId: req.params.id,
+        ownerId: req.user.id,
+        files: req.files,
+        calculateReadiness: calcReadinessScore,
+      });
+
+      return res.status(201).json({
+        documents: result.documents.map(withDownloadUrl),
+        readiness_score: result.readinessScore,
+      });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      return sendWorkflowError(res, err);
     }
   }
 );
@@ -452,34 +438,23 @@ router.delete(
   loadOwnedEditablePortfolio,
   async (req, res) => {
     try {
-      const [docRows] = await db.query(
-        'SELECT * FROM portfolio_documents WHERE id = ? AND portfolio_id = ?',
-        [req.params.docId, req.params.id]
-      );
-      if (docRows.length === 0) {
-        return res.status(404).json({ error: 'Document not found' });
+      const result = await deletePortfolioDocument({
+        database: db,
+        portfolioId: req.params.id,
+        documentId: req.params.docId,
+        ownerId: req.user.id,
+        calculateReadiness: calcReadinessScore,
+      });
+      if (result.cleanupError) {
+        console.error('Deleted document file cleanup failed', result.cleanupError);
       }
- 
-      await db.query('DELETE FROM portfolio_documents WHERE id = ?', [req.params.docId]);
- 
-      // Remove the file from disk too
-      const filePath = path.join(__dirname, '..', '..', docRows[0].file_url);
-      fs.unlink(filePath, () => {});
- 
-      const [docCount] = await db.query(
-        'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
-        [req.params.id]
-      );
-      const readiness_score = calcReadinessScore(req.portfolio, docCount[0].c);
-      await db.query(
-        'UPDATE portfolios SET readiness_score=?, status=?, submitted_at=?, rejection_reason=? WHERE id=?',
-        [readiness_score, 'draft', null, null, req.params.id],
-      );
- 
-      res.json({ message: 'Document deleted', readiness_score });
+
+      return res.json({
+        message: 'Document deleted',
+        readiness_score: result.readinessScore,
+      });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      return sendWorkflowError(res, err);
     }
   }
 );
@@ -487,26 +462,18 @@ router.delete(
 // DELETE /api/portfolios/:id  — delete an editable portfolio
 router.delete('/:id', authenticate, requireRole('business_owner'), async (req, res) => {
   try {
-    const [result] = await db.query(
-      "DELETE FROM portfolios WHERE id=? AND owner_id=? AND status IN ('draft','rejected')",
-      [req.params.id, req.user.id],
-    );
-
-    if (result.affectedRows !== 1) {
-      const [rows] = await db.query(
-        'SELECT id FROM portfolios WHERE id=? AND owner_id=?',
-        [req.params.id, req.user.id],
-      );
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Portfolio not found' });
-      }
-      return res.status(409).json({ error: 'Pending or approved portfolios cannot be deleted' });
+    const result = await deleteEditablePortfolio({
+      database: db,
+      portfolioId: req.params.id,
+      ownerId: req.user.id,
+    });
+    if (result.cleanupError) {
+      console.error('Deleted portfolio file cleanup failed', result.cleanupError);
     }
 
-    res.json({ message: 'Portfolio deleted' });
+    return res.json({ message: 'Portfolio deleted' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    return sendWorkflowError(res, err);
   }
 });
 

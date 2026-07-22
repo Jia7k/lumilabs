@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=user
-Group=www-data
+Group=user
 WorkingDirectory=/var/www/lumilabs-backend
 Environment=NODE_ENV=production
 EnvironmentFile=/var/www/lumilabs-backend/.env

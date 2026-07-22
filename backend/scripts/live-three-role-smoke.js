@@ -14,13 +14,14 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) && origin !== 'http://35.212.144
   );
 }
 
-const prefix = `codex_e2e_${Date.now()}`;
+const prefix = `codex_e2e_${crypto.randomUUID()}`;
 const emails = {
   owner: `${prefix}_owner@example.invalid`,
   investor: `${prefix}_investor@example.invalid`,
   admin: `${prefix}_admin@example.invalid`,
 };
 const generatedCredential = crypto.randomBytes(24).toString('base64url');
+const createdUserIds = new Set();
 let db;
 
 async function api(requestPath, { method = 'GET', token, body, form } = {}) {
@@ -45,14 +46,28 @@ async function api(requestPath, { method = 'GET', token, body, form } = {}) {
 }
 
 async function register(role, email, name) {
-  return (await api('/auth/register', {
+  const registration = (await api('/auth/register', {
     method: 'POST',
     body: { role, email, name, password: generatedCredential },
   })).data;
+  createdUserIds.add(Number(registration.user.id));
+  return registration;
 }
 
 async function cleanTemporaryRecords() {
   if (!db) return;
+  const userIds = [...createdUserIds].filter(Number.isInteger);
+  if (!userIds.length) {
+    await db.end();
+    return;
+  }
+  const idPlaceholders = userIds.map(() => '?').join(',');
+  const identityParams = [
+    emails.owner,
+    emails.investor,
+    emails.admin,
+    ...userIds,
+  ];
 
   let cleanupError;
   try {
@@ -60,8 +75,8 @@ async function cleanTemporaryRecords() {
       `SELECT d.file_url FROM portfolio_documents d
         JOIN portfolios p ON p.id=d.portfolio_id
         JOIN users u ON u.id=p.owner_id
-       WHERE u.email IN (?,?,?)`,
-      [emails.owner, emails.investor, emails.admin],
+       WHERE u.email IN (?,?,?) AND u.id IN (${idPlaceholders})`,
+      identityParams,
     );
     for (const { file_url: fileUrl } of documents) {
       if (!/^\/uploads\/portfolio-documents\/[A-Za-z0-9._-]+$/.test(fileUrl)) {
@@ -86,16 +101,16 @@ async function cleanTemporaryRecords() {
       `DELETE n FROM notifications n
         JOIN portfolios p ON p.id=n.related_portfolio_id
         JOIN users u ON u.id=p.owner_id
-       WHERE u.email IN (?,?,?)`,
-      [emails.owner, emails.investor, emails.admin],
+       WHERE u.email IN (?,?,?) AND u.id IN (${idPlaceholders})`,
+      identityParams,
     );
     await db.query(
-      'DELETE FROM users WHERE email IN (?,?,?)',
-      [emails.owner, emails.investor, emails.admin],
+      `DELETE FROM users WHERE email IN (?,?,?) AND id IN (${idPlaceholders})`,
+      identityParams,
     );
     const [remaining] = await db.query(
-      'SELECT id FROM users WHERE email IN (?,?,?)',
-      [emails.owner, emails.investor, emails.admin],
+      `SELECT id FROM users WHERE email IN (?,?,?) AND id IN (${idPlaceholders})`,
+      identityParams,
     );
     assert.equal(remaining.length, 0, 'temporary users must be removed');
     await db.commit();
@@ -123,10 +138,11 @@ async function main() {
 
   try {
     const adminHash = await bcrypt.hash(generatedCredential, 10);
-    await db.execute(
+    const [adminInsert] = await db.execute(
       "INSERT INTO users (email,password_hash,name,role) VALUES (?,?,?,'admin')",
       [emails.admin, adminHash, `${prefix} Admin`],
     );
+    createdUserIds.add(Number(adminInsert.insertId));
 
     const owner = await register(
       'business_owner',
@@ -159,6 +175,14 @@ async function main() {
       api('/admin/stats', { token: owner.token }),
       (error) => error.status === 403,
     );
+    assert.deepEqual(
+      (await api('/messages/conversations', { token: owner.token })).data,
+      [],
+    );
+    assert.deepEqual(
+      (await api('/messages/conversations', { token: investor.token })).data,
+      [],
+    );
 
     const created = (await api('/portfolios', {
       method: 'POST',
@@ -177,7 +201,6 @@ async function main() {
         user_count: 10,
         growth_rate: 5,
         market_size: 'Temporary market',
-        competitor_analysis: 'Temporary comparison',
         advisor_names: '',
         burn_rate: 100,
         runway_months: 12,
@@ -241,6 +264,27 @@ async function main() {
         content: `${prefix} investor reply`,
       },
     });
+
+    const ownerInbox = (
+      await api('/messages/conversations', { token: owner.token })
+    ).data;
+    const ownerConversation = ownerInbox.find(
+      ({ partner_id: partnerId }) => Number(partnerId) === Number(investor.user.id),
+    );
+    assert.ok(ownerConversation, 'owner inbox must contain the investor');
+    assert.equal(ownerConversation.content, `${prefix} investor reply`);
+    assert.ok(Number(ownerConversation.unread_count) >= 1);
+
+    const investorInbox = (
+      await api('/messages/conversations', { token: investor.token })
+    ).data;
+    const investorConversation = investorInbox.find(
+      ({ partner_id: partnerId }) => Number(partnerId) === Number(owner.user.id),
+    );
+    assert.ok(investorConversation, 'investor inbox must contain the owner');
+    assert.equal(investorConversation.content, `${prefix} investor reply`);
+    assert.ok(Number(investorConversation.unread_count) >= 1);
+
     const thread = (await api(
       `/messages/conversations/${owner.user.id}`,
       { token: investor.token },

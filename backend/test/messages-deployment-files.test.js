@@ -46,6 +46,7 @@ const expectedRuntimeFiles = [
   'backend/src/routes/notifications.js',
   'backend/src/routes/portfolios.js',
   'backend/src/routes/recommendations.js',
+  'backend/src/services/document-workflow.js',
   'backend/src/services/workflow.js',
 ];
 
@@ -56,7 +57,7 @@ test('systemd unit runs the unified API on a private loopback port', () => {
   );
 
   assert.match(service, /^User=user$/m);
-  assert.match(service, /^Group=www-data$/m);
+  assert.match(service, /^Group=user$/m);
   assert.match(service, /^WorkingDirectory=\/var\/www\/lumilabs-backend$/m);
   assert.match(
     service,

@@ -5,6 +5,10 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..', '..');
 const route = fs.readFileSync(path.join(root, 'backend/src/routes/portfolios.js'), 'utf8');
+const documentWorkflow = fs.readFileSync(
+  path.join(root, 'backend/src/services/document-workflow.js'),
+  'utf8',
+);
 const client = fs.readFileSync(path.join(root, 'js/createportfolio.js'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'createportfolio.html'), 'utf8');
 
@@ -21,8 +25,8 @@ test('editing approved or rejected content resets review state', () => {
 });
 
 test('owners cannot delete pending or approved portfolios', () => {
-  assert.match(route, /status IN \('draft','rejected'\)/);
-  assert.match(route, /cannot be deleted/i);
+  assert.match(documentWorkflow, /status IN \('draft','rejected'\)/);
+  assert.match(documentWorkflow, /cannot be deleted/i);
 });
 
 test('a created portfolio ID is written into history before upload starts', () => {
@@ -44,4 +48,11 @@ test('the editor visibly locks pending portfolios', () => {
   assert.match(client, /function setFormLocked/);
   assert.match(client, /currentStatus === "pending"/);
   assert.match(client, /Pending review is in progress/);
+});
+
+test('document deletion updates the editor to the server draft state', () => {
+  assert.match(
+    client,
+    /await API\.deleteDocument\(editId, docId\);[\s\S]*renderPortfolioSummary\("draft"/,
+  );
 });

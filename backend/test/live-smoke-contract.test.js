@@ -11,8 +11,12 @@ const source = fs.readFileSync(
 test('live smoke is explicitly targeted and self-cleaning', () => {
   assert.match(source, /LUMILABS_E2E_ORIGIN/);
   assert.match(source, /codex_e2e_/);
+  assert.match(source, /randomUUID\(\)/);
+  assert.match(source, /createdUserIds/);
+  assert.match(source, /\/messages\/conversations/);
   assert.match(source, /finally/);
   assert.match(source, /DELETE n FROM notifications n/);
   assert.match(source, /DELETE FROM users WHERE email IN/);
+  assert.match(source, /AND id IN/);
   assert.doesNotMatch(source, /victor@lumilabs\.com|admin123|password\s*=/i);
 });

@@ -80,6 +80,16 @@ function updateSubmitBtn(status) {
   }
 }
 
+function renderPortfolioSummary(status, readinessScore) {
+  currentStatus = status;
+  document.getElementById("page-sub").innerHTML = `
+    <span class="badge ${status}">${statusLabel[status]}</span> · Readiness ${readinessScore}/100
+    ${status === "pending" ? " · Pending review is in progress; editing is temporarily locked." : ""}
+  `;
+  updateSubmitBtn(status);
+  setFormLocked(status === "pending");
+}
+
 async function init() {
   const user = await requirePageRole("business_owner");
   if (!user) return;
@@ -102,13 +112,6 @@ async function init() {
       window.location.href = "mybusinesses.html";
       return;
     }
-
-    currentStatus = p.status;
-
-    document.getElementById("page-sub").innerHTML = `
-      <span class="badge ${p.status}">${statusLabel[p.status]}</span> · Readiness ${p.readiness_score}/100
-      ${p.status === "pending" ? " · Pending review is in progress; editing is temporarily locked." : ""}
-    `;
 
     document.getElementById("f-name").value = p.name || "";
     document.getElementById("f-sector").value = p.sector || "";
@@ -151,12 +154,11 @@ async function init() {
     };
 
     document.querySelectorAll("input, textarea, select").forEach(el => {
-      el.addEventListener("input", () => updateSubmitBtn(p.status));
-      el.addEventListener("change", () => updateSubmitBtn(p.status));
+      el.addEventListener("input", () => updateSubmitBtn(currentStatus));
+      el.addEventListener("change", () => updateSubmitBtn(currentStatus));
     });
 
-    updateSubmitBtn(p.status);
-    setFormLocked(currentStatus === "pending");
+    renderPortfolioSummary(p.status, p.readiness_score);
   }
 }
 
@@ -298,8 +300,9 @@ async function removeExistingDocument(docId) {
   if (!confirm("Delete this document? This cannot be undone.")) return;
 
   try {
-    await API.deleteDocument(editId, docId);
+    const result = await API.deleteDocument(editId, docId);
     existingDocuments = existingDocuments.filter(d => d.id !== docId);
+    renderPortfolioSummary("draft", result.readiness_score);
     renderFileList();
   } catch (err) {
     alert("Couldn't delete document: " + err.message);
