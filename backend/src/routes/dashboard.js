@@ -28,9 +28,17 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
 
     const [[msgStats]] = await db.query(
       `SELECT
-        COUNT(*) AS total,
-        SUM(read_at IS NULL) AS unread
-       FROM messages WHERE receiver_id = ?`,
+        COUNT(m.id) AS total,
+        COALESCE(SUM(
+          m.id > GREATEST(cm.visible_after_message_id, cm.last_read_message_id)
+          AND m.sender_id <> cm.user_id
+        ), 0) AS unread
+       FROM conversation_members cm
+       JOIN conversations c ON c.id = cm.conversation_id
+       LEFT JOIN messages m
+         ON m.conversation_id = cm.conversation_id
+        AND m.id > cm.visible_after_message_id
+       WHERE cm.user_id = ? AND cm.membership_status = 'active'`,
       [userId]
     );
 
@@ -41,17 +49,37 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
     );
 
     const [recentInterests] = await db.query(
-      `SELECT u.name AS investor, u.id AS investor_id, p.id AS portfolio_id, p.name AS portfolio
+      `SELECT u.name AS investor, u.id AS investor_id,
+              p.id AS portfolio_id, p.name AS portfolio,
+              c.id AS conversation_id,
+              c.status AS conversation_status,
+              CASE
+                WHEN c.id IS NULL THEN 'awaiting_manager'
+                WHEN c.status = 'active' THEN 'open'
+                ELSE 'archived'
+              END AS chat_state
        FROM investor_interests ii
        JOIN users u ON u.id = ii.investor_id
        JOIN portfolios p ON p.id = ii.portfolio_id
+       LEFT JOIN conversations c ON c.portfolio_id = p.id
        WHERE p.owner_id = ? ORDER BY ii.created_at DESC LIMIT 5`,
       [userId]
     );
 
     const [notifications] = await db.query(
-      `SELECT id, type, title, body, read_at, created_at FROM notifications
-       WHERE user_id = ? ORDER BY created_at DESC LIMIT 5`,
+      `SELECT n.id, n.type, n.title, n.body, n.read_at, n.created_at
+       FROM notifications n
+       WHERE n.user_id = ?
+         AND (
+           n.related_conversation_id IS NULL
+           OR EXISTS (
+             SELECT 1 FROM conversation_members cm
+             WHERE cm.conversation_id = n.related_conversation_id
+               AND cm.user_id = n.user_id
+               AND cm.membership_status = 'active'
+           )
+         )
+       ORDER BY n.created_at DESC LIMIT 5`,
       [userId]
     );
 
@@ -65,8 +93,8 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
       },
       investorInterests: interestStats.total || 0,
       messages: {
-        total: msgStats.total || 0,
-        unread: msgStats.unread || 0,
+        total: Number(msgStats.total || 0),
+        unread: Number(msgStats.unread || 0),
       },
       avgReadiness: portfolioStats.avg_readiness || 0,
       recentPortfolios,
@@ -94,8 +122,19 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
     );
 
     const [[msgStats]] = await db.query(
-      `SELECT COUNT(*) AS total FROM messages WHERE sender_id = ? OR receiver_id = ?`,
-      [userId, userId]
+      `SELECT
+         COUNT(m.id) AS total,
+         COALESCE(SUM(
+           m.id > GREATEST(cm.visible_after_message_id, cm.last_read_message_id)
+           AND m.sender_id <> cm.user_id
+         ), 0) AS unread
+       FROM conversation_members cm
+       JOIN conversations c ON c.id = cm.conversation_id
+       LEFT JOIN messages m
+         ON m.conversation_id = cm.conversation_id
+        AND m.id > cm.visible_after_message_id
+       WHERE cm.user_id = ? AND cm.membership_status = 'active'`,
+      [userId]
     );
 
     const [[{ high_potential }]] = await db.query(
@@ -103,15 +142,40 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
     );
 
     const [recentInterests] = await db.query(
-      `SELECT p.id, p.name, p.sector FROM investor_interests ii
+      `SELECT p.id, p.name, p.sector,
+              CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
+              CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+              CASE
+                WHEN cm.user_id IS NULL THEN 'awaiting_manager'
+                WHEN c.status = 'active' THEN 'open'
+                ELSE 'archived'
+              END AS chat_state
+       FROM investor_interests ii
        JOIN portfolios p ON p.id = ii.portfolio_id
+       LEFT JOIN conversations c ON c.portfolio_id = p.id
+       LEFT JOIN conversation_members cm
+         ON cm.conversation_id = c.id
+        AND cm.user_id = ii.investor_id
+        AND cm.member_role = 'investor'
+        AND cm.membership_status = 'active'
        WHERE ii.investor_id = ? ORDER BY ii.created_at DESC LIMIT 5`,
       [userId]
     );
 
     const [notifications] = await db.query(
-      `SELECT id, type, title, body, read_at, created_at FROM notifications
-       WHERE user_id = ? ORDER BY created_at DESC LIMIT 5`,
+      `SELECT n.id, n.type, n.title, n.body, n.read_at, n.created_at
+       FROM notifications n
+       WHERE n.user_id = ?
+         AND (
+           n.related_conversation_id IS NULL
+           OR EXISTS (
+             SELECT 1 FROM conversation_members cm
+             WHERE cm.conversation_id = n.related_conversation_id
+               AND cm.user_id = n.user_id
+               AND cm.membership_status = 'active'
+           )
+         )
+       ORDER BY n.created_at DESC LIMIT 5`,
       [userId]
     );
 
@@ -120,7 +184,8 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
       stats: {
         available,
         interests: my_interests,
-        messages: msgStats.total,
+        messages: Number(msgStats.total || 0),
+        unreadMessages: Number(msgStats.unread || 0),
         highPotential: high_potential,
       },
       recentInterests,

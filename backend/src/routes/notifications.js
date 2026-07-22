@@ -4,6 +4,17 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+const VISIBLE_NOTIFICATION_PREDICATE = `(
+  n.related_conversation_id IS NULL
+  OR EXISTS (
+    SELECT 1
+      FROM conversation_members cm
+     WHERE cm.conversation_id=n.related_conversation_id
+       AND cm.user_id=n.user_id
+       AND cm.membership_status='active'
+  )
+)`;
+
 // GET /api/notifications  — current user's notifications
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -13,6 +24,7 @@ router.get('/', authenticate, async (req, res) => {
        LEFT JOIN portfolios p ON p.id = n.related_portfolio_id
        LEFT JOIN users u ON u.id = n.related_user_id
        WHERE n.user_id = ?
+         AND ${VISIBLE_NOTIFICATION_PREDICATE}
        ORDER BY n.created_at DESC
        LIMIT 50`,
       [req.user.id]
@@ -28,7 +40,11 @@ router.get('/', authenticate, async (req, res) => {
 router.get('/unread-count', authenticate, async (req, res) => {
   try {
     const [[{ count }]] = await db.query(
-      'SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND read_at IS NULL',
+      `SELECT COUNT(*) AS count
+         FROM notifications n
+        WHERE n.user_id = ?
+          AND n.read_at IS NULL
+          AND ${VISIBLE_NOTIFICATION_PREDICATE}`,
       [req.user.id]
     );
     res.json({ count });
@@ -42,7 +58,10 @@ router.get('/unread-count', authenticate, async (req, res) => {
 router.put('/:id/read', authenticate, async (req, res) => {
   try {
     await db.query(
-      'UPDATE notifications SET read_at = NOW() WHERE id = ? AND user_id = ?',
+      `UPDATE notifications n
+          SET n.read_at = NOW()
+        WHERE n.id = ? AND n.user_id = ?
+          AND ${VISIBLE_NOTIFICATION_PREDICATE}`,
       [req.params.id, req.user.id]
     );
     res.json({ message: 'Notification marked as read' });
@@ -56,7 +75,10 @@ router.put('/:id/read', authenticate, async (req, res) => {
 router.put('/read-all', authenticate, async (req, res) => {
   try {
     await db.query(
-      'UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL',
+      `UPDATE notifications n
+          SET n.read_at = NOW()
+        WHERE n.user_id = ? AND n.read_at IS NULL
+          AND ${VISIBLE_NOTIFICATION_PREDICATE}`,
       [req.user.id]
     );
     res.json({ message: 'All notifications marked as read' });
