@@ -1,5 +1,5 @@
-const API_BASE = "http://localhost:3000/api";
-const FILE_BASE = API_BASE.replace(/\/api$/, "");
+const API_BASE = window.LUMILABS_API_BASE || "/api";
+const FILE_BASE = "";
 
 function showScoreInfo() {
   let overlay = document.getElementById("score-info-overlay");
@@ -52,6 +52,17 @@ function getToken() {
   return localStorage.getItem("lumilabsToken");
 }
 
+function clearSession() {
+  localStorage.removeItem("lumilabsToken");
+  localStorage.removeItem("lumilabsUser");
+  localStorage.removeItem("lumilabsSelectedUser");
+}
+
+function signOut() {
+  clearSession();
+  window.location.href = "signin.html";
+}
+
 async function apiFetch(path, options = {}) {
   const token = getToken();
   const isFormData = options.body instanceof FormData;
@@ -72,6 +83,7 @@ async function apiFetch(path, options = {}) {
     // Ignore JSON parse errors (e.g., empty response)
   }
 
+  if (res.status === 401) clearSession();
   if (!res.ok) {
     const message =
       data?.error ||

@@ -1,14 +1,10 @@
-const API_BASE = window.LUMILABS_API_BASE || (() => {
-  const { protocol, hostname } = window.location;
-  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
-  return isLocal ? 'http://localhost:3000/api' : `${protocol}//${hostname}:3000/api`;
-})();
+const API_BASE = window.LUMILABS_API_BASE || '/api';
 
 
 const ROLE_MAP = {
-  business_owner: { key: 'beta',   dashboard: 'businessownerdashboard.html' },
-  investor:       { key: 'alpha',  dashboard: 'investordashboard.html' },
-  admin:          { key: 'victor', dashboard: 'moderatordashboard.html' },
+  business_owner: { dashboard: 'businessownerdashboard.html' },
+  investor: { dashboard: 'investordashboard.html' },
+  admin: { dashboard: 'moderatordashboard.html' },
 };
 
 async function apiPost(path, body, token) {
@@ -44,16 +40,11 @@ async function apiPost(path, body, token) {
   return data;
 }
 
-// Persists the session the same way the rest of the app expects
-// it (see js/messages.js -> getAuthToken / getSelectedUser, and
-// js/mybusinesses.js / js/createportfolio.js -> lumilabsSelectedUser).
 function saveSession(token, user) {
-  const mapped = ROLE_MAP[user.role] || { key: user.role, dashboard: 'index.html' };
+  const mapped = ROLE_MAP[user.role] || { dashboard: 'index.html' };
   localStorage.setItem('lumilabsToken', token);
-  localStorage.setItem(
-    'lumilabsSelectedUser',
-    JSON.stringify({ key: mapped.key, name: user.name, role: user.role, id: user.id })
-  );
+  localStorage.setItem('lumilabsUser', JSON.stringify(user));
+  localStorage.removeItem('lumilabsSelectedUser');
   return mapped;
 }
 
