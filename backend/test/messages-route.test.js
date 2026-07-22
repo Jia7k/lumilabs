@@ -1,10 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const jwt = require('jsonwebtoken');
-const db = require('../src/config/db');
-const { createMessagingApp } = require('../messages-server');
 
 process.env.JWT_SECRET = 'messages-route-test-secret';
+
+const db = require('../src/config/db');
+const { createApp } = require('../server');
 
 async function listen(app) {
   const server = await new Promise((resolve, reject) => {
@@ -102,7 +103,7 @@ function stubPool(t, { connection }) {
 }
 
 async function postMessage(t, sender, body) {
-  const server = await listen(createMessagingApp());
+  const server = await listen(createApp());
   t.after(server.close);
 
   const response = await fetch(`${server.origin}/api/messages`, {
@@ -257,7 +258,7 @@ test('invalid content does not acquire a transaction connection', { concurrency:
 });
 
 test('prototype headers cannot authenticate an anonymous message request', { concurrency: false }, async (t) => {
-  const server = await listen(createMessagingApp());
+  const server = await listen(createApp());
   t.after(server.close);
 
   const response = await fetch(`${server.origin}/api/messages/me`, {

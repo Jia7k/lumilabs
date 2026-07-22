@@ -1,0 +1,25 @@
+[Unit]
+Description=LumiLabs unified API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+Group=www-data
+WorkingDirectory=/var/www/lumilabs-backend
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3100
+EnvironmentFile=/var/www/lumilabs-backend/.env
+ExecStart=/opt/lumilabs-messaging/current/bin/node server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/lumilabs-backend/uploads
+
+[Install]
+WantedBy=multi-user.target

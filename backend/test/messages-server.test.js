@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createMessagingApp } = require('../messages-server');
+const { createApp } = require('../server');
 
 async function listen(app) {
   const server = await new Promise((resolve, reject) => {
@@ -22,46 +22,19 @@ async function readJson(response) {
   return JSON.parse(body);
 }
 
-test('serves health inside the messaging namespace', async (t) => {
-  const server = await listen(createMessagingApp());
+test('serves the unified API health endpoint', async (t) => {
+  const server = await listen(createApp());
   t.after(server.close);
 
-  const payload = await readJson(await fetch(`${server.origin}/api/messages/health`));
+  const payload = await readJson(await fetch(`${server.origin}/api/health`));
   assert.deepEqual(payload, { status: 'ok' });
 });
 
-test('does not expose unrelated API namespaces', async (t) => {
-  const server = await listen(createMessagingApp());
+test('returns JSON for unknown unified API routes', async (t) => {
+  const server = await listen(createApp());
   t.after(server.close);
 
-  const response = await fetch(`${server.origin}/api/health`);
+  const response = await fetch(`${server.origin}/api/not-a-route`);
   assert.equal(response.status, 404);
-});
-
-const smokeOrigin = process.env.MESSAGES_SMOKE_ORIGIN;
-
-test('deployed API returns Beta and the seeded Alpha thread', {
-  skip: !smokeOrigin,
-}, async () => {
-  const headers = {
-    'X-LumiLabs-Prototype-User': 'beta',
-    'X-LumiLabs-Prototype-Name': 'Beta',
-    'X-LumiLabs-Prototype-Role': 'business_owner',
-  };
-
-  const user = await readJson(await fetch(`${smokeOrigin}/api/messages/me`, { headers }));
-  assert.equal(Number(user.id), 3);
-
-  const conversations = await readJson(
-    await fetch(`${smokeOrigin}/api/messages/conversations`, { headers })
-  );
-  const alpha = conversations.find((row) => Number(row.partner_id) === 2);
-  assert.ok(alpha, 'Expected the seeded Alpha conversation');
-
-  const thread = await readJson(
-    await fetch(`${smokeOrigin}/api/messages/conversations/2`, { headers })
-  );
-  const seededMessage = thread.find((row) => Number(row.id) === 3);
-  assert.ok(seededMessage, 'Expected seeded message id 3 in the Alpha thread');
-  assert.match(seededMessage.content, /currently raising/i);
+  assert.deepEqual(await response.json(), { error: 'Route not found' });
 });
