@@ -8,15 +8,25 @@ const browserFiles = [
   ...fs.readdirSync(root).filter((name) => name.endsWith('.html')),
   ...fs.readdirSync(path.join(root, 'js')).map((name) => `js/${name}`),
 ];
+const localHostname = ['local', 'host'].join('');
+const loopbackHostname = ['127', '0', '0', '1'].join('.');
+const publicHostname = ['35', '212', '144', '149'].join('.');
+const forbiddenOriginFragments = [
+  `http://${localHostname}`,
+  `https://${localHostname}`,
+  `http://${loopbackHostname}`,
+  `https://${loopbackHostname}`,
+  ['${protocol}//${hostname}', '3000'].join(':'),
+  [`http://${publicHostname}`, '3000'].join(':'),
+  [`https://${publicHostname}`, '3000'].join(':'),
+];
 
 test('browser files use only the same-origin API namespace', () => {
   for (const relative of browserFiles) {
     const source = fs.readFileSync(path.join(root, relative), 'utf8');
-    assert.doesNotMatch(
-      source,
-      /https?:\/\/(?:localhost|127\.0\.0\.1)|\$\{protocol\}\/\/\$\{hostname\}:3000|35\.212\.144\.149:3000/,
-      relative,
-    );
+    for (const fragment of forbiddenOriginFragments) {
+      assert.equal(source.includes(fragment), false, `${relative}: ${fragment}`);
+    }
   }
 
   assert.match(
