@@ -2,6 +2,9 @@ const express = require('express');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { expressInterest } = require('../services/workflow');
+const {
+  withdrawInvestorInterest,
+} = require('../services/managed-conversation-workflow');
 
 const router = express.Router();
 
@@ -35,14 +38,14 @@ router.post('/:portfolioId', authenticate, requireRole('investor'), async (req, 
 // DELETE /api/interests/:portfolioId  — investor removes interest
 router.delete('/:portfolioId', authenticate, requireRole('investor'), async (req, res) => {
   try {
-    await db.query(
-      'DELETE FROM investor_interests WHERE investor_id = ? AND portfolio_id = ?',
-      [req.user.id, req.params.portfolioId]
-    );
+    await withdrawInvestorInterest({
+      database: db,
+      investorId: req.user.id,
+      portfolioId: req.params.portfolioId,
+    });
     res.json({ message: 'Interest removed' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    sendWorkflowError(res, err);
   }
 });
 

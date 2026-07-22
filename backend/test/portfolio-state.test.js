@@ -9,6 +9,10 @@ const documentWorkflow = fs.readFileSync(
   path.join(root, 'backend/src/services/document-workflow.js'),
   'utf8',
 );
+const workflow = fs.readFileSync(
+  path.join(root, 'backend/src/services/workflow.js'),
+  'utf8',
+);
 const client = fs.readFileSync(path.join(root, 'js/createportfolio.js'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'createportfolio.html'), 'utf8');
 
@@ -19,9 +23,19 @@ test('pending portfolios cannot be updated or receive document changes', () => {
 });
 
 test('editing approved or rejected content resets review state', () => {
-  assert.match(route, /rejection_reason=\?/);
-  assert.match(route, /submitted_at=\?/);
-  assert.match(route, /was_reset_to_draft/);
+  assert.match(workflow, /rejection_reason=\?/);
+  assert.match(workflow, /submitted_at=\?/);
+  assert.match(workflow, /was_reset_to_draft/);
+  assert.match(route, /updatePortfolioDetails/);
+});
+
+test('interest withdrawal uses the transactional managed-room workflow', () => {
+  const interestsRoute = fs.readFileSync(
+    path.join(root, 'backend/src/routes/interests.js'),
+    'utf8',
+  );
+  assert.match(interestsRoute, /withdrawInvestorInterest/);
+  assert.doesNotMatch(interestsRoute, /db\.query\(\s*['"]DELETE FROM investor_interests/);
 });
 
 test('owners cannot delete pending or approved portfolios', () => {

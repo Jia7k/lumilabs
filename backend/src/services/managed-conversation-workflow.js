@@ -523,10 +523,218 @@ async function reopenManagedConversation({
   });
 }
 
+const AUTOMATIC_ARCHIVE_REASONS = new Set([
+  'no_active_investors',
+  'portfolio_unapproved',
+  'portfolio_deleted',
+]);
+
+async function loadConversationForPortfolio(connection, portfolioId) {
+  const conversations = await queryRows(
+    connection,
+    `SELECT id,portfolio_id,title,status,archived_reason
+       FROM conversations
+      WHERE portfolio_id=?
+      FOR UPDATE`,
+    [portfolioId],
+  );
+  return conversations[0] || null;
+}
+
+function automaticReasonShouldReplace(conversation, reason) {
+  if (conversation.status !== 'archived') return true;
+  if (conversation.archived_reason === reason) return false;
+  if (reason === 'portfolio_deleted') return true;
+  return !conversation.archived_reason || conversation.archived_reason === 'manual';
+}
+
+async function applyAutomaticArchive(connection, conversation, reason, actorId) {
+  if (!automaticReasonShouldReplace(conversation, reason)) {
+    return { conversationId: Number(conversation.id), changed: false };
+  }
+  const activeMembers = await queryRows(
+    connection,
+    `SELECT user_id
+       FROM conversation_members
+      WHERE conversation_id=? AND membership_status='active'
+      FOR UPDATE`,
+    [conversation.id],
+  );
+  await connection.query(
+    `UPDATE conversations
+        SET status='archived',archived_reason=?
+      WHERE id=?`,
+    [reason, conversation.id],
+  );
+  const recipients = activeMembers
+    .map((membership) => Number(membership.user_id))
+    .filter((userId) => userId !== Number(actorId));
+  if (recipients.length) {
+    const values = recipients.map((userId) => [
+      userId,
+      'conversation_archived',
+      'Conversation Archived',
+      `The managed conversation for "${conversation.title}" is now read-only`,
+      conversation.portfolio_id ? Number(conversation.portfolio_id) : null,
+      Number(conversation.id),
+      Number(actorId),
+    ]);
+    await connection.query(
+      `INSERT INTO notifications
+        (user_id,type,title,body,related_portfolio_id,related_conversation_id,related_user_id)
+       VALUES ?`,
+      [values],
+    );
+  }
+  return { conversationId: Number(conversation.id), changed: true };
+}
+
+async function archiveConversationForPortfolio(
+  connection,
+  portfolioIdValue,
+  reason,
+  actorIdValue,
+) {
+  const portfolioId = positiveId(portfolioIdValue, 'portfolio ID');
+  const actorId = positiveId(actorIdValue, 'actor ID');
+  if (!AUTOMATIC_ARCHIVE_REASONS.has(reason)) {
+    throw new ManagedConversationError(
+      400,
+      'Invalid automatic archive reason',
+      'INVALID_ARCHIVE_REASON',
+    );
+  }
+  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  if (!conversation) return { conversationId: null, changed: false };
+  return applyAutomaticArchive(connection, conversation, reason, actorId);
+}
+
+async function withdrawInvestorInterest({
+  database = defaultDatabase,
+  investorId: investorIdValue,
+  portfolioId: portfolioIdValue,
+}) {
+  const investorId = positiveId(investorIdValue, 'investor ID');
+  const portfolioId = positiveId(portfolioIdValue, 'portfolio ID');
+  return inTransaction(database, async (connection) => {
+    const interests = await queryRows(
+      connection,
+      `SELECT id,investor_id,portfolio_id
+         FROM investor_interests
+        WHERE investor_id=? AND portfolio_id=?
+        FOR UPDATE`,
+      [investorId, portfolioId],
+    );
+    if (!interests.length) {
+      throw new ManagedConversationError(404, 'Interest not found', 'INTEREST_NOT_FOUND');
+    }
+
+    const conversation = await loadConversationForPortfolio(connection, portfolioId);
+    if (!conversation) {
+      await connection.query('DELETE FROM investor_interests WHERE id=?', [interests[0].id]);
+      return { removed: true, conversation_id: null, archived: false };
+    }
+
+    const memberships = await queryRows(
+      connection,
+      `SELECT user_id,membership_status
+         FROM conversation_members
+        WHERE conversation_id=? AND user_id=? AND member_role='investor'
+        FOR UPDATE`,
+      [conversation.id, investorId],
+    );
+    if (memberships[0]?.membership_status === 'active') {
+      await connection.query(
+        `UPDATE conversation_members
+            SET membership_status='removed',left_at=NOW()
+          WHERE conversation_id=? AND user_id=? AND member_role='investor'`,
+        [conversation.id, investorId],
+      );
+    }
+    await connection.query(
+      'DELETE FROM notifications WHERE related_conversation_id=? AND user_id=?',
+      [conversation.id, investorId],
+    );
+    await connection.query('DELETE FROM investor_interests WHERE id=?', [interests[0].id]);
+    const activeRows = await queryRows(
+      connection,
+      `SELECT COUNT(*) AS active_count
+         FROM conversation_members
+        WHERE conversation_id=?
+          AND member_role='investor'
+          AND membership_status='active'`,
+      [conversation.id],
+    );
+    const noActiveInvestors = Number(activeRows[0]?.active_count || 0) === 0;
+    if (noActiveInvestors) {
+      await applyAutomaticArchive(
+        connection,
+        conversation,
+        'no_active_investors',
+        investorId,
+      );
+    }
+    return {
+      removed: true,
+      conversation_id: Number(conversation.id),
+      archived: noActiveInvestors,
+    };
+  });
+}
+
+async function prepareConversationForPortfolioDeletion(
+  connection,
+  portfolioIdValue,
+  actorIdValue,
+) {
+  const portfolioId = positiveId(portfolioIdValue, 'portfolio ID');
+  const actorId = positiveId(actorIdValue, 'actor ID');
+  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  if (!conversation) return { conversationId: null, changed: false };
+
+  const archive = await applyAutomaticArchive(
+    connection,
+    conversation,
+    'portfolio_deleted',
+    actorId,
+  );
+  const investorMembers = await queryRows(
+    connection,
+    `SELECT user_id
+       FROM conversation_members
+      WHERE conversation_id=? AND member_role='investor'
+      FOR UPDATE`,
+    [conversation.id],
+  );
+  const investorIds = investorMembers.map((member) => Number(member.user_id));
+  if (investorIds.length) {
+    const placeholders = investorIds.map(() => '?').join(',');
+    await connection.query(
+      `DELETE FROM notifications
+        WHERE related_conversation_id=? AND user_id IN (${placeholders})`,
+      [conversation.id, ...investorIds],
+    );
+    await connection.query(
+      `UPDATE conversation_members
+          SET membership_status='removed',left_at=COALESCE(left_at,NOW())
+        WHERE conversation_id=? AND member_role='investor'`,
+      [conversation.id],
+    );
+  }
+  await connection.query(
+    'UPDATE conversations SET portfolio_id=NULL WHERE id=?',
+    [conversation.id],
+  );
+  return archive;
+}
+
 module.exports = {
   ManagedConversationError,
   addManagedInvestors,
+  archiveConversationForPortfolio,
   archiveManagedConversation,
   createManagedConversation,
+  prepareConversationForPortfolioDeletion,
   reopenManagedConversation,
+  withdrawInvestorInterest,
 };

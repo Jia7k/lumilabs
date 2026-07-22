@@ -6,6 +6,7 @@ const {
   submitPortfolio,
   moderatePortfolio,
   expressInterest,
+  updatePortfolioDetails,
 } = require('../src/services/workflow');
 
 function fakeConnection(handler) {
@@ -130,4 +131,94 @@ test('new interest and notification commit together', { concurrency: false }, as
   assert.equal(connection.calls.commit, 1);
   assert.equal(connection.calls.rollback, 0);
   assert.equal(connection.calls.queries.length, 3);
+});
+
+test('submitting an approved portfolio archives its managed room in the same transaction', { concurrency: false }, async (t) => {
+  const connection = fakeConnection(async (sql, params) => {
+    if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
+      return [[{ id: 7, owner_id: 4, name: 'Flow Co', status: 'approved' }], []];
+    }
+    if (sql.includes('FROM conversations') && sql.includes('FOR UPDATE')) {
+      return [[{
+        id: 12,
+        portfolio_id: 7,
+        title: 'Flow Co',
+        status: 'active',
+        archived_reason: null,
+      }], []];
+    }
+    if (sql.includes('FROM conversation_members') && sql.includes("membership_status='active'")) {
+      return [[{ user_id: 4 }, { user_id: 8 }, { user_id: 9 }], []];
+    }
+    if (sql.includes('UPDATE conversations')) {
+      assert.equal(params[0], 'portfolio_unapproved');
+      return [{ affectedRows: 1 }, []];
+    }
+    if (sql.startsWith('UPDATE portfolios')) return [{ affectedRows: 1 }, []];
+    if (sql.includes("role='admin'")) return [[{ id: 10 }], []];
+    if (sql.startsWith('INSERT INTO notifications')) return [{ affectedRows: 1 }, []];
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  useConnection(t, connection);
+
+  await submitPortfolio({ portfolioId: 7, ownerId: 4, ownerName: 'Owner' });
+  const archiveAt = connection.calls.queries.findIndex(({ sql }) => sql.includes('UPDATE conversations'));
+  const portfolioAt = connection.calls.queries.findIndex(({ sql }) => sql.startsWith('UPDATE portfolios'));
+  assert.ok(archiveAt > -1 && archiveAt < portfolioAt);
+  assert.equal(connection.calls.commit, 1);
+});
+
+test('updating approved portfolio details archives before resetting to draft', { concurrency: false }, async (t) => {
+  assert.equal(typeof updatePortfolioDetails, 'function');
+  const portfolio = {
+    id: 7,
+    owner_id: 4,
+    name: 'Flow Co',
+    sector: 'Technology',
+    mvp_status: 'Beta',
+    description: 'Existing description',
+    funding_goal: 1000,
+    team_size: 3,
+    founded_year: 2026,
+    location: 'Singapore',
+    website: '',
+    monthly_revenue: 100,
+    user_count: 20,
+    growth_rate: 5,
+    market_size: 'Large',
+    competitor_analysis: 'Several',
+    advisor_names: '',
+    burn_rate: 50,
+    runway_months: 12,
+    status: 'approved',
+  };
+  const connection = fakeConnection(async (sql) => {
+    if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) return [[portfolio], []];
+    if (sql.includes('COUNT(*) AS c')) return [[{ c: 1 }], []];
+    if (sql.includes('FROM conversations') && sql.includes('FOR UPDATE')) {
+      return [[{
+        id: 12, portfolio_id: 7, title: 'Flow Co', status: 'active', archived_reason: null,
+      }], []];
+    }
+    if (sql.includes('FROM conversation_members')) return [[{ user_id: 4 }, { user_id: 8 }], []];
+    if (sql.includes('UPDATE conversations')) return [{ affectedRows: 1 }, []];
+    if (sql.startsWith('INSERT INTO notifications')) return [{ affectedRows: 1 }, []];
+    if (sql.includes('UPDATE portfolios')) return [{ affectedRows: 1 }, []];
+    if (sql.includes('SELECT * FROM portfolios WHERE id=?')) {
+      return [[{ ...portfolio, name: 'Flow Co Updated', status: 'draft' }], []];
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  useConnection(t, connection);
+
+  const result = await updatePortfolioDetails({
+    portfolioId: 7,
+    ownerId: 4,
+    payload: { name: 'Flow Co Updated' },
+    calculateReadiness: () => 77,
+  });
+  assert.equal(result.name, 'Flow Co Updated');
+  assert.equal(result.was_reset_to_draft, true);
+  assert.ok(connection.calls.queries.some(({ sql }) => sql.includes('UPDATE conversations')));
+  assert.equal(connection.calls.commit, 1);
 });

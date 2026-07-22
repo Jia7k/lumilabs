@@ -84,6 +84,7 @@ test('failed uploaded-document transaction removes every newly written file', as
   ];
   const { database } = fakeDatabase((sql) => {
     if (/SELECT \* FROM portfolios/.test(sql)) return [[editablePortfolio()], []];
+    if (/FROM conversations/.test(sql)) return [[], []];
     if (/INSERT INTO portfolio_documents/.test(sql)) return [{ affectedRows: 2 }, []];
     if (/SELECT COUNT\(\*\)/.test(sql)) return [[{ c: 2 }], []];
     if (/UPDATE portfolios/.test(sql)) throw new Error('portfolio update failed');
@@ -131,6 +132,7 @@ test('upload enforces five documents total and removes rejected files', async ()
   ];
   const { database } = fakeDatabase((sql) => {
     if (/SELECT \* FROM portfolios/.test(sql)) return [[editablePortfolio()], []];
+    if (/FROM conversations/.test(sql)) return [[], []];
     if (/SELECT COUNT\(\*\)/.test(sql)) return [[{ c: 4 }], []];
     throw new Error(`Unexpected query after document limit: ${sql}`);
   }, events);
@@ -164,6 +166,7 @@ test('failed document deletion restores the staged file and rolls back', async (
     if (/SELECT \* FROM portfolio_documents/.test(sql)) {
       return [[{ id: 11, portfolio_id: 7, file_url: '/uploads/portfolio-documents/one.pdf' }], []];
     }
+    if (/FROM conversations/.test(sql)) return [[], []];
     if (/DELETE FROM portfolio_documents/.test(sql)) return [{ affectedRows: 1 }, []];
     if (/SELECT COUNT\(\*\)/.test(sql)) return [[{ c: 0 }], []];
     if (/UPDATE portfolios/.test(sql)) throw new Error('score update failed');
@@ -207,6 +210,7 @@ test('portfolio deletion commits before purging all staged document files', asyn
         { file_url: '/uploads/portfolio-documents/two.pdf' },
       ], []];
     }
+    if (/FROM conversations/.test(sql)) return [[], []];
     if (/DELETE FROM portfolios/.test(sql)) return [{ affectedRows: 1 }, []];
     throw new Error(`Unexpected query: ${sql}`);
   }, events);
@@ -231,6 +235,52 @@ test('portfolio deletion commits before purging all staged document files', asyn
   assert.ok(commitAt > -1 && unlinkAt > commitAt);
   assert.equal(events.filter((event) => event.startsWith('rename:')).length, 2);
   assert.equal(events.filter((event) => event.startsWith('unlink:')).length, 2);
+});
+
+test('approved document upload archives the room before resetting portfolio to draft', async () => {
+  const events = [];
+  const files = [{
+    path: path.join(uploadDir, 'managed.pdf'),
+    filename: 'managed.pdf',
+    originalname: 'managed.pdf',
+    mimetype: 'application/pdf',
+  }];
+  const { database } = fakeDatabase((sql, params) => {
+    if (/SELECT \* FROM portfolios/.test(sql)) return [[editablePortfolio()], []];
+    if (/SELECT COUNT\(\*\)/.test(sql)) return [[{ c: 0 }], []];
+    if (/FROM conversations/.test(sql)) {
+      return [[{
+        id: 12,
+        portfolio_id: 7,
+        title: 'Flow Co',
+        status: 'active',
+        archived_reason: null,
+      }], []];
+    }
+    if (/FROM conversation_members/.test(sql)) return [[{ user_id: 3 }, { user_id: 8 }], []];
+    if (/UPDATE conversations/.test(sql)) {
+      assert.equal(params[0], 'portfolio_unapproved');
+      return [{ affectedRows: 1 }, []];
+    }
+    if (/INSERT INTO notifications/.test(sql)) return [{ affectedRows: 1 }, []];
+    if (/INSERT INTO portfolio_documents/.test(sql)) return [{ affectedRows: 1 }, []];
+    if (/UPDATE portfolios/.test(sql)) return [{ affectedRows: 1 }, []];
+    if (/SELECT \* FROM portfolio_documents/.test(sql)) return [[], []];
+    throw new Error(`Unexpected query: ${sql}`);
+  }, events);
+
+  await saveUploadedDocuments({
+    database,
+    portfolioId: 7,
+    ownerId: 3,
+    files,
+    calculateReadiness: () => 70,
+    fileSystem: { async unlink() {} },
+  });
+
+  const archivedAt = events.findIndex((event) => event.includes('UPDATE conversations'));
+  const draftedAt = events.findIndex((event) => event.includes('UPDATE portfolios'));
+  assert.ok(archivedAt > -1 && archivedAt < draftedAt);
 });
 
 test('stored upload paths cannot escape the private upload directory', () => {

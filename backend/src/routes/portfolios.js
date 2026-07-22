@@ -9,7 +9,7 @@ const {
   resolveStoredUploadPath,
   saveUploadedDocuments,
 } = require('../services/document-workflow');
-const { submitPortfolio } = require('../services/workflow');
+const { submitPortfolio, updatePortfolioDetails } = require('../services/workflow');
 
 const router = express.Router();
 
@@ -57,6 +57,22 @@ const withDownloadUrl = (doc) => ({
   ...doc,
   download_url: `/api/portfolios/${doc.portfolio_id}/documents/${doc.id}/download`,
 });
+
+async function relationshipManagerCanAccessPortfolio(userId, portfolioId) {
+  const [rows] = await db.query(
+    `SELECT 1
+       FROM conversations c
+       JOIN conversation_members cm
+         ON cm.conversation_id=c.id
+        AND cm.user_id=?
+        AND cm.member_role='relationship_manager'
+        AND cm.membership_status='active'
+      WHERE c.portfolio_id=? AND c.relationship_manager_id=?
+      LIMIT 1`,
+    [userId, portfolioId, userId],
+  );
+  return rows.length === 1;
+}
 
 const optFloat = (min = 0) => (v) => {
   if (v == null || v === '') return true;
@@ -178,6 +194,12 @@ router.get('/:id', authenticate, async (req, res) => {
     if (req.user.role === 'investor' && portfolio.status !== 'approved') {
       return res.status(403).json({ error: 'Portfolio not available' });
     }
+    if (
+      req.user.role === 'relationship_manager'
+      && !(await relationshipManagerCanAccessPortfolio(req.user.id, portfolio.id))
+    ) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     const [docs] = await db.query(
       'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
@@ -204,9 +226,12 @@ router.get('/:id/documents/:docId/download', authenticate, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Document not found' });
 
     const doc = rows[0];
-    const allowed = req.user.role === 'admin'
+    let allowed = req.user.role === 'admin'
       || Number(doc.owner_id) === Number(req.user.id)
       || (req.user.role === 'investor' && doc.status === 'approved');
+    if (req.user.role === 'relationship_manager') {
+      allowed = await relationshipManagerCanAccessPortfolio(req.user.id, doc.portfolio_id);
+    }
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
     let absolute;
@@ -312,75 +337,15 @@ router.put(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      const [rows] = await db.query('SELECT * FROM portfolios WHERE id = ? AND owner_id = ?', [
-        req.params.id, req.user.id,
-      ]);
-
-      if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
-      const portfolio = rows[0];
-
-      if (portfolio.status === 'pending') {
-        return res.status(409).json({ error: 'A pending portfolio cannot be edited' });
-      }
-      if (!['draft', 'rejected', 'approved'].includes(portfolio.status)) {
-        return res.status(409).json({ error: 'This portfolio cannot be edited right now' });
-      }
-
-      const pick = (key, fallback) =>
-        Object.prototype.hasOwnProperty.call(req.body, key) ? req.body[key] : fallback;
-
-      const updated = {
-        name: pick('name', portfolio.name),
-        sector: pick('sector', portfolio.sector),
-        mvp_status: pick('mvp_status', portfolio.mvp_status),
-        description: pick('description', portfolio.description),
-        funding_goal: pick('funding_goal', portfolio.funding_goal),
-        team_size: pick('team_size', portfolio.team_size),
-        founded_year: pick('founded_year', portfolio.founded_year),
-        location: pick('location', portfolio.location),
-        website: pick('website', portfolio.website),
-        monthly_revenue: pick('monthly_revenue', portfolio.monthly_revenue),
-        user_count: pick('user_count', portfolio.user_count),
-        growth_rate: pick('growth_rate', portfolio.growth_rate),
-        market_size: pick('market_size', portfolio.market_size),
-        competitor_analysis: pick('competitor_analysis', portfolio.competitor_analysis),
-        advisor_names: pick('advisor_names', portfolio.advisor_names),
-        burn_rate: pick('burn_rate', portfolio.burn_rate),
-        runway_months: pick('runway_months', portfolio.runway_months),
-      };
-
-      const [docCount] = await db.query(
-        'SELECT COUNT(*) AS c FROM portfolio_documents WHERE portfolio_id = ?',
-        [req.params.id]
-      );
-      const readiness_score = calcReadinessScore(updated, docCount[0].c);
-
-      const wasResetToDraft = portfolio.status !== 'draft';
-      const newStatus = 'draft';
-      const submittedAt = null;
-      const rejectionReason = null;
-
-      await db.query(
-        `UPDATE portfolios
-         SET name=?, sector=?, mvp_status=?, description=?, funding_goal=?, team_size=?, founded_year=?, location=?, website=?,
-             monthly_revenue=?, user_count=?, growth_rate=?, market_size=?, competitor_analysis=?, advisor_names=?, burn_rate=?, runway_months=?,
-             readiness_score=?, status=?, submitted_at=?, rejection_reason=?
-         WHERE id=?`,
-        [
-          updated.name, updated.sector, updated.mvp_status, updated.description, updated.funding_goal,
-          updated.team_size, updated.founded_year, updated.location, updated.website,
-          updated.monthly_revenue, updated.user_count, updated.growth_rate, updated.market_size,
-          updated.competitor_analysis, updated.advisor_names, updated.burn_rate, updated.runway_months,
-          readiness_score, newStatus, submittedAt, rejectionReason,
-          req.params.id,
-        ]
-      );
-
-      const [fresh] = await db.query('SELECT * FROM portfolios WHERE id = ?', [req.params.id]);
-      res.json({ ...fresh[0], was_reset_to_draft: wasResetToDraft });
+      const result = await updatePortfolioDetails({
+        portfolioId: req.params.id,
+        ownerId: req.user.id,
+        payload: req.body,
+        calculateReadiness: calcReadinessScore,
+      });
+      return res.json(result);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      return sendWorkflowError(res, err);
     }
   }
 );

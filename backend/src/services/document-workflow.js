@@ -1,6 +1,10 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const {
+  archiveConversationForPortfolio,
+  prepareConversationForPortfolioDeletion,
+} = require('./managed-conversation-workflow');
 
 const BACKEND_ROOT = path.join(__dirname, '..', '..');
 const DOCUMENT_ROOT = path.join(BACKEND_ROOT, 'uploads', 'portfolio-documents');
@@ -166,6 +170,15 @@ async function saveUploadedDocuments({
       );
     }
 
+    if (portfolio.status === 'approved') {
+      await archiveConversationForPortfolio(
+        connection,
+        portfolioId,
+        'portfolio_unapproved',
+        ownerId,
+      );
+    }
+
     const values = files.map((file) => [
       portfolioId,
       file.originalname,
@@ -239,6 +252,14 @@ async function deletePortfolioDocument({
       [documentRows[0].file_url],
       fileSystem,
     );
+    if (portfolio.status === 'approved') {
+      await archiveConversationForPortfolio(
+        connection,
+        portfolioId,
+        'portfolio_unapproved',
+        ownerId,
+      );
+    }
     await connection.query(
       'DELETE FROM portfolio_documents WHERE id=?',
       [documentId],
@@ -310,6 +331,11 @@ async function deleteEditablePortfolio({
     stagedFiles = await stageStoredFiles(
       documents.map(({ file_url: fileUrl }) => fileUrl),
       fileSystem,
+    );
+    await prepareConversationForPortfolioDeletion(
+      connection,
+      portfolioId,
+      ownerId,
     );
     const [result] = await connection.query(
       "DELETE FROM portfolios WHERE id=? AND owner_id=? AND status IN ('draft','rejected')",

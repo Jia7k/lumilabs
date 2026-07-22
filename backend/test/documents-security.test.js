@@ -31,6 +31,13 @@ test('draft documents are unavailable to unrelated investors', () => {
   assert.match(route, /return res\.status\(403\)\.json\(\{ error: 'Forbidden' \}\)/);
 });
 
+test('relationship managers need assigned-room membership for portfolio documents', () => {
+  assert.match(route, /req\.user\.role === 'relationship_manager'/);
+  assert.match(route, /conversation_members/);
+  assert.match(route, /relationship_manager_id/);
+  assert.doesNotMatch(route, /req\.user\.role === 'relationship_manager'\s*\|\|/);
+});
+
 test('download responses use attachment disposition', () => {
   assert.match(route, /documents\/:docId\/download/);
   assert.match(route, /res\.download\(absolute, doc\.file_name\)/);
