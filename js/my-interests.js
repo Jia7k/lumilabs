@@ -32,6 +32,8 @@ function formatDate(iso) {
 }
 
 let interests = [];
+let interestsLoading = false;
+let interestEventsBound = false;
 
 function render() {
   document.getElementById("count-badge").innerText = interests.length;
@@ -75,6 +77,39 @@ function render() {
   }).join("");
 }
 
+function renderInterestsError(error) {
+  document.getElementById("interests-list").innerHTML = `
+    <div class="empty-state" role="alert">
+      <i class="ti ti-alert-circle"></i>
+      <h3>Couldn't load interests</h3>
+      <p>${escapeHtml(error.message || "Please retry")}</p>
+      <button class="btn-browse" type="button" data-retry-interests>Retry</button>
+    </div>`;
+}
+
+function bindInterestEvents() {
+  if (interestEventsBound) return;
+  interestEventsBound = true;
+  document.getElementById("interests-list").addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry-interests]")) loadInterests();
+  });
+}
+
+async function loadInterests() {
+  if (interestsLoading) return false;
+  interestsLoading = true;
+  try {
+    interests = await API.getMyInterests();
+    render();
+    return true;
+  } catch (error) {
+    renderInterestsError(error);
+    return false;
+  } finally {
+    interestsLoading = false;
+  }
+}
+
 async function removeInterest(portfolioId) {
   const btn = document.getElementById(`remove-${portfolioId}`);
   btn.disabled = true;
@@ -107,17 +142,9 @@ async function init() {
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
-
-  try {
-    interests = await API.getMyInterests();
-  } catch (err) {
-    document.getElementById("interests-list").innerHTML = `
-      <div class="empty-state"><i class="ti ti-alert-circle"></i><h3>Couldn't load interests</h3><p>${escapeHtml(err.message)}</p></div>`;
-    return;
-  }
-
-  render();
   initRoleMenu();
+  bindInterestEvents();
+  await loadInterests();
 }
 
 init();

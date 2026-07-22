@@ -26,6 +26,110 @@ function managedChatAction(interest) {
   return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
 }
 
+function retrySection(message) {
+  return `<div class="empty-state" role="alert">
+    <i class="ti ti-alert-circle"></i>
+    <p>${escapeHtml(message)}</p>
+    <button class="btn-refresh" type="button" onclick="refreshInvestorDashboard()">Retry</button>
+  </div>`;
+}
+
+function renderQuickActions(interestCount = null) {
+  const badge = Number.isFinite(Number(interestCount)) && Number(interestCount) > 0
+    ? `<span class="badge-red">${Number(interestCount)}</span>`
+    : "";
+  document.getElementById("quick-actions-list").innerHTML = `
+    <button class="quick-action-btn" onclick="window.location.href='browse.html'">
+      <div class="qa-left"><i class="ti ti-search"></i> Browse Startups</div>
+      <i class="ti ti-chevron-right" style="color:var(--text-muted)"></i>
+    </button>
+    <button class="quick-action-btn" onclick="window.location.href='my-interests.html'">
+      <div class="qa-left"><i class="ti ti-heart"></i> My Interests</div>${badge}
+    </button>
+    <button class="quick-action-btn" onclick="window.location.href='messages.html'">
+      <div class="qa-left"><i class="ti ti-message"></i> Messages</div>
+    </button>`;
+}
+
+function renderDashboardResult(result) {
+  const statIds = ["stat-available", "stat-interests", "stat-messages", "stat-potential"];
+  if (result.status === "rejected") {
+    statIds.forEach((id) => { document.getElementById(id).innerText = "—"; });
+    document.getElementById("recent-interests-list").innerHTML = retrySection(
+      `Couldn't load dashboard data: ${result.reason?.message || "Please retry"}`,
+    );
+    return null;
+  }
+
+  const { stats, recentInterests } = result.value;
+  document.getElementById("stat-available").innerText = stats.available;
+  document.getElementById("stat-interests").innerText = stats.interests;
+  document.getElementById("stat-messages").innerText = stats.messages;
+  document.getElementById("stat-potential").innerText = stats.highPotential;
+  document.getElementById("recent-interests-list").innerHTML = recentInterests.length
+    ? recentInterests.map((interest) => `
+      <div class="interest-list-item">
+        <div class="il-icon"><i class="ti ti-heart"></i></div>
+        <div><div class="il-name">${escapeHtml(interest.name)}</div>
+        <div class="il-sub">${escapeHtml(interest.sector)}</div></div>
+        ${managedChatAction(interest)}
+      </div>`).join("")
+    : '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">No interests yet.</p>';
+  return stats.interests;
+}
+
+function renderRecommendationResult(result) {
+  if (result.status === "rejected") {
+    const error = retrySection(
+      `Couldn't load recommendations: ${result.reason?.message || "Please retry"}`,
+    );
+    document.getElementById("recommended-list").innerHTML = error;
+    document.getElementById("recently-added-grid").innerHTML = error;
+    return;
+  }
+
+  const top = result.value.slice(0, 5);
+  document.getElementById("recommended-list").innerHTML = top.length
+    ? top.map((portfolio, index) => `
+      <div class="rec-item" style="cursor:pointer;" onclick="window.location.href='browse.html'">
+        <div class="rec-rank">#${index + 1}</div>
+        <div class="rec-info"><div class="rec-name-row">
+          <span class="rec-name">${escapeHtml(portfolio.name)}</span>
+          ${portfolio.is_high_potential ? '<span class="badge-purple"><i class="ti ti-star"></i> High Potential</span>' : ""}
+        </div><div class="rec-industry">${escapeHtml(portfolio.sector)}</div></div>
+        <div class="score-text">${portfolio.ai_score}</div>
+        <i class="ti ti-arrow-right rec-arrow"></i>
+      </div>`).join("")
+    : '<p style="padding:20px;color:var(--text-muted);">No approved startups yet.</p>';
+
+  const recent = [...result.value]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 4);
+  document.getElementById("recently-added-grid").innerHTML = recent.length
+    ? recent.map((portfolio) => `
+      <div class="recent-card" style="cursor:pointer;" onclick="window.location.href='browse.html'">
+        <div class="rc-top">
+          <div class="rc-icon"><i class="ti ti-briefcase"></i></div>
+          <div class="rc-star" style="background:${portfolio.readiness_score >= 75 ? "var(--purple-light)" : "var(--bg-page)"}; color:${portfolio.readiness_score >= 75 ? "var(--purple-text)" : "var(--text-muted)"}"><i class="ti ti-star"></i></div>
+        </div>
+        <div><div class="rc-name">${escapeHtml(portfolio.name)}</div>
+        <div class="rc-industry">${escapeHtml(portfolio.sector)}</div></div>
+        <div class="rc-bottom"><div class="rc-money">${formatFunding(portfolio.funding_goal)}</div>
+        <div class="rc-score" style="color:${portfolio.readiness_score >= 70 ? "var(--primary-green)" : "#D98F39"}; background:${portfolio.readiness_score >= 70 ? "rgba(82,164,117,0.1)" : "rgba(217,143,57,0.1)"}">${portfolio.readiness_score}</div></div>
+      </div>`).join("")
+    : '<p style="color:var(--text-muted);">No startups yet.</p>';
+}
+
+async function loadInvestorDashboard() {
+  const [dashboard, recommendations] = await Promise.allSettled([
+    API.getInvestorDashboard(),
+    API.getRecommendations(),
+  ]);
+  const interestCount = renderDashboardResult(dashboard);
+  renderRecommendationResult(recommendations);
+  renderQuickActions(interestCount);
+}
+
 async function init() {
   const user = await requirePageRole("investor");
   if (!user) return;
@@ -36,102 +140,12 @@ async function init() {
   document.getElementById("page-title").innerText = `Welcome back, ${user.name}`;
   document.getElementById("page-subtitle").innerText = "Discover promising startups and investment opportunities";
 
-  const [dash, recs] = await Promise.allSettled([
-    API.getInvestorDashboard(),
-    API.getRecommendations(),
-  ]);
-
-  if (dash.status === "fulfilled") {
-    const s = dash.value.stats;
-    document.getElementById("stat-available").innerText = s.available;
-    document.getElementById("stat-interests").innerText = s.interests;
-    document.getElementById("stat-messages").innerText = s.messages;
-    document.getElementById("stat-potential").innerText = s.highPotential;
-
-    const riList = document.getElementById("recent-interests-list");
-    if (!dash.value.recentInterests.length) {
-      riList.innerHTML = `<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">No interests yet.</p>`;
-    } else {
-      riList.innerHTML = dash.value.recentInterests.map(i => `
-        <div class="interest-list-item">
-          <div class="il-icon"><i class="ti ti-heart"></i></div>
-          <div>
-            <div class="il-name">${escapeHtml(i.name)}</div>
-            <div class="il-sub">${escapeHtml(i.sector)}</div>
-          </div>
-          ${managedChatAction(i)}
-        </div>
-      `).join("");
-    }
-  }
-
-  if (recs.status === "fulfilled") {
-    const recList = document.getElementById("recommended-list");
-    const top = recs.value.slice(0, 5);
-    if (!top.length) {
-      recList.innerHTML = `<p style="padding:20px;color:var(--text-muted);">No approved startups yet.</p>`;
-    } else {
-      recList.innerHTML = top.map((p, i) => `
-        <div class="rec-item" style="cursor:pointer;" onclick="window.location.href='browse.html'">
-          <div class="rec-rank">#${i + 1}</div>
-          <div class="rec-info">
-            <div class="rec-name-row">
-              <span class="rec-name">${escapeHtml(p.name)}</span>
-              ${p.is_high_potential ? `<span class="badge-purple"><i class="ti ti-star"></i> High Potential</span>` : ""}
-            </div>
-            <div class="rec-industry">${escapeHtml(p.sector)}</div>
-          </div>
-          <div class="score-text">${p.ai_score}</div>
-          <i class="ti ti-arrow-right rec-arrow"></i>
-        </div>
-      `).join("");
-    }
-
-    const recent = [...recs.value]
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 4);
-    const recentGrid = document.getElementById("recently-added-grid");
-    if (!recent.length) {
-      recentGrid.innerHTML = `<p style="color:var(--text-muted);">No startups yet.</p>`;
-    } else {
-      recentGrid.innerHTML = recent.map(p => `
-        <div class="recent-card" style="cursor:pointer;" onclick="window.location.href='browse.html'">
-          <div class="rc-top">
-            <div class="rc-icon"><i class="ti ti-briefcase"></i></div>
-            <div class="rc-star" style="background:${p.readiness_score >= 75 ? "var(--purple-light)" : "var(--bg-page)"}; color:${p.readiness_score >= 75 ? "var(--purple-text)" : "var(--text-muted)"}"><i class="ti ti-star"></i></div>
-          </div>
-          <div>
-            <div class="rc-name">${escapeHtml(p.name)}</div>
-            <div class="rc-industry">${escapeHtml(p.sector)}</div>
-          </div>
-          <div class="rc-bottom">
-            <div class="rc-money">${formatFunding(p.funding_goal)}</div>
-            <div class="rc-score" style="color:${p.readiness_score >= 70 ? "var(--primary-green)" : "#D98F39"}; background:${p.readiness_score >= 70 ? "rgba(82,164,117,0.1)" : "rgba(217,143,57,0.1)"}">${p.readiness_score}</div>
-          </div>
-        </div>
-      `).join("");
-    }
-
-    const interestCount = dash.status === "fulfilled" ? dash.value.stats.interests : 0;
-    document.getElementById("quick-actions-list").innerHTML = `
-      <button class="quick-action-btn" onclick="window.location.href='browse.html'">
-        <div class="qa-left"><i class="ti ti-search"></i> Browse Startups</div>
-        <i class="ti ti-chevron-right" style="color:var(--text-muted)"></i>
-      </button>
-      <button class="quick-action-btn" onclick="window.location.href='my-interests.html'">
-        <div class="qa-left"><i class="ti ti-heart"></i> My Interests</div>
-        ${interestCount > 0 ? `<span class="badge-red">${interestCount}</span>` : ""}
-      </button>
-      <button class="quick-action-btn" onclick="window.location.href='messages.html'">
-        <div class="qa-left"><i class="ti ti-message"></i> Messages</div>
-      </button>
-    `;
-  }
-
   if (!roleMenuInitialized) {
     initRoleMenu();
     roleMenuInitialized = true;
   }
+  renderQuickActions(null);
+  await loadInvestorDashboard();
 }
 
 let isRefreshing = false;
@@ -146,7 +160,7 @@ async function refreshInvestorDashboard() {
     button.innerHTML = '<i class="ti ti-loader-2"></i> Refreshing';
   }
   try {
-    await init();
+    await loadInvestorDashboard();
   } finally {
     isRefreshing = false;
     if (button) {
