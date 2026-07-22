@@ -9,10 +9,8 @@ User=user
 Group=www-data
 WorkingDirectory=/var/www/lumilabs-backend
 Environment=NODE_ENV=production
-Environment=HOST=127.0.0.1
-Environment=PORT=3100
 EnvironmentFile=/var/www/lumilabs-backend/.env
-ExecStart=/opt/lumilabs-messaging/current/bin/node server.js
+ExecStart=/usr/bin/env HOST=127.0.0.1 PORT=3100 /opt/lumilabs-messaging/current/bin/node server.js
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

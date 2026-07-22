@@ -57,15 +57,13 @@ test('systemd unit runs the unified API on a private loopback port', () => {
   assert.match(service, /^User=user$/m);
   assert.match(service, /^Group=www-data$/m);
   assert.match(service, /^WorkingDirectory=\/var\/www\/lumilabs-backend$/m);
-  assert.match(service, /^Environment=HOST=127\.0\.0\.1$/m);
-  assert.match(service, /^Environment=PORT=3100$/m);
   assert.match(
     service,
     /^EnvironmentFile=\/var\/www\/lumilabs-backend\/\.env$/m
   );
   assert.match(
     service,
-    /^ExecStart=\/opt\/lumilabs-messaging\/current\/bin\/node server\.js$/m
+    /^ExecStart=\/usr\/bin\/env HOST=127\.0\.0\.1 PORT=3100 \/opt\/lumilabs-messaging\/current\/bin\/node server\.js$/m
   );
   assert.doesNotMatch(service, /messages-server|3001/);
 });
