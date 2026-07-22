@@ -106,6 +106,7 @@ function createApp(options = {}) {
   const notificationRoutes = require('./src/routes/notifications');
   const recommendationRoutes = require('./src/routes/recommendations');
   const dashboardRoutes = require('./src/routes/dashboard');
+  const relationshipManagerRoutes = require('./src/routes/relationship-manager');
 
   const app = express();
   app.disable('x-powered-by');
@@ -131,6 +132,7 @@ function createApp(options = {}) {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/recommendations', recommendationRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/relationship-manager', relationshipManagerRoutes);
 
   app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
   app.use((error, req, res, next) => {

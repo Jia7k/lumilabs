@@ -38,3 +38,12 @@ test('returns JSON for unknown unified API routes', async (t) => {
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: 'Route not found' });
 });
+
+test('mounts the relationship-manager API behind authentication', async (t) => {
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  const response = await fetch(`${server.origin}/api/relationship-manager/dashboard`);
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: 'Access token required' });
+});
