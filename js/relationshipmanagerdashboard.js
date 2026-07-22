@@ -4,6 +4,7 @@ const state = {
   pending: new Set(),
   selectedCreateInterests: new Map(),
   selectedAddInterests: new Map(),
+  stale: false,
 };
 
 function escapeHtml(value) {
@@ -30,11 +31,11 @@ function renderUser() {
   document.getElementById("user-role").textContent = "Relationship Manager";
 }
 
-function setStatus(message, type = "") {
+function setStatus(message, type = "", retryable = false) {
   const status = document.getElementById("dashboard-status");
   status.textContent = message;
   status.className = `dashboard-status ${type}`.trim();
-  document.getElementById("dashboard-retry").hidden = type !== "error";
+  document.getElementById("dashboard-retry").hidden = !retryable;
 }
 
 function selectionFor(map, parentId) {
@@ -78,10 +79,10 @@ function renderUnclaimedPortfolios() {
       </div>`;
     return;
   }
+  const mutationsDisabled = state.stale || state.pending.size > 0;
   list.innerHTML = portfolios.map((portfolio) => {
     const portfolioId = String(portfolio.portfolio_id);
-    const pendingKey = `create:${portfolioId}`;
-    const disabled = state.pending.has(pendingKey);
+    const disabled = mutationsDisabled;
     const selected = selectionFor(state.selectedCreateInterests, portfolioId);
     return `
       <article class="rm-room-card rm-room-card--unclaimed">
@@ -101,7 +102,7 @@ function renderUnclaimedPortfolios() {
         </fieldset>
         <button class="btn btn-primary rm-room-primary" type="button" data-action="create"
                 data-id="${escapeHtml(portfolioId)}"${disabled ? " disabled" : ""}>
-          <i class="ti ti-users-plus"></i> ${disabled ? "Creating room…" : "Create managed room"}
+          <i class="ti ti-users-plus"></i> ${state.pending.size ? "Creating room…" : "Create managed room"}
         </button>
       </article>`;
   }).join("");
@@ -112,6 +113,26 @@ function participantChip(name, role) {
     <i class="ti ${role === "owner" ? "ti-building" : "ti-user"}"></i>
     ${escapeHtml(name)} <small>${role === "owner" ? "Owner" : "Investor"}</small>
   </span>`;
+}
+
+function reopenEligibility(room) {
+  if (room.status !== "archived") {
+    return { enabled: false, reason: "This room is not archived." };
+  }
+  if (room.archived_reason === "portfolio_deleted" || room.portfolio_id == null) {
+    return { enabled: false, reason: "This portfolio was deleted; its chat history is permanent and cannot reopen." };
+  }
+  if (room.archived_reason === "portfolio_unapproved") {
+    return { enabled: false, reason: "The portfolio must be approved before this room can reopen." };
+  }
+  if (!Array.isArray(room.investors) || !Array.isArray(room.eligible_interests)) {
+    return { enabled: false, reason: "This room cannot reopen from its current state." };
+  }
+  if (room.investors.length > 0) return { enabled: true, reason: "" };
+  if (room.eligible_interests.length > 0) {
+    return { enabled: false, reason: "Add an eligible investor before reopening this room." };
+  }
+  return { enabled: false, reason: "An investor must express interest before this room can reopen." };
 }
 
 function renderManagedRooms() {
@@ -126,15 +147,28 @@ function renderManagedRooms() {
       </div>`;
     return;
   }
+  const mutationsDisabled = state.stale || state.pending.size > 0;
   list.innerHTML = rooms.map((room) => {
     const conversationId = String(room.conversation_id);
-    const addKey = `add:${conversationId}`;
-    const archiveKey = `archive:${conversationId}`;
-    const reopenKey = `reopen:${conversationId}`;
-    const addPending = state.pending.has(addKey);
-    const statusPending = state.pending.has(archiveKey) || state.pending.has(reopenKey);
+    const addDisabled = mutationsDisabled;
     const selected = selectionFor(state.selectedAddInterests, conversationId);
     const archived = room.status === "archived";
+    const investors = Array.isArray(room.investors) ? room.investors : [];
+    const eligibleInterests = Array.isArray(room.eligible_interests)
+      ? room.eligible_interests
+      : [];
+    const reopen = archived ? reopenEligibility(room) : { enabled: true, reason: "" };
+    const statusDisabled = mutationsDisabled || (archived && !reopen.enabled);
+    const reasonId = `reopen-reason-${conversationId}`;
+    const statusAction = `
+      <button class="btn btn-outline" type="button" data-action="${archived ? "reopen" : "archive"}"
+              data-id="${escapeHtml(conversationId)}"
+              ${archived && reopen.reason ? `aria-describedby="${reasonId}"` : ""}
+              ${statusDisabled ? "disabled" : ""}>
+        <i class="ti ${archived ? "ti-lock-open" : "ti-archive"}"></i>
+        ${state.pending.size ? "Updating…" : archived ? "Reopen" : "Archive"}
+      </button>
+      ${archived && reopen.reason ? `<p class="rm-no-eligible" id="${reasonId}">${escapeHtml(reopen.reason)}</p>` : ""}`;
     return `
       <article class="rm-room-card ${archived ? "rm-room-card--archived" : "rm-room-card--active"}">
         <div class="rm-room-topline">
@@ -149,28 +183,24 @@ function renderManagedRooms() {
         </div>
         <div class="rm-participant-list" aria-label="Current participants">
           ${participantChip(room.owner.name, "owner")}
-          ${room.investors.map((investor) => participantChip(investor.name, "investor")).join("")}
+          ${investors.map((investor) => participantChip(investor.name, "investor")).join("")}
         </div>
-        ${room.eligible_interests.length ? `
-          <fieldset class="rm-interest-fieldset rm-add-fieldset"${addPending ? " disabled" : ""}>
+        ${eligibleInterests.length ? `
+          <fieldset class="rm-interest-fieldset rm-add-fieldset"${addDisabled ? " disabled" : ""}>
             <legend>Add eligible investors</legend>
-            ${room.eligible_interests.map((interest) => interestCheckbox(
-              interest, "add", conversationId, selected, addPending
+            ${eligibleInterests.map((interest) => interestCheckbox(
+              interest, "add", conversationId, selected, addDisabled
             )).join("")}
           </fieldset>
           <button class="btn btn-outline rm-add-investors" type="button" data-action="add"
-                  data-id="${escapeHtml(conversationId)}"${addPending ? " disabled" : ""}>
-            <i class="ti ti-user-plus"></i> ${addPending ? "Adding…" : "Add selected investors"}
+                  data-id="${escapeHtml(conversationId)}"${addDisabled ? " disabled" : ""}>
+            <i class="ti ti-user-plus"></i> ${state.pending.size ? "Adding…" : "Add selected investors"}
           </button>` : '<p class="rm-no-eligible">All currently interested investors are already in this room.</p>'}
         <div class="rm-room-actions">
           <button class="btn btn-primary" type="button" data-action="open" data-id="${escapeHtml(conversationId)}">
             <i class="ti ti-message-circle"></i> Open Group Chat
           </button>
-          <button class="btn btn-outline" type="button" data-action="${archived ? "reopen" : "archive"}"
-                  data-id="${escapeHtml(conversationId)}"${statusPending ? " disabled" : ""}>
-            <i class="ti ${archived ? "ti-lock-open" : "ti-archive"}"></i>
-            ${statusPending ? "Updating…" : archived ? "Reopen" : "Archive"}
-          </button>
+          ${statusAction}
         </div>
       </article>`;
   }).join("");
@@ -189,24 +219,44 @@ function renderDashboard() {
 async function loadDashboard() {
   setStatus("Loading managed conversations…", "loading");
   try {
-    state.dashboard = await API.getRelationshipManagerDashboard();
+    const dashboard = await API.getRelationshipManagerDashboard();
+    state.dashboard = dashboard;
+    state.stale = false;
     renderDashboard();
     setStatus("Dashboard is up to date.", "success");
+    return true;
   } catch (error) {
-    setStatus(`Could not load the dashboard. ${error.message}`, "error");
+    if (state.dashboard) {
+      state.stale = true;
+      renderDashboard();
+    }
+    setStatus(`Could not load the dashboard. ${error.message}`, "error", true);
+    return false;
   }
 }
 
 async function runMutation(key, action, successMessage) {
-  if (state.pending.has(key)) return;
+  if (state.stale || state.pending.size > 0) return false;
   state.pending.add(key);
   renderDashboard();
   try {
     await action();
-    await loadDashboard();
+    const refreshed = await loadDashboard();
+    if (!refreshed) {
+      state.stale = true;
+      if (state.dashboard) renderDashboard();
+      setStatus(
+        "The change was saved, but the dashboard refresh failed. Retry before making another change.",
+        "error",
+        true,
+      );
+      return false;
+    }
     setStatus(successMessage, "success");
+    return true;
   } catch (error) {
     setStatus(error.message, "error");
+    return false;
   } finally {
     state.pending.delete(key);
     if (state.dashboard) renderDashboard();
