@@ -61,6 +61,17 @@ function trackNotifications(rows) {
   return rows;
 }
 
+function assertTrackedIdsBelongToRows(trackedIds, rows, label) {
+  const verifiedIds = new Set(rows.map((row) => positiveId(row.id, `${label} ID`)));
+  for (const value of trackedIds) {
+    const id = positiveId(value, `${label} ID`);
+    assert.ok(
+      verifiedIds.has(id),
+      `tracked ${label} ${id} is outside the verified temporary resources`,
+    );
+  }
+}
+
 function placeholders(values) {
   assert.ok(values.length > 0, 'placeholder values cannot be empty');
   return values.map(() => '?').join(',');
@@ -130,11 +141,6 @@ function notificationCleanupWhere() {
   if (messageIds.length) {
     clauses.push(`related_message_id IN (${placeholders(messageIds)})`);
     params.push(...messageIds);
-  }
-  const notificationIds = [...tracked.notificationIds];
-  if (notificationIds.length) {
-    clauses.push(`id IN (${placeholders(notificationIds)})`);
-    params.push(...notificationIds);
   }
   return { sql: clauses.length ? clauses.join(' OR ') : '0=1', params };
 }
@@ -261,11 +267,6 @@ async function reconcileTemporaryRecords() {
         );
       }
       tracked.conversationId = discoveredConversationId;
-      const [messages] = await db.query(
-        'SELECT id FROM messages WHERE conversation_id=?',
-        [tracked.conversationId],
-      );
-      for (const message of messages) tracked.messageIds.add(positiveId(message.id, 'message ID'));
     }
   }
 }
@@ -353,7 +354,6 @@ async function verifyTrackedResources() {
       'SELECT id,conversation_id FROM messages WHERE conversation_id=? FOR UPDATE',
       [tracked.conversationId],
     );
-    for (const row of resources.messages) tracked.messageIds.add(positiveId(row.id, 'message ID'));
     [resources.memberships] = await db.query(
       'SELECT conversation_id,user_id FROM conversation_members WHERE conversation_id=? FOR UPDATE',
       [tracked.conversationId],
@@ -366,10 +366,18 @@ async function verifyTrackedResources() {
     }
   }
 
+  assertTrackedIdsBelongToRows(tracked.messageIds, resources.messages, 'message');
+  for (const row of resources.messages) tracked.messageIds.add(positiveId(row.id, 'message ID'));
+
   const notificationScope = notificationCleanupWhere();
   [resources.notifications] = await db.query(
     `SELECT id FROM notifications WHERE ${notificationScope.sql} FOR UPDATE`,
     notificationScope.params,
+  );
+  assertTrackedIdsBelongToRows(
+    tracked.notificationIds,
+    resources.notifications,
+    'notification',
   );
   trackNotifications(resources.notifications);
   return resources;
@@ -832,4 +840,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { assertCleanupComplete, cleanTemporaryRecords, main };
+module.exports = {
+  assertCleanupComplete,
+  assertTrackedIdsBelongToRows,
+  cleanTemporaryRecords,
+  main,
+};

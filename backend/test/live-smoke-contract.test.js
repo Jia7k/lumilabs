@@ -8,6 +8,29 @@ const source = fs.readFileSync(
   'utf8'
 );
 
+function loadSmokeHelpers() {
+  const previous = {
+    DB_NAME: process.env.DB_NAME,
+    DB_PASSWORD: process.env.DB_PASSWORD,
+    DB_USER: process.env.DB_USER,
+    LUMILABS_E2E_ORIGIN: process.env.LUMILABS_E2E_ORIGIN,
+  };
+  Object.assign(process.env, {
+    DB_NAME: 'contract_test',
+    DB_PASSWORD: 'contract_test',
+    DB_USER: 'contract_test',
+    LUMILABS_E2E_ORIGIN: 'http://127.0.0.1:3999',
+  });
+  const smokePath = require.resolve('../scripts/live-four-role-smoke');
+  delete require.cache[smokePath];
+  const helpers = require(smokePath);
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return helpers;
+}
+
 test('four-role smoke is explicitly targeted and creates managers through the admin API', () => {
   assert.match(source, /LUMILABS_E2E_ORIGIN/);
   assert.match(source, /codex_e2e_/);
@@ -63,4 +86,30 @@ test('four-role smoke cleanup is transactionally scoped to tracked identities an
   assert.match(source, /FOR UPDATE/);
   assert.match(source, /assertAffected/);
   assert.doesNotMatch(source, /victor@lumilabs\.com|admin123|password\s*=/i);
+});
+
+test('smoke cleanup rejects message and notification IDs outside verified resources', () => {
+  const { assertTrackedIdsBelongToRows } = loadSmokeHelpers();
+  assert.equal(typeof assertTrackedIdsBelongToRows, 'function');
+  assert.doesNotThrow(() => assertTrackedIdsBelongToRows(
+    new Set([11, 12]),
+    [{ id: 11 }, { id: 12 }],
+    'message',
+  ));
+  assert.throws(
+    () => assertTrackedIdsBelongToRows(new Set([11, 999]), [{ id: 11 }], 'message'),
+    /tracked message 999 is outside the verified temporary resources/,
+  );
+  assert.throws(
+    () => assertTrackedIdsBelongToRows(new Set([21, 999]), [{ id: 21 }], 'notification'),
+    /tracked notification 999 is outside the verified temporary resources/,
+  );
+});
+
+test('notification cleanup never trusts a raw API-returned notification ID', () => {
+  const cleanupFunction = source.match(
+    /function notificationCleanupWhere\(\) \{[\s\S]*?\n\}/,
+  );
+  assert.ok(cleanupFunction, 'notification cleanup predicate must exist');
+  assert.doesNotMatch(cleanupFunction[0], /notificationIds|clauses\.push\(`id IN/);
 });
