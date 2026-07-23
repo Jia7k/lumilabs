@@ -164,6 +164,13 @@ test('administrator dashboard exposes recoverable sections and synchronized asse
   assert.match(css, /\.modal-error-state/);
 });
 
+test('administrator queue Review uses delegated data attributes without inline calls', () => {
+  const client = read('js/moderatordashboard.js');
+  assert.match(client, /data-portfolio-id=/);
+  assert.match(client, /queue-list["']\)\.addEventListener\(["']click/);
+  assert.doesNotMatch(client, /onclick=["']openReviewModal/);
+});
+
 test('investor pages use the exact pinned Tabler dist stylesheet', () => {
   const expected = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css';
   for (const page of ['browse.html', 'investordashboard.html', 'my-interests.html']) {

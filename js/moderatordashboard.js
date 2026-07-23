@@ -40,6 +40,16 @@ let hasManagerSnapshot = false;
 let moderationRequestVersion = 0;
 let managerRequestVersion = 0;
 let managerCreateInFlight = false;
+let reviewRequestVersion = 0;
+let reviewLoadInFlight = false;
+let activeReviewTrigger = null;
+let activeReviewPortfolio = null;
+let decisionInFlight = false;
+
+function normalizePortfolioId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 function setRmFieldError(inputId, message) {
   const input = document.getElementById(inputId);
@@ -166,7 +176,6 @@ function renderQueue(queue, { reviewDisabled = false } = {}) {
         <td>
           <button class="btn-review"
                   data-portfolio-id="${escapeHtml(p.id)}"
-                  onclick="openReviewModal(${Number(p.id)})"
                   type="button"
                   ${reviewDisabled ? "disabled" : ""}>
             <i class="ti ti-eye"></i> Review
@@ -266,6 +275,11 @@ async function initAdmin() {
     ?.addEventListener("click", () => loadModeration());
   document.getElementById("manager-directory-retry-btn")
     ?.addEventListener("click", () => loadManagerDirectory());
+  document.getElementById("queue-list").addEventListener("click", async (event) => {
+    const trigger = event.target.closest("[data-portfolio-id]");
+    if (!trigger || trigger.disabled) return;
+    await openReviewModal(trigger.dataset.portfolioId, trigger);
+  });
   await renderAdmin();
 }
 
@@ -381,37 +395,119 @@ async function renderAdmin() {
   await Promise.allSettled([loadModeration(), loadManagerDirectory()]);
 }
 
-async function openReviewModal(id) {
-  const p = currentQueue.find(item => item.id === id);
-  if (!p) return;
-  activeReviewId = id;
+function setReviewOverlayOpen(open) {
+  const overlay = document.getElementById("review-overlay");
+  overlay.classList.toggle("open", open);
+  overlay.setAttribute("aria-hidden", String(!open));
+}
 
-  document.getElementById("review-card").innerHTML = `<p class="modal-subtitle">Loading...</p>`;
-  document.getElementById("review-overlay").classList.add("open");
+function renderReviewLoading() {
+  document.getElementById("review-card").innerHTML = `
+    <div class="modal-error-state" role="status" aria-live="polite">
+      <h2>Loading portfolio…</h2>
+      <p class="modal-subtitle">Retrieving the latest submitted details.</p>
+    </div>`;
+}
 
-  let full;
+function renderReviewError(message) {
+  document.getElementById("review-card").innerHTML = `
+    <div class="modal-error-state" role="alert">
+      <h2>Couldn't display this portfolio</h2>
+      <p class="modal-subtitle">${escapeHtml(message)}</p>
+      <div class="modal-error-actions">
+        <button class="btn btn-outline"
+                id="review-close"
+                data-review-action="close"
+                type="button">Close</button>
+        <button class="btn btn-primary"
+                id="review-retry"
+                data-review-action="retry"
+                type="button">Try again</button>
+      </div>
+    </div>`;
+}
+
+function validatePortfolioDetail(detail, expectedId) {
+  if (
+    !detail ||
+    typeof detail !== "object" ||
+    normalizePortfolioId(detail.id) !== expectedId ||
+    !Array.isArray(detail.documents)
+  ) {
+    throw new Error("The server returned incomplete portfolio details.");
+  }
+}
+
+async function loadReviewDetails(id) {
+  if (reviewLoadInFlight) return false;
+  const requestVersion = ++reviewRequestVersion;
+  reviewLoadInFlight = true;
+  renderReviewLoading();
   try {
-    full = await API.getPortfolio(id);
-  } catch (err) {
-    alert("Couldn't load portfolio details: " + err.message);
-    closeReviewModal();
-    return;
+    const detail = await API.getPortfolio(id);
+    if (requestVersion !== reviewRequestVersion || activeReviewId !== id) return false;
+    validatePortfolioDetail(detail, id);
+    renderReviewDetails(detail, activeReviewPortfolio);
+    return true;
+  } catch (error) {
+    if (requestVersion !== reviewRequestVersion || activeReviewId !== id) return false;
+    renderReviewError(error.message || "Portfolio details are unavailable.");
+    return false;
+  } finally {
+    if (requestVersion === reviewRequestVersion) reviewLoadInFlight = false;
+  }
+}
+
+async function openReviewModal(rawId, trigger = null) {
+  const id = normalizePortfolioId(rawId);
+  const portfolio = currentQueue.find((item) => normalizePortfolioId(item.id) === id);
+  if (!id || !portfolio) {
+    setSectionStatus(
+      "moderation-status",
+      "moderation-retry-btn",
+      "That portfolio is no longer available in the moderation queue.",
+      { type: "error", retryable: true },
+    );
+    return false;
   }
 
+  activeReviewId = id;
+  activeReviewPortfolio = portfolio;
+  activeReviewTrigger = trigger;
+  renderReviewLoading();
+  setReviewOverlayOpen(true);
+  document.getElementById("review-card").focus();
+  return loadReviewDetails(id);
+}
+
+function renderReviewDetails(full, p) {
   document.getElementById("review-card").innerHTML = `
     <div class="modal-header-row">
       <div class="modal-title-group">
         <h2>${escapeHtml(full.name)}</h2>
         <span class="badge-yellow">Pending Review</span>
       </div>
-      <button class="modal-close-btn" onclick="closeReviewModal()"><i class="ti ti-x"></i></button>
+      <button class="modal-close-btn"
+              data-review-action="close"
+              type="button"
+              aria-label="Close portfolio review">
+        <i class="ti ti-x"></i>
+      </button>
     </div>
     <p class="modal-subtitle">Review all portfolio details before making a decision</p>
 
     <div class="modal-readiness">
       <div class="score-circle" style="--score:${full.readiness_score}; width:48px; height:48px; font-size:15px;"><span>${full.readiness_score}</span></div>
       <div>
-        <div class="readiness-label">Readiness <button class="score-info-btn" onclick="showScoreInfo()" title="How is this calculated?"><i class="ti ti-info-circle"></i></button></div>
+        <div class="readiness-label">
+          Readiness
+          <button class="score-info-btn"
+                  data-review-action="score-info"
+                  type="button"
+                  title="How is this calculated?">
+            <i class="ti ti-info-circle"></i>
+          </button>
+        </div>
         <div class="readiness-score">${full.readiness_score}/100</div>
       </div>
       ${isScoreStale(p) ? `
@@ -488,7 +584,7 @@ async function openReviewModal(id) {
       </div>
       <div>
         <div class="modal-field-label">Users / Customers</div>
-        <div class="modal-field-value">${full.user_count != null ? full.user_count.toLocaleString() : "—"}</div>
+        <div class="modal-field-value">${full.user_count != null ? Number(full.user_count).toLocaleString() : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">MoM Growth</div>
@@ -521,15 +617,38 @@ async function openReviewModal(id) {
     </div>
 
     <div class="modal-footer">
-      <button class="btn-reject-outline" onclick="openRejectPopup()"><i class="ti ti-x"></i> Reject</button>
-      <button class="btn-approve-solid" onclick="handleApprove()"><i class="ti ti-circle-check"></i> Approve</button>
+      <div class="modal-action-status"
+           id="review-action-status"
+           role="status"
+           aria-live="polite"></div>
+      <button class="btn-reject-outline"
+              id="review-reject-btn"
+              data-review-action="reject"
+              type="button">
+        <i class="ti ti-x"></i> Reject
+      </button>
+      <button class="btn-approve-solid"
+              id="review-approve-btn"
+              data-review-action="approve"
+              type="button">
+        <i class="ti ti-circle-check"></i> Approve
+      </button>
     </div>
   `;
 }
 
 function closeReviewModal() {
+  if (decisionInFlight) return false;
+  reviewRequestVersion += 1;
+  reviewLoadInFlight = false;
   activeReviewId = null;
-  document.getElementById("review-overlay").classList.remove("open");
+  activeReviewPortfolio = null;
+  setReviewOverlayOpen(false);
+  document.getElementById("review-card").innerHTML = "";
+  const trigger = activeReviewTrigger;
+  activeReviewTrigger = null;
+  if (trigger && !trigger.disabled) trigger.focus();
+  return true;
 }
 
 document.getElementById("review-overlay").addEventListener("click", (e) => {
@@ -537,14 +656,29 @@ document.getElementById("review-overlay").addEventListener("click", (e) => {
 });
 
 document.getElementById("review-card").addEventListener("click", async (event) => {
-  const link = event.target.closest("[data-document-download]");
-  if (!link) return;
-  event.preventDefault();
-  try {
-    await API.downloadDocument(link.getAttribute("href"), link.dataset.fileName);
-  } catch (error) {
-    alert("Couldn't download document: " + error.message);
+  const download = event.target.closest("[data-document-download]");
+  if (download) {
+    event.preventDefault();
+    try {
+      await API.downloadDocument(download.getAttribute("href"), download.dataset.fileName);
+    } catch (error) {
+      const status = document.getElementById("review-action-status");
+      if (status) {
+        status.textContent = `Couldn't download document: ${error.message}`;
+        status.className = "modal-action-status error";
+      }
+    }
+    return;
   }
+
+  const control = event.target.closest("[data-review-action]");
+  if (!control || control.disabled) return;
+  const action = control.dataset.reviewAction;
+  if (action === "close") closeReviewModal();
+  else if (action === "retry" && activeReviewId !== null) await loadReviewDetails(activeReviewId);
+  else if (action === "score-info") showScoreInfo();
+  else if (action === "approve") await handleApprove();
+  else if (action === "reject") openRejectPopup();
 });
 
 async function handleApprove() {

@@ -224,3 +224,124 @@ test('manager creation failure keeps every entered field and restores submit', a
   assert.equal(client.element('rm-submit').disabled, false);
   assert.match(client.element('rm-form-message').textContent, /already exists/i);
 });
+
+test('delegated Review normalizes a string ID and opens loading before detail resolves', async () => {
+  const detail = deferred();
+  const client = adminHarness({
+    getQueue: async () => [{
+      id: '42',
+      name: 'String ID Company',
+      owner_name: 'Owner',
+      sector: 'Technology',
+      readiness_score: 60,
+    }],
+    getPortfolio: async () => detail.promise,
+  });
+  await client.init();
+  const trigger = client.element('review-trigger');
+  trigger.dataset.portfolioId = '42';
+
+  const click = client.element('queue-list').dispatch('click', { target: trigger });
+  await flush();
+
+  assert.equal(client.calls.getPortfolio.length, 1);
+  assert.equal(client.calls.getPortfolio[0][0], 42);
+  assert.equal(client.element('review-overlay').classList.contains('open'), true);
+  assert.match(client.element('review-card').innerHTML, /Loading portfolio/);
+  assert.equal(client.document.activeElement, client.element('review-card'));
+
+  detail.resolve({
+    id: 42,
+    name: 'String ID Company',
+    sector: 'Technology',
+    mvp_status: 'Beta',
+    funding_goal: 100000,
+    readiness_score: 60,
+    documents: [],
+  });
+  await click;
+  assert.match(client.element('review-card').innerHTML, /Approve/);
+});
+
+test('invalid or missing queue ID shows visible moderation recovery without a detail call', async () => {
+  const client = adminHarness();
+  await client.init();
+  const trigger = client.element('invalid-review-trigger');
+  trigger.dataset.portfolioId = '999';
+
+  await client.element('queue-list').dispatch('click', { target: trigger });
+
+  assert.equal(client.calls.getPortfolio.length, 0);
+  assert.match(client.element('moderation-status').textContent, /no longer available/i);
+  assert.equal(client.element('moderation-retry-btn').hidden, false);
+});
+
+test('detail failure stays open with single-flight Try again and Close', async () => {
+  const retry = deferred();
+  let detailCalls = 0;
+  const client = adminHarness({
+    getPortfolio: async () => {
+      detailCalls += 1;
+      if (detailCalls === 1) throw new Error('detail offline');
+      return retry.promise;
+    },
+  });
+  await client.init();
+  await client.run("openReviewModal(42, document.getElementById('review-trigger'))");
+  assert.match(client.element('review-card').innerHTML, /Try again/);
+  assert.equal(client.element('review-overlay').classList.contains('open'), true);
+
+  const retryButton = client.element('review-retry');
+  retryButton.dataset.reviewAction = 'retry';
+  const first = client.element('review-card').dispatch('click', { target: retryButton });
+  const second = client.element('review-card').dispatch('click', { target: retryButton });
+  await flush();
+  assert.equal(client.calls.getPortfolio.length, 2);
+
+  retry.resolve({
+    id: 42,
+    name: 'Recovered',
+    sector: 'Technology',
+    mvp_status: 'Beta',
+    funding_goal: 100000,
+    readiness_score: 60,
+    documents: [],
+  });
+  await Promise.all([first, second]);
+});
+
+test('closed review ignores a late response and restores trigger focus', async () => {
+  const detail = deferred();
+  const client = adminHarness({ getPortfolio: async () => detail.promise });
+  await client.init();
+  const trigger = client.element('review-trigger');
+
+  const opening = client.run("openReviewModal(42, document.getElementById('review-trigger'))");
+  await flush();
+  client.run('closeReviewModal()');
+  detail.resolve({
+    id: 42,
+    name: 'Late',
+    sector: 'Technology',
+    mvp_status: 'Beta',
+    funding_goal: 100000,
+    readiness_score: 60,
+    documents: [],
+  });
+  await opening;
+
+  assert.equal(client.element('review-overlay').classList.contains('open'), false);
+  assert.doesNotMatch(client.element('review-card').innerHTML, /Late/);
+  assert.equal(client.document.activeElement, trigger);
+});
+
+test('malformed detail enters the same recoverable modal error state', async () => {
+  const client = adminHarness({
+    getPortfolio: async () => ({ id: 42, name: 'Broken', documents: null }),
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+
+  assert.equal(client.element('review-overlay').classList.contains('open'), true);
+  assert.match(client.element('review-card').innerHTML, /couldn.t display/i);
+});
