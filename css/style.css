@@ -914,6 +914,96 @@ body.audit .table td {
   }
 }
 
+.admin-section-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-dashboard-status {
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.admin-dashboard-status.stale {
+  border-color: #FCD34D;
+  background: #FFFBEB;
+  color: #92400E;
+}
+
+.admin-retry-btn {
+  flex: 0 0 auto;
+  min-height: 36px;
+}
+
+.admin-retry-btn[hidden],
+.admin-dashboard-status[hidden] {
+  display: none;
+}
+
+.admin-row-state td {
+  padding: 30px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.admin-row-state.error td {
+  color: var(--red-text);
+}
+
+.btn-review:disabled,
+.btn-reject-outline:disabled,
+.btn-approve-solid:disabled,
+.btn-cancel-outline:disabled,
+.btn-confirm-reject:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.modal-card:focus-visible {
+  outline: 3px solid rgba(67, 97, 238, 0.35);
+  outline-offset: 3px;
+}
+
+.modal-error-state {
+  padding: 12px 0 4px;
+}
+
+.modal-error-state h2 {
+  margin-bottom: 8px;
+}
+
+.modal-error-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.modal-action-status {
+  min-height: 20px;
+  margin-right: auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.modal-action-status.error {
+  color: var(--red-text);
+}
+
+.reason-error {
+  margin: 10px 0 0;
+}
+
+@media (max-width: 720px) {
+  .admin-section-feedback {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 #stat-rejected {
   color: var(--red-text);
 }

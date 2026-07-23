@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Moderation Dashboard — Lumi5 Labs</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=20260723.4" />
 </head>
 
 <body class="dashboard">
@@ -111,6 +111,19 @@
             <h2 id="rm-directory-title">Active relationship managers</h2>
             <span id="rm-account-count" class="badge-purple">0 accounts</span>
           </div>
+          <div class="admin-section-feedback">
+            <p class="dashboard-status admin-dashboard-status"
+               id="manager-directory-status"
+               role="status"
+               aria-live="polite"
+               hidden></p>
+            <button class="btn btn-outline admin-retry-btn"
+                    id="manager-directory-retry-btn"
+                    type="button"
+                    hidden>
+              <i class="ti ti-refresh"></i> Try again
+            </button>
+          </div>
           <div class="rm-table-scroll">
             <table class="table rm-table">
               <thead>
@@ -127,6 +140,19 @@
       <div class="card-header">
         <div class="card-title">
           Moderation Queue <span class="badge-yellow" id="queue-badge"></span>
+        </div>
+        <div class="admin-section-feedback">
+          <p class="dashboard-status admin-dashboard-status"
+             id="moderation-status"
+             role="status"
+             aria-live="polite"
+             hidden></p>
+          <button class="btn btn-outline admin-retry-btn"
+                  id="moderation-retry-btn"
+                  type="button"
+                  hidden>
+            <i class="ti ti-refresh"></i> Try again
+          </button>
         </div>
         <button class="btn-review" onclick="window.location.href='audit-logs.html'">
           View Audit Logs
@@ -149,8 +175,13 @@
   </main>
 
   <!-- Review modal -->
-  <div class="modal-overlay" id="review-overlay">
-    <div class="modal-card" id="review-card"></div>
+  <div class="modal-overlay" id="review-overlay" aria-hidden="true">
+    <div class="modal-card"
+         id="review-card"
+         role="dialog"
+         aria-modal="true"
+         aria-label="Portfolio review"
+         tabindex="-1"></div>
   </div>
 
   <div class="reason-overlay" id="reason-overlay">
@@ -158,6 +189,10 @@
       <h3>Reject Portfolio</h3>
       <p>Please provide a reason for rejection. This feedback will be sent to the business owner.</p>
       <textarea class="reason-textarea" id="reason-textarea" placeholder="e.g. Weak market traction"></textarea>
+      <div class="form-message reason-error"
+           id="reason-error"
+           role="alert"
+           aria-live="assertive"></div>
       <div class="reason-footer">
         <button class="btn-cancel-outline" id="reason-cancel-btn">Cancel</button>
         <button class="btn-confirm-reject" id="reason-confirm-btn">Reject Portfolio</button>
@@ -165,8 +200,8 @@
     </div>
   </div>
 
-  <script src="js/api.js"></script>
-  <script src="js/moderatordashboard.js"></script>
+  <script src="js/api.js?v=20260723.4"></script>
+  <script src="js/moderatordashboard.js?v=20260723.4"></script>
 </body>
 
 </html>

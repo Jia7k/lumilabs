@@ -137,6 +137,33 @@ test('administrator dashboard provisions managers with accessible recoverable fo
   assert.match(client, /escapeHtml\(manager\.email\)/);
 });
 
+test('administrator dashboard exposes recoverable sections and synchronized assets', () => {
+  const html = read('moderatordashboard.html');
+  const css = read('css/style.css');
+
+  for (const id of [
+    'moderation-status',
+    'moderation-retry-btn',
+    'manager-directory-status',
+    'manager-directory-retry-btn',
+    'reason-error',
+  ]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`), id);
+  }
+
+  assert.match(
+    html,
+    /id=["']review-card["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["'][^>]*tabindex=["']-1["']/,
+  );
+  assert.match(html, /href=["']css\/style\.css\?v=20260723\.4["']/);
+  assert.match(html, /src=["']js\/api\.js\?v=20260723\.4["']/);
+  assert.match(html, /src=["']js\/moderatordashboard\.js\?v=20260723\.4["']/);
+  assert.match(css, /\.admin-retry-btn\[hidden\][^{]*\{[^}]*display:\s*none/s);
+  assert.match(css, /\.admin-dashboard-status\.stale/);
+  assert.match(css, /\.admin-row-state/);
+  assert.match(css, /\.modal-error-state/);
+});
+
 test('investor pages use the exact pinned Tabler dist stylesheet', () => {
   const expected = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css';
   for (const page of ['browse.html', 'investordashboard.html', 'my-interests.html']) {
