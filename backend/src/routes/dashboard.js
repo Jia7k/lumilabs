@@ -92,11 +92,11 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
     res.json({
       user: { name: req.user.name, role: req.user.role },
       portfolios: {
-        total: portfolioStats.total || 0,
-        approved: portfolioStats.approved || 0,
-        pending: portfolioStats.pending || 0,
-        rejected: portfolioStats.rejected || 0,
-        draft: portfolioStats.draft || 0,
+        total: Number(portfolioStats.total || 0),
+        approved: Number(portfolioStats.approved || 0),
+        pending: Number(portfolioStats.pending || 0),
+        rejected: Number(portfolioStats.rejected || 0),
+        draft: Number(portfolioStats.draft || 0),
       },
       investorInterests: interestStats.total || 0,
       messages: {

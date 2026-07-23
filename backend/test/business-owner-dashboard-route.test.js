@@ -75,12 +75,12 @@ function stubDashboardQueries(t, portfolioStats) {
 
 test('business-owner dashboard returns a complete portfolio status breakdown including rejected', { concurrency: false }, async (t) => {
   stubDashboardQueries(t, {
-    total: 4,
-    approved: 1,
-    pending: 1,
-    rejected: 1,
-    draft: 1,
-    avg_readiness: 70,
+    total: '4',
+    approved: '1',
+    pending: '1',
+    rejected: '1',
+    draft: '1',
+    avg_readiness: '70',
   });
 
   const { response, payload } = await requestDashboard(t);
@@ -93,6 +93,9 @@ test('business-owner dashboard returns a complete portfolio status breakdown inc
     rejected: 1,
     draft: 1,
   });
+  for (const field of ['total', 'approved', 'pending', 'rejected', 'draft']) {
+    assert.equal(typeof payload.portfolios[field], 'number');
+  }
   assert.equal(
     payload.portfolios.approved
       + payload.portfolios.pending
