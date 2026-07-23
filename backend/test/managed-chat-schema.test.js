@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  cloneProductionSchemaMetadata,
+  createSchemaMetadataDatabase,
+} = require('./helpers/schema-metadata-harness');
 
 const backendRoot = path.join(__dirname, '..');
 const schema = fs.readFileSync(path.join(backendRoot, 'schema.sql'), 'utf8');
@@ -240,6 +244,103 @@ test('guard rejection performs no database query', async () => {
     /backup/i,
   );
   assert.equal(queries, 0);
+});
+
+test('migration rejects malformed preserved metadata before its first mutation', async () => {
+  const migration = require(migrationPath);
+  const metadata = cloneProductionSchemaMetadata();
+  metadata.foreignKeys.find((candidate) => (
+    candidate.table_name === 'audit_logs'
+    && candidate.column_name === 'portfolio_id'
+  )).delete_rule = 'RESTRICT';
+  const metadataHarness = createSchemaMetadataDatabase(metadata);
+  const queries = [];
+
+  const database = {
+    async query(sql, params = []) {
+      const source = String(sql);
+      queries.push(source);
+      if (!/^\s*SELECT\b/i.test(source)) {
+        throw new Error('FIRST_MUTATION_ATTEMPTED');
+      }
+
+      if (
+        /information_schema\.tables/i.test(source)
+        && /TABLE_TYPE/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.columns/i.test(source)
+        && /ORDINAL_POSITION/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.statistics/i.test(source)
+        && /INDEX_TYPE/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.key_column_usage/i.test(source)
+        && /referential_constraints/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (/information_schema\.tables/i.test(source)) {
+        return [metadata.tables.map(({ table_name }) => ({ table_name })), []];
+      }
+      if (
+        /information_schema\.columns/i.test(source)
+        && /table_name\s*=\s*'notifications'/i.test(source)
+      ) {
+        return [
+          metadata.columns
+            .filter(({ table_name }) => table_name === 'notifications')
+            .map(({ column_name, column_type }) => ({
+              column_name,
+              column_type,
+            })),
+          [],
+        ];
+      }
+      if (/SELECT DISTINCT role FROM users/i.test(source)) {
+        return [[
+          { role: 'business_owner' },
+          { role: 'investor' },
+          { role: 'relationship_manager' },
+          { role: 'admin' },
+        ], []];
+      }
+      if (/SELECT DISTINCT type FROM notifications/i.test(source)) {
+        return [[], []];
+      }
+      if (/SELECT COUNT\(\*\) AS count/i.test(source)) {
+        return [[{ count: 0 }], []];
+      }
+      if (/SELECT id,type FROM notifications/i.test(source)) {
+        return [[], []];
+      }
+      throw new Error(`Unexpected migration preflight SELECT: ${source}`);
+    },
+  };
+
+  await assert.rejects(
+    migration.migrateManagedChat(database, {
+      CHAT_BACKUP_VERIFIED: migration.BACKUP_CONFIRMATION,
+      CONFIRM_CHAT_RESET: migration.CHAT_RESET_CONFIRMATION,
+    }),
+    /audit_logs.*portfolio.*CASCADE/i,
+  );
+  assert.equal(
+    queries.every((sql) => /^\s*SELECT\b/i.test(sql)),
+    true,
+  );
+  assert.equal(
+    queries.some((sql) => /\b(DELETE|DROP|ALTER|INSERT|UPDATE|CREATE)\b/i.test(sql)),
+    false,
+  );
 });
 
 test('missing notification columns use MySQL 8 compatible conditional DDL', async () => {

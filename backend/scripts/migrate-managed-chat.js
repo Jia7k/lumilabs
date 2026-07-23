@@ -1,4 +1,7 @@
-const { verifySchema } = require('../src/schema-contract');
+const {
+  verifyPreservedCoreSchema,
+  verifySchema,
+} = require('../src/schema-contract');
 
 const CHAT_RESET_CONFIRMATION = 'RESET_LUMILABS_CHAT_ONLY_20260722';
 const BACKUP_CONFIRMATION = 'BACKUP_AND_RESTORE_COMMAND_VERIFIED';
@@ -218,6 +221,7 @@ function assertProtectedCounts(before, after) {
 
 async function migrateManagedChat(database, environment = process.env) {
   assertMigrationGuards(environment);
+  await verifyPreservedCoreSchema(database);
 
   const requiredTables = [
     'users',

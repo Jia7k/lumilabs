@@ -315,6 +315,25 @@ const FOREIGN_KEY_CONTRACT = [
   ],
 ];
 
+const PRESERVED_CORE_TABLES = new Set([
+  'users',
+  'portfolios',
+  'portfolio_documents',
+  'investor_interests',
+  'notifications',
+  'audit_logs',
+]);
+
+const ALLOWED_MIGRATION_ROLE_TYPES = [
+  "enum('business_owner','investor','admin')",
+  "enum('business_owner','investor','relationship_manager','admin')",
+];
+
+const ALLOWED_MIGRATION_NOTIFICATION_TYPES = [
+  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted')",
+  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')",
+];
+
 function property(row, lower, upper = lower.toUpperCase()) {
   return row?.[lower] ?? row?.[upper];
 }
@@ -477,7 +496,7 @@ function columnIssueLabel(field, attribute, expected) {
   return `${field} ${attribute} changed`;
 }
 
-async function verifySchema(database) {
+async function collectSchemaMetadata(database) {
   const [tableRows] = await database.query(
     `SELECT TABLE_NAME AS table_name, TABLE_TYPE AS table_type,
             ENGINE AS engine, TABLE_COLLATION AS table_collation
@@ -520,13 +539,20 @@ async function verifySchema(database) {
       WHERE k.TABLE_SCHEMA = DATABASE()
         AND k.REFERENCED_TABLE_NAME IS NOT NULL`,
   );
+  return {
+    tableRows,
+    columnRows,
+    indexRows,
+    foreignKeyRows,
+  };
+}
 
-  const issues = [];
+function appendTableIssues(tableRows, requiredTables, issues) {
   const tables = new Map(tableRows.map((row) => [
     property(row, 'table_name'),
     row,
   ]));
-  for (const tableName of Object.keys(COLUMN_CONTRACT)) {
+  for (const tableName of requiredTables) {
     const actual = tables.get(tableName);
     if (!actual) {
       issues.push(`${tableName} table must exist`);
@@ -545,12 +571,22 @@ async function verifySchema(database) {
       issues.push(`${tableName} collation must be utf8mb4_0900_ai_ci`);
     }
   }
+}
 
+function appendColumnIssues(
+  columnRows,
+  contract,
+  issues,
+  {
+    checkOrdinal = () => true,
+    allowedTypes = new Map(),
+  } = {},
+) {
   const columns = new Map(columnRows.map((actual) => [
     `${property(actual, 'table_name')}.${property(actual, 'column_name')}`,
     actual,
   ]));
-  for (const [tableName, definitions] of Object.entries(COLUMN_CONTRACT)) {
+  for (const [tableName, definitions] of Object.entries(contract)) {
     for (const expected of definitions) {
       const field = `${tableName}.${expected.name}`;
       const actual = columns.get(field);
@@ -558,14 +594,24 @@ async function verifySchema(database) {
         issues.push(`${field} must exist`);
         continue;
       }
-      if (Number(property(actual, 'ordinal_position')) !== expected.ordinalPosition) {
+      if (
+        checkOrdinal(tableName, expected)
+        && Number(property(actual, 'ordinal_position')) !== expected.ordinalPosition
+      ) {
         issues.push(columnIssueLabel(
           field,
           'ordinal',
           expected.ordinalPosition,
         ));
       }
-      if (normalizeSqlText(property(actual, 'column_type')) !== normalizeSqlText(expected.type)) {
+
+      const actualType = normalizeSqlText(property(actual, 'column_type'));
+      const acceptedTypes = allowedTypes.get(field);
+      if (acceptedTypes) {
+        if (!acceptedTypes.some((type) => actualType === normalizeSqlText(type))) {
+          issues.push(`${field} must use an allowed migration enum shape`);
+        }
+      } else if (actualType !== normalizeSqlText(expected.type)) {
         issues.push(columnIssueLabel(field, 'type', expected.type));
       }
       if (String(property(actual, 'is_nullable')).toUpperCase() !== expected.nullable) {
@@ -602,18 +648,21 @@ async function verifySchema(database) {
       }
     }
   }
+  return columns;
+}
 
-  for (const retiredField of [
-    'messages.receiver_id',
-    'messages.portfolio_id',
-    'messages.read_at',
-  ]) {
-    if (columns.has(retiredField)) issues.push(`${retiredField} must not exist`);
-  }
-
+function appendIndexIssues(
+  indexRows,
+  issues,
+  {
+    primaryContract,
+    uniqueContract,
+    accessContract,
+  },
+) {
   const indexes = orderedGroups(indexRows, 'index_name');
   const indexGroups = [...indexes.values()];
-  for (const [table, columnsInPrimary] of PRIMARY_INDEX_CONTRACT) {
+  for (const [table, columnsInPrimary] of primaryContract) {
     const rows = indexes.get(`${table}.PRIMARY`) || [];
     if (
       !usableIndex(rows, { unique: true })
@@ -622,7 +671,7 @@ async function verifySchema(database) {
       issues.push(indexIssue(table, 'PRIMARY', columnsInPrimary));
     }
   }
-  for (const [table, columnsInUnique] of UNIQUE_INDEX_CONTRACT) {
+  for (const [table, columnsInUnique] of uniqueContract) {
     const match = indexGroups.some((rows) => (
       property(rows[0], 'table_name') === table
       && usableIndex(rows, { unique: true })
@@ -630,7 +679,7 @@ async function verifySchema(database) {
     ));
     if (!match) issues.push(indexIssue(table, 'unique', columnsInUnique));
   }
-  for (const [table, prefix] of ACCESS_INDEX_CONTRACT) {
+  for (const [table, prefix] of accessContract) {
     const match = indexGroups.some((rows) => (
       property(rows[0], 'table_name') === table
       && usableIndex(rows, { unique: false })
@@ -638,10 +687,12 @@ async function verifySchema(database) {
     ));
     if (!match) issues.push(indexIssue(table, 'access', prefix));
   }
+}
 
+function appendForeignKeyIssues(foreignKeyRows, requiredContract, issues) {
   const foreignKeys = orderedGroups(foreignKeyRows, 'constraint_name');
   const foreignKeyGroups = [...foreignKeys.values()];
-  for (const required of FOREIGN_KEY_CONTRACT) {
+  for (const required of requiredContract) {
     const [
       table,
       localColumns,
@@ -668,6 +719,97 @@ async function verifySchema(database) {
     ));
     if (!match) issues.push(foreignKeyIssue(required));
   }
+}
+
+async function verifySchema(database) {
+  const {
+    tableRows,
+    columnRows,
+    indexRows,
+    foreignKeyRows,
+  } = await collectSchemaMetadata(database);
+
+  const issues = [];
+  appendTableIssues(tableRows, Object.keys(COLUMN_CONTRACT), issues);
+  const columns = appendColumnIssues(columnRows, COLUMN_CONTRACT, issues);
+
+  for (const retiredField of [
+    'messages.receiver_id',
+    'messages.portfolio_id',
+    'messages.read_at',
+  ]) {
+    if (columns.has(retiredField)) issues.push(`${retiredField} must not exist`);
+  }
+
+  appendIndexIssues(indexRows, issues, {
+    primaryContract: PRIMARY_INDEX_CONTRACT,
+    uniqueContract: UNIQUE_INDEX_CONTRACT,
+    accessContract: ACCESS_INDEX_CONTRACT,
+  });
+  appendForeignKeyIssues(foreignKeyRows, FOREIGN_KEY_CONTRACT, issues);
+
+  if (issues.length) {
+    throw new Error(`Missing schema invariants: ${issues.join(', ')}`);
+  }
+  return true;
+}
+
+async function verifyPreservedCoreSchema(database) {
+  const {
+    tableRows,
+    columnRows,
+    indexRows,
+    foreignKeyRows,
+  } = await collectSchemaMetadata(database);
+  const issues = [];
+  const tableNames = [...PRESERVED_CORE_TABLES];
+  appendTableIssues(tableRows, tableNames, issues);
+
+  const columnContract = Object.fromEntries(tableNames.map((tableName) => [
+    tableName,
+    COLUMN_CONTRACT[tableName].filter((definition) => (
+      tableName !== 'notifications'
+      || !['related_conversation_id', 'related_message_id']
+        .includes(definition.name)
+    )),
+  ]));
+  appendColumnIssues(columnRows, columnContract, issues, {
+    checkOrdinal: (tableName) => tableName !== 'notifications',
+    allowedTypes: new Map([
+      ['users.role', ALLOWED_MIGRATION_ROLE_TYPES],
+      ['notifications.type', ALLOWED_MIGRATION_NOTIFICATION_TYPES],
+    ]),
+  });
+
+  const preservedPrimary = PRIMARY_INDEX_CONTRACT.filter(([tableName]) => (
+    PRESERVED_CORE_TABLES.has(tableName)
+  ));
+  const preservedUnique = UNIQUE_INDEX_CONTRACT.filter(([tableName]) => (
+    PRESERVED_CORE_TABLES.has(tableName)
+  ));
+  const preservedAccess = ACCESS_INDEX_CONTRACT.filter(([tableName, columns]) => (
+    PRESERVED_CORE_TABLES.has(tableName)
+    && !(
+      tableName === 'notifications'
+      && ['related_conversation_id', 'related_message_id'].includes(columns[0])
+    )
+  ));
+  appendIndexIssues(indexRows, issues, {
+    primaryContract: preservedPrimary,
+    uniqueContract: preservedUnique,
+    accessContract: preservedAccess,
+  });
+
+  const preservedForeignKeys = FOREIGN_KEY_CONTRACT.filter((
+    [tableName, columns],
+  ) => (
+    PRESERVED_CORE_TABLES.has(tableName)
+    && !(
+      tableName === 'notifications'
+      && ['related_conversation_id', 'related_message_id'].includes(columns[0])
+    )
+  ));
+  appendForeignKeyIssues(foreignKeyRows, preservedForeignKeys, issues);
 
   if (issues.length) {
     throw new Error(`Missing schema invariants: ${issues.join(', ')}`);
@@ -676,5 +818,6 @@ async function verifySchema(database) {
 }
 
 module.exports = {
+  verifyPreservedCoreSchema,
   verifySchema,
 };

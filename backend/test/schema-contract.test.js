@@ -6,7 +6,7 @@ const {
   createSchemaMetadataDatabase,
 } = require('./helpers/schema-metadata-harness');
 
-const { verifySchema } = schemaContract;
+const { verifyPreservedCoreSchema, verifySchema } = schemaContract;
 
 function row(metadata, tableName, columnName) {
   const match = metadata.columns.find((candidate) => (
@@ -35,14 +35,22 @@ async function verifyMetadata(metadata) {
   return verifySchema(database);
 }
 
+async function verifyPreservedMetadata(metadata) {
+  const { database } = createSchemaMetadataDatabase(metadata);
+  return verifyPreservedCoreSchema(database);
+}
+
 async function expectInvariant(mutator, pattern) {
   const metadata = cloneProductionSchemaMetadata();
   mutator(metadata);
   await assert.rejects(verifyMetadata(metadata), pattern);
 }
 
-test('exports only the production verifier in this phase', () => {
-  assert.deepEqual(Object.keys(schemaContract).sort(), ['verifySchema']);
+test('exports only the complete and preserved-core production verifiers', () => {
+  assert.deepEqual(Object.keys(schemaContract).sort(), [
+    'verifyPreservedCoreSchema',
+    'verifySchema',
+  ]);
 });
 
 test('literal fixture is independent across clones', () => {
@@ -344,4 +352,129 @@ test('preserves the accepted audit portfolio cascade', async () => {
     foreignKeyRows(metadata, 'audit_logs', 'audit_logs_ibfk_2')[0]
       .delete_rule = 'RESTRICT';
   }, /audit_logs foreign key \(portfolio_id\).*ON DELETE CASCADE/);
+});
+
+function legacyManagedChatMetadata() {
+  const metadata = cloneProductionSchemaMetadata();
+  const chatTables = new Set([
+    'conversations',
+    'conversation_members',
+    'messages',
+  ]);
+  metadata.tables = metadata.tables.filter(({ table_name }) => (
+    !chatTables.has(table_name)
+  ));
+  metadata.columns = metadata.columns.filter(({ table_name, column_name }) => (
+    !chatTables.has(table_name)
+    && !(
+      table_name === 'notifications'
+      && ['related_conversation_id', 'related_message_id'].includes(column_name)
+    )
+  ));
+  metadata.indexes = metadata.indexes.filter(({ table_name, column_name }) => (
+    !chatTables.has(table_name)
+    && !(
+      table_name === 'notifications'
+      && ['related_conversation_id', 'related_message_id'].includes(column_name)
+    )
+  ));
+  metadata.foreignKeys = metadata.foreignKeys.filter((candidate) => (
+    !chatTables.has(candidate.table_name)
+    && !(
+      candidate.table_name === 'notifications'
+      && ['related_conversation_id', 'related_message_id']
+        .includes(candidate.column_name)
+    )
+  ));
+
+  row(metadata, 'users', 'role').column_type =
+    "enum('business_owner','investor','admin')";
+  row(metadata, 'notifications', 'type').column_type =
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted')";
+  metadata.columns
+    .filter(({ table_name }) => table_name === 'notifications')
+    .sort((left, right) => left.ordinal_position - right.ordinal_position)
+    .forEach((candidate, index) => {
+      candidate.ordinal_position = index + 1;
+    });
+  return metadata;
+}
+
+test('preserved-core verifier accepts exact legacy and target enum shapes', async () => {
+  assert.equal(
+    await verifyPreservedMetadata(legacyManagedChatMetadata()),
+    true,
+  );
+  assert.equal(
+    await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
+    true,
+  );
+});
+
+test('preserved-core verifier rejects reordered or unknown enum values', async () => {
+  const reordered = legacyManagedChatMetadata();
+  row(reordered, 'users', 'role').column_type =
+    "enum('investor','business_owner','admin')";
+  await assert.rejects(
+    verifyPreservedMetadata(reordered),
+    /users\.role must use an allowed migration enum shape/,
+  );
+
+  const unknown = legacyManagedChatMetadata();
+  row(unknown, 'notifications', 'type').column_type =
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','unknown')";
+  await assert.rejects(
+    verifyPreservedMetadata(unknown),
+    /notifications\.type must use an allowed migration enum shape/,
+  );
+});
+
+test('preserved-core verifier rejects missing core columns and uniqueness', async () => {
+  const missingColumn = legacyManagedChatMetadata();
+  missingColumn.columns = missingColumn.columns.filter((candidate) => (
+    !(candidate.table_name === 'portfolios' && candidate.column_name === 'funding_goal')
+  ));
+  await assert.rejects(
+    verifyPreservedMetadata(missingColumn),
+    /portfolios\.funding_goal must exist/,
+  );
+
+  const missingEmail = legacyManagedChatMetadata();
+  missingEmail.indexes = missingEmail.indexes.filter((candidate) => (
+    !(candidate.table_name === 'users' && candidate.index_name === 'email')
+  ));
+  await assert.rejects(
+    verifyPreservedMetadata(missingEmail),
+    /users unique index \(email\) is required/,
+  );
+
+  const missingInterest = legacyManagedChatMetadata();
+  missingInterest.indexes = missingInterest.indexes.filter((candidate) => (
+    !(
+      candidate.table_name === 'investor_interests'
+      && candidate.index_name === 'unique_interest'
+    )
+  ));
+  await assert.rejects(
+    verifyPreservedMetadata(missingInterest),
+    /investor_interests unique index \(investor_id,portfolio_id\) is required/,
+  );
+});
+
+test('preserved-core verifier rejects core foreign-key drift', async () => {
+  const auditDrift = legacyManagedChatMetadata();
+  foreignKeyRows(auditDrift, 'audit_logs', 'audit_logs_ibfk_2')[0]
+    .delete_rule = 'RESTRICT';
+  await assert.rejects(
+    verifyPreservedMetadata(auditDrift),
+    /audit_logs foreign key \(portfolio_id\).*ON DELETE CASCADE/,
+  );
+
+  const notificationDrift = legacyManagedChatMetadata();
+  foreignKeyRows(notificationDrift, 'notifications', 'notifications_ibfk_2')[0]
+    .referenced_table_name = 'users';
+  await assert.rejects(
+    verifyPreservedMetadata(notificationDrift),
+    /notifications foreign key \(related_portfolio_id\) -> portfolios\(id\)/,
+  );
 });
