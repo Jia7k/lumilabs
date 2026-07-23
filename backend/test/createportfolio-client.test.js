@@ -29,12 +29,16 @@ const BASE_VALUES = {
   'f-runway_months': '18',
 };
 
-function editorHarness() {
+function editorHarness({
+  locationSearch = '',
+  user = null,
+} = {}) {
   const fields = new Map();
   const hooks = {
     alerts: [],
     created: [],
     focused: [],
+    loaded: [],
     updated: [],
   };
   const document = {
@@ -57,13 +61,26 @@ function editorHarness() {
     querySelectorAll() { return []; },
   };
   const context = vm.createContext({
-    window: { location: { search: '', href: '' } },
+    window: { location: { search: locationSearch, href: '' } },
     document,
     URL,
     URLSearchParams,
     TextEncoder,
     requirePageRole: async () => null,
     API: {
+      async getPortfolio(id) {
+        hooks.loaded.push(id);
+        return {
+          id,
+          owner_id: user?.id,
+          name: 'Loaded',
+          sector: 'Fintech',
+          mvp_status: 'Beta',
+          funding_goal: '1000.00',
+          status: 'draft',
+          documents: [],
+        };
+      },
       async createPortfolio(payload) {
         hooks.created.push(payload);
         return { id: 99 };
@@ -87,6 +104,13 @@ function editorHarness() {
     hooks,
   });
   vm.runInContext(source, context);
+  if (user) {
+    context.editorUser = user;
+    vm.runInContext(
+      'requirePageRole = async () => editorUser;',
+      context,
+    );
+  }
   return {
     context,
     fields,
@@ -292,4 +316,51 @@ test('create and edit summary normalizes nullable and malformed readiness', () =
   editor.run("renderPortfolioSummary('draft', [88])");
   assert.match(editor.fields.get('page-sub').innerHTML, /Readiness 0\/100/);
   assert.doesNotMatch(editor.fields.get('page-sub').innerHTML, /Readiness 88\/100/);
+});
+
+test('portfolio edit IDs accept only canonical positive safe integers', () => {
+  const editor = editorHarness();
+  for (const valid of ['1', '22', String(Number.MAX_SAFE_INTEGER)]) {
+    assert.equal(
+      editor.run(`normalizeEditPortfolioId(${JSON.stringify(valid)})`),
+      Number(valid),
+    );
+  }
+  for (const invalid of [
+    null, '', '0', '-1', '01', '1.5', '2e1', '22junk', ' 22',
+    String(Number.MAX_SAFE_INTEGER + 1),
+  ]) {
+    assert.equal(
+      editor.run(`normalizeEditPortfolioId(${JSON.stringify(invalid)})`),
+      null,
+    );
+  }
+});
+
+test('malformed edit link redirects after owner auth without loading a portfolio', async () => {
+  const editor = editorHarness({
+    locationSearch: '?id=22junk',
+    user: { id: 7, name: 'Owner', role: 'business_owner' },
+  });
+
+  await editor.run('init()');
+
+  assert.deepEqual(editor.hooks.loaded, []);
+  assert.equal(editor.run('window.location.href'), 'mybusinesses.html');
+  assert.match(editor.hooks.alerts.at(-1), /invalid portfolio link/i);
+});
+
+test('canonical edit ID loads once and a missing ID remains create mode', async () => {
+  const edit = editorHarness({
+    locationSearch: '?id=22',
+    user: { id: 7, name: 'Owner', role: 'business_owner' },
+  });
+  await edit.run('init()');
+  assert.deepEqual(edit.hooks.loaded, [22]);
+
+  const create = editorHarness({
+    user: { id: 7, name: 'Owner', role: 'business_owner' },
+  });
+  await create.run('init()');
+  assert.deepEqual(create.hooks.loaded, []);
 });

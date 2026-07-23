@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
@@ -22,6 +22,25 @@ const {
 } = require('../validation/database-boundaries');
 
 const router = express.Router();
+
+function positiveSafeIntegerParam(name, label) {
+  return param(name)
+    .custom((value) => (
+      /^[1-9]\d*$/.test(String(value))
+      && Number.isSafeInteger(Number(value))
+    ))
+    .withMessage(`${label} must be a positive integer`)
+    .toInt();
+}
+
+const portfolioIdValidation = positiveSafeIntegerParam('id', 'Portfolio ID');
+const documentIdValidation = positiveSafeIntegerParam('docId', 'Document ID');
+
+function rejectInvalidRequest(req, res, next) {
+  const errors = validationResult(req);
+  if (errors.isEmpty()) return next();
+  return res.status(400).json({ errors: errors.array() });
+}
 
 function sendWorkflowError(res, error) {
   if (error && error.cleanupError) {
@@ -340,81 +359,94 @@ router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res)
 });
 
 // GET /api/portfolios/:id
-router.get('/:id', authenticate, async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT p.*, u.name AS owner_name, u.email AS owner_email,
-        (SELECT COUNT(*) FROM portfolio_documents WHERE portfolio_id = p.id) AS doc_count,
-        (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count
-       FROM portfolios p
-       JOIN users u ON u.id = p.owner_id
-       WHERE p.id = ?`,
-      [req.params.id]
-    );
+router.get(
+  '/:id',
+  authenticate,
+  portfolioIdValidation,
+  rejectInvalidRequest,
+  async (req, res) => {
+    try {
+      const [rows] = await db.query(
+        `SELECT p.*, u.name AS owner_name, u.email AS owner_email,
+          (SELECT COUNT(*) FROM portfolio_documents WHERE portfolio_id = p.id) AS doc_count,
+          (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count
+         FROM portfolios p
+         JOIN users u ON u.id = p.owner_id
+         WHERE p.id = ?`,
+        [req.params.id]
+      );
 
-    if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
+      if (rows.length === 0) return res.status(404).json({ error: 'Portfolio not found' });
 
-    const portfolio = rows[0];
+      const portfolio = rows[0];
 
-    // Business owners can only see their own; investors see only approved
-    if (req.user.role === 'business_owner' && portfolio.owner_id !== req.user.id) {
-      return res.status(403).json({ error: 'Forbidden' });
+      // Business owners can only see their own; investors see only approved
+      if (req.user.role === 'business_owner' && portfolio.owner_id !== req.user.id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (req.user.role === 'investor' && portfolio.status !== 'approved') {
+        return res.status(403).json({ error: 'Portfolio not available' });
+      }
+      if (
+        req.user.role === 'relationship_manager'
+        && !(await relationshipManagerCanAccessPortfolio(req.user.id, portfolio.id))
+      ) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const [docs] = await db.query(
+        'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
+        [req.params.id]
+      );
+
+      return res.json({ ...portfolio, documents: docs.map(withDownloadUrl) });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Server error' });
     }
-    if (req.user.role === 'investor' && portfolio.status !== 'approved') {
-      return res.status(403).json({ error: 'Portfolio not available' });
-    }
-    if (
-      req.user.role === 'relationship_manager'
-      && !(await relationshipManagerCanAccessPortfolio(req.user.id, portfolio.id))
-    ) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const [docs] = await db.query(
-      'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
-      [req.params.id]
-    );
-
-    res.json({ ...portfolio, documents: docs.map(withDownloadUrl) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+  },
+);
 
 // GET /api/portfolios/:id/documents/:docId/download — authorized attachment
-router.get('/:id/documents/:docId/download', authenticate, async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT d.*, p.owner_id, p.status
-         FROM portfolio_documents d
-         JOIN portfolios p ON p.id=d.portfolio_id
-        WHERE d.id=? AND p.id=?`,
-      [req.params.docId, req.params.id],
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Document not found' });
-
-    const doc = rows[0];
-    let allowed = req.user.role === 'admin'
-      || Number(doc.owner_id) === Number(req.user.id)
-      || (req.user.role === 'investor' && doc.status === 'approved');
-    if (req.user.role === 'relationship_manager') {
-      allowed = await relationshipManagerCanAccessPortfolio(req.user.id, doc.portfolio_id);
-    }
-    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
-
-    let absolute;
+router.get(
+  '/:id/documents/:docId/download',
+  authenticate,
+  portfolioIdValidation,
+  documentIdValidation,
+  rejectInvalidRequest,
+  async (req, res) => {
     try {
-      absolute = resolveStoredUploadPath(doc.file_url);
+      const [rows] = await db.query(
+        `SELECT d.*, p.owner_id, p.status
+           FROM portfolio_documents d
+           JOIN portfolios p ON p.id=d.portfolio_id
+          WHERE d.id=? AND p.id=?`,
+        [req.params.docId, req.params.id],
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+
+      const doc = rows[0];
+      let allowed = req.user.role === 'admin'
+        || Number(doc.owner_id) === Number(req.user.id)
+        || (req.user.role === 'investor' && doc.status === 'approved');
+      if (req.user.role === 'relationship_manager') {
+        allowed = await relationshipManagerCanAccessPortfolio(req.user.id, doc.portfolio_id);
+      }
+      if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+      let absolute;
+      try {
+        absolute = resolveStoredUploadPath(doc.file_url);
+      } catch (error) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      return res.download(absolute, doc.file_name);
     } catch (error) {
-      return res.status(404).json({ error: 'Document not found' });
+      console.error(error);
+      return res.status(500).json({ error: 'Server error' });
     }
-    return res.download(absolute, doc.file_name);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
+  },
+);
 
 // POST /api/portfolios  — create a new portfolio (business owners)
 router.post(
@@ -464,6 +496,7 @@ router.put(
   '/:id',
   authenticate,
   requireRole('business_owner'),
+  portfolioIdValidation,
   portfolioUpdateValidation,
   async (req, res) => {
     const errors = validationResult(req);
@@ -484,24 +517,33 @@ router.put(
 );
 
 // POST /api/portfolios/:id/submit  — submit for admin review
-router.post('/:id/submit', authenticate, requireRole('business_owner'), async (req, res) => {
-  try {
-    const result = await submitPortfolio({
-      portfolioId: req.params.id,
-      ownerId: req.user.id,
-      ownerName: req.user.name,
-    });
-    res.json(result);
-  } catch (err) {
-    sendWorkflowError(res, err);
-  }
-});
+router.post(
+  '/:id/submit',
+  authenticate,
+  requireRole('business_owner'),
+  portfolioIdValidation,
+  rejectInvalidRequest,
+  async (req, res) => {
+    try {
+      const result = await submitPortfolio({
+        portfolioId: req.params.id,
+        ownerId: req.user.id,
+        ownerName: req.user.name,
+      });
+      return res.json(result);
+    } catch (err) {
+      return sendWorkflowError(res, err);
+    }
+  },
+);
 
 // POST /api/portfolios/:id/documents  — upload supporting documents
 router.post(
   '/:id/documents',
   authenticate,
   requireRole('business_owner'),
+  portfolioIdValidation,
+  rejectInvalidRequest,
   loadOwnedEditablePortfolio,
   upload.array('documents', 5),
   async (req, res) => {
@@ -533,6 +575,9 @@ router.delete(
   '/:id/documents/:docId',
   authenticate,
   requireRole('business_owner'),
+  portfolioIdValidation,
+  documentIdValidation,
+  rejectInvalidRequest,
   loadOwnedEditablePortfolio,
   async (req, res) => {
     try {
@@ -558,21 +603,28 @@ router.delete(
 );
 
 // DELETE /api/portfolios/:id  — delete an editable portfolio
-router.delete('/:id', authenticate, requireRole('business_owner'), async (req, res) => {
-  try {
-    const result = await deleteEditablePortfolio({
-      database: db,
-      portfolioId: req.params.id,
-      ownerId: req.user.id,
-    });
-    if (result.cleanupError) {
-      console.error('Deleted portfolio file cleanup failed', result.cleanupError);
-    }
+router.delete(
+  '/:id',
+  authenticate,
+  requireRole('business_owner'),
+  portfolioIdValidation,
+  rejectInvalidRequest,
+  async (req, res) => {
+    try {
+      const result = await deleteEditablePortfolio({
+        database: db,
+        portfolioId: req.params.id,
+        ownerId: req.user.id,
+      });
+      if (result.cleanupError) {
+        console.error('Deleted portfolio file cleanup failed', result.cleanupError);
+      }
 
-    return res.json({ message: 'Portfolio deleted' });
-  } catch (err) {
-    return sendWorkflowError(res, err);
-  }
-});
+      return res.json({ message: 'Portfolio deleted' });
+    } catch (err) {
+      return sendWorkflowError(res, err);
+    }
+  },
+);
 
 module.exports = router;

@@ -1,5 +1,15 @@
 const params = new URLSearchParams(window.location.search);
-let editId = params.get("id") ? Number.parseInt(params.get("id"), 10) : null;
+const hasEditId = params.has("id");
+
+function normalizeEditPortfolioId(rawValue) {
+  if (!/^[1-9]\d*$/.test(String(rawValue ?? ""))) return null;
+  const id = Number(rawValue);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+let editId = hasEditId
+  ? normalizeEditPortfolioId(params.get("id"))
+  : null;
 let isSaving = false;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'ppt', 'pptx', 'doc', 'docx']);
 const MAX_UPLOAD_FILES = 5;
@@ -382,13 +392,19 @@ async function init() {
   const user = await requirePageRole("business_owner");
   if (!user) return;
 
+  if (hasEditId && editId === null) {
+    alert("Invalid portfolio link. Return to My Businesses and try again.");
+    window.location.href = "mybusinesses.html";
+    return;
+  }
+
   document.getElementById("user-avatar").innerText = user.name[0];
   document.getElementById("user-name").innerText = user.name;
   document.getElementById("user-role").innerText = user.role
     .replace("_", " ")
     .replace(/\b\w/g, c => c.toUpperCase());
 
-  if (editId) {
+  if (editId !== null) {
     // EDIT MODE
     document.getElementById("page-title").innerText = "Edit Business Portfolio";
 
@@ -451,7 +467,7 @@ async function submitForm(status) {
 
     let portfolioId = editId;
 
-    if (editId) {
+    if (editId !== null) {
       // UPDATE
       if (!originalPortfolio || hasChanges() || status === "pending") {
         const result = await API.updatePortfolio(editId, payload);
@@ -526,7 +542,7 @@ function removePendingFile(index) {
 }
 
 async function removeExistingDocument(docId) {
-  if (!editId || currentStatus === "pending") return;
+  if (editId === null || currentStatus === "pending") return;
   if (!confirm("Delete this document? This cannot be undone.")) return;
 
   try {

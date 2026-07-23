@@ -260,3 +260,26 @@ test('omitted optional numerics pass and a valid partial update reaches workflow
   assert.equal(calls.query, 0);
   assert.equal(calls.getConnection, 1);
 });
+
+test('malformed portfolio route IDs stop before data or transaction access', {
+  concurrency: false,
+}, async (t) => {
+  const calls = installDatabaseSpies(t);
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  for (const [method, path, body] of [
+    ['GET', '/api/portfolios/22junk'],
+    ['PUT', '/api/portfolios/22junk', {}],
+    ['POST', '/api/portfolios/22junk/submit'],
+    ['POST', '/api/portfolios/22junk/documents'],
+    ['DELETE', '/api/portfolios/22junk'],
+    ['GET', '/api/portfolios/22/documents/9junk/download'],
+    ['DELETE', '/api/portfolios/22/documents/9junk'],
+  ]) {
+    const before = { ...calls };
+    const result = await request(server, method, path, body);
+    assert.equal(result.response.status, 400, `${method} ${path}`);
+    assert.deepEqual(calls, before, `${method} ${path} data access`);
+  }
+});
