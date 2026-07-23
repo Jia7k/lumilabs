@@ -148,6 +148,28 @@ test('investor pages use the exact pinned Tabler dist stylesheet', () => {
   }
 });
 
+test('confirmed QA pages cache-key every changed frontend asset', () => {
+  assert.match(
+    read('businessownerdashboard.html'),
+    /href=["']css\/style\.css\?v=20260723\.3["']/,
+  );
+  assert.match(
+    read('browse.html'),
+    /src=["']js\/browse\.js\?v=20260723\.3["']/,
+  );
+  assert.match(
+    read('mybusinesses.html'),
+    /src=["']js\/mybusinesses\.js\?v=20260723\.3["']/,
+  );
+
+  const manager = read('relationshipmanagerdashboard.html');
+  assert.match(manager, /href=["']css\/style\.css\?v=20260723\.3["']/);
+  assert.match(
+    manager,
+    /src=["']js\/relationshipmanagerdashboard\.js\?v=20260723\.3["']/,
+  );
+});
+
 test('browser JavaScript passes node syntax checking', () => {
   for (const name of fs.readdirSync(path.join(root, 'js')).filter((item) => item.endsWith('.js'))) {
     const result = spawnSync(process.execPath, ['--check', path.join(root, 'js', name)], {
