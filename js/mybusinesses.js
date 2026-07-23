@@ -43,7 +43,11 @@ function managedChatAction(portfolio) {
   if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
     return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  if (portfolio.status !== "approved") return "";
+  if (Number(portfolio.interest_count) > 0) {
+    return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  }
+  return `<span class="managed-chat-awaiting"><i class="ti ti-heart"></i> Waiting for investor interest</span>`;
 }
 
 async function init() {

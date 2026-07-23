@@ -104,3 +104,59 @@ test('overlapping card toggles are ignored while one reconciliation is pending',
   await Promise.all([first, second]);
   assert.deepEqual(JSON.parse(JSON.stringify(client.hooks.calls)), [['express', 1]]);
 });
+
+test('browse managed-chat guidance waits for the current investor to express interest', () => {
+  const client = browseHarness();
+
+  const open = client.run(`managedChatAction({
+    conversation_id: 44,
+    chat_state: 'open'
+  }, false)`);
+  assert.match(open, /href="messages\.html\?conversationId=44"/);
+  assert.match(open, /Open Managed Chat/);
+
+  const archived = client.run(`managedChatAction({
+    conversation_id: 44,
+    chat_state: 'archived'
+  }, false)`);
+  assert.match(archived, /View Archived Chat/);
+
+  const awaiting = client.run(`managedChatAction({
+    conversation_id: null,
+    chat_state: 'awaiting_manager'
+  }, true)`);
+  assert.match(awaiting, /Awaiting Relationship Manager/);
+  assert.doesNotMatch(awaiting, /href=/);
+
+  assert.equal(client.run(`managedChatAction({
+    conversation_id: null,
+    chat_state: 'awaiting_manager'
+  }, false)`), '');
+});
+
+test('renderGrid supplies the reconciled current-investor state to chat guidance', () => {
+  const client = browseHarness();
+
+  client.run(`
+    interestedIds = new Set([1]);
+    managedChatAction = (portfolio, hasInterest) => {
+      hooks.calls.push([portfolio.id, hasInterest]);
+      return "";
+    };
+    renderGrid([
+      {
+        id: 1, name: "Interested", owner_name: "Owner", sector: "SaaS",
+        funding_goal: 1000, readiness_score: 70, interest_count: 1
+      },
+      {
+        id: 2, name: "Not interested", owner_name: "Owner", sector: "SaaS",
+        funding_goal: 1000, readiness_score: 70, interest_count: 0
+      }
+    ]);
+  `);
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(client.hooks.calls)),
+    [[1, true], [2, false]],
+  );
+});
