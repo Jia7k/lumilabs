@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { verifySchema } = require('./src/schema-contract');
+const { DB_LIMITS } = require('./src/validation/database-boundaries');
 
 function validateEnvironment(environment = process.env) {
   const required = ['JWT_SECRET', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
@@ -110,7 +111,7 @@ function createApp(options = {}) {
 
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json());
+  app.use(express.json({ limit: DB_LIMITS.JSON_LIMIT }));
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   app.get('/api/ready', async (req, res) => {
@@ -139,6 +140,9 @@ function createApp(options = {}) {
     if (error instanceof multer.MulterError) {
       const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
       return res.status(status).json({ error: 'Invalid document upload' });
+    }
+    if (error?.type === 'entity.too.large' || error?.status === 413) {
+      return res.status(413).json({ error: 'Request body too large' });
     }
     return next(error);
   });

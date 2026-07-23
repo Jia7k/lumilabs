@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const db = require('../src/config/db');
 const { createApp } = require('../server');
 
 async function listen(app) {
@@ -105,4 +106,82 @@ test('mounts the relationship-manager API behind authentication', async (t) => {
   const response = await fetch(`${server.origin}/api/relationship-manager/dashboard`);
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: 'Access token required' });
+});
+
+test('oversized JSON returns a safe 413 response before database access', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const originalGetConnection = db.getConnection;
+  const originalError = console.error;
+  let databaseCalls = 0;
+  const loggedErrors = [];
+  db.query = async () => {
+    databaseCalls += 1;
+    throw new Error('Oversized JSON must not reach the database');
+  };
+  db.getConnection = async () => {
+    databaseCalls += 1;
+    throw new Error('Oversized JSON must not start a transaction');
+  };
+  console.error = (...parts) => loggedErrors.push(parts);
+  t.after(() => {
+    db.query = originalQuery;
+    db.getConnection = originalGetConnection;
+    console.error = originalError;
+  });
+
+  const server = await listen(createApp());
+  t.after(server.close);
+  const response = await fetch(`${server.origin}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ padding: 'x'.repeat(270 * 1024) }),
+  });
+
+  assert.equal(response.status, 413);
+  assert.match(response.headers.get('content-type') || '', /^application\/json\b/);
+  assert.deepEqual(await response.json(), { error: 'Request body too large' });
+  assert.equal(databaseCalls, 0);
+  assert.equal(loggedErrors.length, 0);
+});
+
+test('JSON below 256 KiB reaches ordinary route validation', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const originalGetConnection = db.getConnection;
+  let databaseCalls = 0;
+  db.query = async () => {
+    databaseCalls += 1;
+    throw new Error('Invalid registration must not reach the database');
+  };
+  db.getConnection = async () => {
+    databaseCalls += 1;
+    throw new Error('Invalid registration must not start a transaction');
+  };
+  t.after(() => {
+    db.query = originalQuery;
+    db.getConnection = originalGetConnection;
+  });
+
+  const server = await listen(createApp());
+  t.after(server.close);
+  const response = await fetch(`${server.origin}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Boundary Owner',
+      email: 'boundary@example.test',
+      password: '123456',
+      role: 'unsupported',
+      padding: 'x'.repeat(200 * 1024),
+    }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.match(response.headers.get('content-type') || '', /^application\/json\b/);
+  const payload = await response.json();
+  assert.ok(Array.isArray(payload.errors));
+  assert.equal(databaseCalls, 0);
 });
