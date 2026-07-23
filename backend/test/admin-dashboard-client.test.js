@@ -456,3 +456,34 @@ test('saved decision plus refresh failure disables stale Review without repeatin
   await client.element('moderation-retry-btn').dispatch('click');
   assert.equal(client.calls.approvePortfolio.length, 1);
 });
+
+test('a successful decision status survives the moderation rerender', async () => {
+  const client = adminHarness();
+  await client.init();
+  await client.run('openReviewModal(42)');
+  await client.run('handleApprove()');
+
+  assert.equal(client.element('moderation-status').hidden, false);
+  assert.equal(client.element('moderation-status').textContent, 'Portfolio approved.');
+  assert.match(client.element('moderation-status').className, /success/);
+});
+
+test('manager directory retry is single-flight', async () => {
+  const retry = deferred();
+  let calls = 0;
+  const client = adminHarness({
+    getRelationshipManagers: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('offline');
+      return retry.promise;
+    },
+  });
+  await client.init();
+
+  const first = client.element('manager-directory-retry-btn').dispatch('click');
+  const second = client.element('manager-directory-retry-btn').dispatch('click');
+  await flush();
+  assert.equal(client.calls.getRelationshipManagers.length, 2);
+  retry.resolve([]);
+  await Promise.all([first, second]);
+});
