@@ -31,8 +31,12 @@ let allPortfolios = [];
 let interestedIds = new Set();
 let sortMode = "ai";
 let aiScores = {};
+let recommendationState = "loading";
+let recommendationRequestVersion = 0;
+let recommendationLoadPromise = null;
 let interestMutationInFlight = false;
 let interestDataStale = false;
+let workspaceReady = false;
 
 async function fetchBrowseSnapshot() {
   const [portfolios, interests] = await Promise.all([
@@ -48,6 +52,7 @@ async function fetchBrowseSnapshot() {
 function commitBrowseSnapshot(snapshot) {
   allPortfolios = snapshot.portfolios;
   interestedIds = snapshot.interestedIds;
+  workspaceReady = true;
 }
 
 function setBrowseStatus(message = "", type = "", retryable = false) {
@@ -58,6 +63,85 @@ function setBrowseStatus(message = "", type = "", retryable = false) {
   status.innerHTML = message
     ? `<span>${escapeHtml(message)}</span>${retryable ? '<button class="btn-filter" type="button" data-retry-interest-refresh>Retry</button>' : ''}`
     : "";
+}
+
+function setRecommendationStatus(message = "", type = "", retryable = false) {
+  const status = document.getElementById("recommendation-status");
+  if (!status) return;
+  status.hidden = !message;
+  status.className = type;
+  status.innerHTML = message
+    ? `<span>${escapeHtml(message)}</span>${retryable ? '<button class="btn-filter" type="button" data-retry-recommendations>Retry</button>' : ''}`
+    : "";
+}
+
+function syncRankingUi() {
+  const button = document.getElementById("sort-ai");
+  if (!button) return;
+  const aiReady = recommendationState === "ready";
+  button.innerHTML = aiReady
+    ? '<i class="ti ti-stars"></i> AI Ranked'
+    : '<i class="ti ti-chart-bar"></i> Readiness Score';
+}
+
+function rankingScore(portfolio) {
+  const readinessScore = normalizeReadinessScore(portfolio.readiness_score);
+  if (
+    recommendationState === "ready"
+    && Object.hasOwn(aiScores, portfolio.id)
+  ) {
+    return normalizeReadinessScore(aiScores[portfolio.id]);
+  }
+  return readinessScore;
+}
+
+function refreshRankingView() {
+  syncRankingUi();
+  if (workspaceReady || allPortfolios.length > 0) applyFilters();
+}
+
+async function loadRecommendations({ supersede = false } = {}) {
+  if (recommendationLoadPromise && !supersede) return recommendationLoadPromise;
+
+  const version = ++recommendationRequestVersion;
+  recommendationState = "loading";
+  refreshRankingView();
+
+  const request = (async () => {
+    try {
+      const rows = await API.getRecommendations();
+      if (version !== recommendationRequestVersion) return false;
+      aiScores = Object.fromEntries(
+        rows.map((row) => [Number(row.id), Number(row.ai_score)]),
+      );
+      recommendationState = "ready";
+      setRecommendationStatus();
+      refreshRankingView();
+      return true;
+    } catch (error) {
+      if (version !== recommendationRequestVersion) return false;
+      aiScores = {};
+      recommendationState = "fallback";
+      setRecommendationStatus(
+        `Recommendations are unavailable: ${error.message}`,
+        "warning",
+        true,
+      );
+      refreshRankingView();
+      return false;
+    } finally {
+      if (version === recommendationRequestVersion) {
+        recommendationLoadPromise = null;
+      }
+    }
+  })();
+
+  recommendationLoadPromise = request;
+  return request;
+}
+
+function retryRecommendations() {
+  return loadRecommendations();
 }
 
 async function retryInterestRefresh() {
@@ -104,12 +188,8 @@ function applyFilters() {
 
   if (sortMode === "ai") {
     filtered.sort((a, b) => {
-      const scoreA = Object.hasOwn(aiScores, a.portfolio.id)
-        ? normalizeReadinessScore(aiScores[a.portfolio.id])
-        : a.readinessScore;
-      const scoreB = Object.hasOwn(aiScores, b.portfolio.id)
-        ? normalizeReadinessScore(aiScores[b.portfolio.id])
-        : b.readinessScore;
+      const scoreA = rankingScore(a.portfolio);
+      const scoreB = rankingScore(b.portfolio);
       return scoreB - scoreA;
     });
   } else {
@@ -134,9 +214,8 @@ function renderGrid(portfolios) {
   grid.innerHTML = portfolios.map(p => {
     const liked = interestedIds.has(p.id);
     const readinessScore = normalizeReadinessScore(p.readiness_score);
-    const score = Object.hasOwn(aiScores, p.id)
-      ? normalizeReadinessScore(aiScores[p.id])
-      : readinessScore;
+    const aiReady = recommendationState === "ready";
+    const score = rankingScore(p);
     const isHighPotential = readinessScore >= 75;
     return `
       <div class="startup-card" id="card-${p.id}">
@@ -159,7 +238,7 @@ function renderGrid(portfolios) {
             <div class="meta-value score-value">${readinessScore}/100</div>
           </div>
           <div class="meta-box">
-            <div class="meta-label">AI Score</div>
+            <div class="meta-label">${aiReady ? "AI Score" : "Readiness Score"}</div>
             <div class="meta-value score-value">${score}</div>
           </div>
           <div class="meta-box">
@@ -230,46 +309,45 @@ async function init() {
   const browseStatus = document.getElementById("browse-status");
   if (browseStatus) {
     browseStatus.addEventListener("click", (event) => {
-      if (event.target.closest("[data-retry-interest-refresh]")) retryInterestRefresh();
+      if (event.target.closest?.("[data-retry-interest-refresh]")) retryInterestRefresh();
     });
   }
-
-  const [portfoliosRes, myInterestsRes, recsRes] = await Promise.allSettled([
-    API.getAllPortfolios(),
-    API.getMyInterests(),
-    API.getRecommendations(),
-  ]);
-
-  if (portfoliosRes.status === "rejected") {
-    document.getElementById("results-count").innerText = "Startups unavailable";
-    document.getElementById("card-grid").innerHTML = `
-      <div class="empty-state">
-        <i class="ti ti-alert-circle"></i>
-        Couldn't load startups: ${escapeHtml(portfoliosRes.reason?.message || "Please try again")}
-      </div>`;
-    initRoleMenu();
-    return;
-  }
-  allPortfolios = portfoliosRes.value;
-
-  if (myInterestsRes.status === "fulfilled") {
-    interestedIds = new Set(myInterestsRes.value.map(({ id }) => Number(id)));
-  } else {
-    interestDataStale = true;
-    setBrowseStatus(
-      `Could not load your interest data: ${myInterestsRes.reason?.message || "Please retry"}`,
-      "error",
-      true,
-    );
-  }
-
-  if (recsRes.status === "fulfilled") {
-    recsRes.value.forEach(p => { aiScores[p.id] = p.ai_score; });
+  const recommendationStatus = document.getElementById("recommendation-status");
+  if (recommendationStatus) {
+    recommendationStatus.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-retry-recommendations]")) {
+        retryRecommendations();
+      }
+    });
   }
 
   document.getElementById("search-input").addEventListener("input", applyFilters);
   document.getElementById("sector-filter").addEventListener("change", applyFilters);
   document.getElementById("score-filter").addEventListener("change", applyFilters);
+
+  loadRecommendations({ supersede: true });
+
+  try {
+    const snapshot = await fetchBrowseSnapshot();
+    commitBrowseSnapshot(snapshot);
+    interestDataStale = false;
+    setBrowseStatus();
+  } catch (error) {
+    interestDataStale = true;
+    document.getElementById("results-count").innerText = "Startups unavailable";
+    document.getElementById("card-grid").innerHTML = `
+      <div class="empty-state">
+        <i class="ti ti-alert-circle"></i>
+        Couldn't load startups: ${escapeHtml(error.message || "Please try again")}
+      </div>`;
+    setBrowseStatus(
+      `Could not load the Browse workspace: ${error.message || "Please retry"}`,
+      "error",
+      true,
+    );
+    initRoleMenu();
+    return;
+  }
 
   applyFilters();
   initRoleMenu();

@@ -55,6 +55,10 @@
   #browse-status.warning { color: #9A6700; }
   #browse-status.error { color: #B42318; }
   #browse-status button { margin-left: 8px; }
+  #recommendation-status { color: var(--text-secondary); font-size: 13px; margin: -12px 0 16px; }
+  #recommendation-status.warning { color: #9A6700; }
+  #recommendation-status.error { color: #B42318; }
+  #recommendation-status button { margin-left: 8px; }
 
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
   .startup-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -135,9 +139,14 @@
       <option value="50">50+</option>
       <option value="25">25+</option>
     </select>
-    <button class="btn-filter active" id="sort-ai" onclick="setSort('ai')"><i class="ti ti-stars"></i> AI Ranked</button>
+    <button class="btn-filter active" id="sort-ai" onclick="setSort('ai')"><i class="ti ti-stars"></i> Readiness Score</button>
     <button class="btn-filter" id="sort-new" onclick="setSort('new')"><i class="ti ti-clock"></i> Newest</button>
   </div>
+
+  <div id="recommendation-status"
+       role="status"
+       aria-live="polite"
+       hidden></div>
 
   <div class="results-row">
     <span class="results-count" id="results-count">Loading...</span>
