@@ -345,3 +345,114 @@ test('malformed detail enters the same recoverable modal error state', async () 
   assert.equal(client.element('review-overlay').classList.contains('open'), true);
   assert.match(client.element('review-card').innerHTML, /couldn.t display/i);
 });
+
+test('approval is single-flight, disables both decisions, and refreshes moderation once', async () => {
+  const approve = deferred();
+  const client = adminHarness({ approvePortfolio: async () => approve.promise });
+  await client.init();
+  await client.run('openReviewModal(42)');
+
+  const first = client.run('handleApprove()');
+  const second = client.run('handleApprove()');
+  await flush();
+  assert.equal(client.calls.approvePortfolio.length, 1);
+  assert.equal(client.element('review-approve-btn').disabled, true);
+  assert.equal(client.element('review-reject-btn').disabled, true);
+  assert.match(client.element('review-action-status').textContent, /approving/i);
+
+  approve.resolve({});
+  await Promise.all([first, second]);
+  assert.equal(client.calls.getStats.length, 2);
+  assert.equal(client.calls.getQueue.length, 2);
+  assert.match(client.element('moderation-status').textContent, /approved/i);
+});
+
+test('approval failure keeps the review open and restores controls', async () => {
+  const client = adminHarness({
+    approvePortfolio: async () => {
+      throw new Error('approval failed');
+    },
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+  await client.run('handleApprove()');
+
+  assert.equal(client.element('review-overlay').classList.contains('open'), true);
+  assert.equal(client.element('review-approve-btn').disabled, false);
+  assert.equal(client.element('review-reject-btn').disabled, false);
+  assert.match(client.element('review-action-status').textContent, /approval failed/i);
+});
+
+test('blank rejection never calls the API and failed rejection keeps its reason', async () => {
+  const client = adminHarness({
+    rejectPortfolio: async () => {
+      throw new Error('reject failed');
+    },
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+  client.run('openRejectPopup()');
+
+  client.element('reason-textarea').value = '   ';
+  await client.run('handleReject()');
+  assert.equal(client.calls.rejectPortfolio.length, 0);
+  assert.match(client.element('reason-error').textContent, /provide a rejection reason/i);
+
+  client.element('reason-textarea').value = 'Needs stronger traction';
+  await client.run('handleReject()');
+  assert.equal(client.calls.rejectPortfolio.length, 1);
+  assert.equal(client.element('reason-textarea').value, 'Needs stronger traction');
+  assert.equal(client.element('reason-textarea').disabled, false);
+  assert.match(client.element('reason-error').textContent, /reject failed/i);
+});
+
+test('all close paths and duplicate rejection are blocked while rejection is pending', async () => {
+  const reject = deferred();
+  const client = adminHarness({ rejectPortfolio: async () => reject.promise });
+  await client.init();
+  await client.run('openReviewModal(42)');
+  client.run('openRejectPopup()');
+  client.element('reason-textarea').value = 'Needs stronger traction';
+
+  const saving = client.run('handleReject()');
+  const duplicate = client.run('handleReject()');
+  await flush();
+  assert.equal(client.calls.rejectPortfolio.length, 1);
+  assert.equal(client.run('closeRejectPopup()'), false);
+  assert.equal(client.run('closeReviewModal()'), false);
+  await client.element('reason-overlay').dispatch('click', {
+    target: client.element('reason-overlay'),
+  });
+  const closeControl = client.element('review-close-control');
+  closeControl.dataset.reviewAction = 'close';
+  await client.element('review-card').dispatch('click', { target: closeControl });
+  await client.document.dispatch('keydown', { key: 'Escape' });
+  assert.equal(client.element('reason-overlay').classList.contains('open'), true);
+  assert.equal(client.element('review-overlay').classList.contains('open'), true);
+  assert.equal(client.element('reason-cancel-btn').disabled, true);
+
+  reject.resolve({});
+  await Promise.all([saving, duplicate]);
+});
+
+test('saved decision plus refresh failure disables stale Review without repeating mutation', async () => {
+  let statsCalls = 0;
+  const client = adminHarness({
+    getStats: async () => {
+      statsCalls += 1;
+      if (statsCalls === 1) {
+        return { pending: 1, approved: 2, rejected: 0, total_matches: 3 };
+      }
+      throw new Error('refresh failed');
+    },
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+  await client.run('handleApprove()');
+
+  assert.equal(client.calls.approvePortfolio.length, 1);
+  assert.match(client.element('moderation-status').textContent, /approved/i);
+  assert.match(client.element('queue-list').innerHTML, /disabled/);
+  await client.element('moderation-retry-btn').dispatch('click');
+  assert.equal(client.calls.approvePortfolio.length, 1);
+});

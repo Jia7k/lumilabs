@@ -681,53 +681,121 @@ document.getElementById("review-card").addEventListener("click", async (event) =
   else if (action === "reject") openRejectPopup();
 });
 
-async function handleApprove() {
-  if (activeReviewId === null) return;
-  try {
-    await API.approvePortfolio(activeReviewId);
-    closeReviewModal();
-    await renderAdmin();
-  } catch (err) {
-    alert("Couldn't approve portfolio: " + err.message);
+function setReviewActionMessage(message, type = "") {
+  const status = document.getElementById("review-action-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `modal-action-status${type ? ` ${type}` : ""}`;
+}
+
+function setReasonError(message) {
+  const error = document.getElementById("reason-error");
+  if (!error) return;
+  error.textContent = message;
+  error.className = message ? "form-message reason-error show error" : "form-message reason-error";
+}
+
+function setDecisionState(inFlight, { action = "", message = "" } = {}) {
+  decisionInFlight = inFlight;
+  const approve = document.getElementById("review-approve-btn");
+  const reject = document.getElementById("review-reject-btn");
+  const textarea = document.getElementById("reason-textarea");
+  const cancel = document.getElementById("reason-cancel-btn");
+  const confirm = document.getElementById("reason-confirm-btn");
+
+  if (approve) {
+    approve.disabled = inFlight;
+    approve.innerHTML = inFlight && action === "approve"
+      ? '<i class="ti ti-loader-2"></i> Approving…'
+      : '<i class="ti ti-circle-check"></i> Approve';
   }
+  if (reject) {
+    reject.disabled = inFlight;
+    reject.innerHTML = '<i class="ti ti-x"></i> Reject';
+  }
+  textarea.disabled = inFlight;
+  cancel.disabled = inFlight;
+  confirm.disabled = inFlight;
+  confirm.textContent = inFlight && action === "reject"
+    ? "Rejecting…"
+    : "Reject Portfolio";
+  setReviewActionMessage(message);
+}
+
+async function handleApprove() {
+  if (activeReviewId === null || decisionInFlight) return false;
+  const portfolioId = activeReviewId;
+  setDecisionState(true, { action: "approve", message: "Approving portfolio…" });
+  try {
+    await API.approvePortfolio(portfolioId);
+  } catch (error) {
+    setDecisionState(false);
+    setReviewActionMessage(`Couldn't approve portfolio: ${error.message}`, "error");
+    return false;
+  }
+
+  setDecisionState(false);
+  closeReviewModal();
+  return loadModeration({
+    successMessage: "Portfolio approved.",
+    failureMessage: "Portfolio approved, but the dashboard could not refresh.",
+  });
 }
 
 // Reject reason popup
 function openRejectPopup() {
+  if (decisionInFlight || activeReviewId === null) return false;
   document.getElementById("reason-textarea").value = "";
+  setReasonError("");
   document.getElementById("reason-overlay").classList.add("open");
   document.getElementById("reason-textarea").focus();
+  return true;
 }
 
 function closeRejectPopup() {
+  if (decisionInFlight) return false;
   document.getElementById("reason-overlay").classList.remove("open");
+  return true;
 }
 
 document.getElementById("reason-cancel-btn").addEventListener("click", closeRejectPopup);
 
-document.getElementById("reason-overlay").addEventListener("click", (e) => {
-  if (e.target.id === "reason-overlay") closeRejectPopup();
+document.getElementById("reason-overlay").addEventListener("click", (event) => {
+  if (event.target.id === "reason-overlay") closeRejectPopup();
 });
 
-document.getElementById("reason-confirm-btn").addEventListener("click", async () => {
-  if (activeReviewId === null) return;
+async function handleReject() {
+  if (activeReviewId === null || decisionInFlight) return false;
   const reason = document.getElementById("reason-textarea").value.trim();
   if (!reason) {
-    alert("Please provide a rejection reason.");
-    return;
+    setReasonError("Please provide a rejection reason.");
+    return false;
   }
+
+  const portfolioId = activeReviewId;
+  setReasonError("");
+  setDecisionState(true, { action: "reject", message: "Rejecting portfolio…" });
   try {
-    await API.rejectPortfolio(activeReviewId, reason);
-    closeRejectPopup();
-    closeReviewModal();
-    await renderAdmin();
-  } catch (err) {
-    alert("Couldn't reject portfolio: " + err.message);
+    await API.rejectPortfolio(portfolioId, reason);
+  } catch (error) {
+    setDecisionState(false);
+    setReasonError(`Couldn't reject portfolio: ${error.message}`);
+    return false;
   }
-});
+
+  setDecisionState(false);
+  closeRejectPopup();
+  closeReviewModal();
+  return loadModeration({
+    successMessage: "Portfolio rejected.",
+    failureMessage: "Portfolio rejected, but the dashboard could not refresh.",
+  });
+}
+
+document.getElementById("reason-confirm-btn").addEventListener("click", handleReject);
 
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
+  if (e.key !== "Escape" || decisionInFlight) return;
   if (document.getElementById("reason-overlay").classList.contains("open")) {
     closeRejectPopup();
   } else if (document.getElementById("review-overlay").classList.contains("open")) {
