@@ -16,6 +16,145 @@ function tableDefinition(name, nextName) {
   return match[1];
 }
 
+function tableStatement(name) {
+  const pattern = new RegExp(
+    `CREATE TABLE(?: IF NOT EXISTS)? ${name} \\([\\s\\S]*?\\)\\s*(?:ENGINE=[^;]+)?;`,
+  );
+  const match = schema.match(pattern);
+  assert.ok(match, `${name} table statement must exist`);
+  return match[0];
+}
+
+function declaredColumns(name) {
+  return tableStatement(name)
+    .split('\n')
+    .map((line) => line.match(/^\s{2}([a-z][a-z0-9_]*)\s+/i)?.[1])
+    .filter((column) => column && ![
+      'CONSTRAINT',
+      'FOREIGN',
+      'KEY',
+      'PRIMARY',
+      'UNIQUE',
+    ].includes(column.toUpperCase()));
+}
+
+test('schema source reproduces audited live column declarations and portfolio order', () => {
+  const users = tableStatement('users');
+  assert.match(users, /created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP/);
+  assert.match(
+    users,
+    /updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP/,
+  );
+
+  const portfolios = tableStatement('portfolios');
+  assert.match(
+    portfolios,
+    /mvp_status ENUM\('Idea','Prototype','Beta','Launched'\) NOT NULL,/,
+  );
+  assert.doesNotMatch(
+    portfolios,
+    /mvp_status ENUM\('Idea','Prototype','Beta','Launched'\)[^,\n]*DEFAULT/,
+  );
+  assert.match(portfolios, /funding_goal DECIMAL\(15,2\) NOT NULL,/);
+  assert.doesNotMatch(portfolios, /funding_goal DECIMAL\(15,2\)[^,\n]*DEFAULT/);
+  assert.match(portfolios, /readiness_score INT NULL DEFAULT 0,/);
+  assert.doesNotMatch(portfolios, /\bCHECK\s*\(/);
+  assert.deepEqual(declaredColumns('portfolios'), [
+    'id',
+    'owner_id',
+    'name',
+    'sector',
+    'description',
+    'mvp_status',
+    'funding_goal',
+    'team_size',
+    'founded_year',
+    'location',
+    'website',
+    'readiness_score',
+    'status',
+    'rejection_reason',
+    'submitted_at',
+    'created_at',
+    'updated_at',
+    'monthly_revenue',
+    'user_count',
+    'growth_rate',
+    'market_size',
+    'competitor_analysis',
+    'advisor_names',
+    'burn_rate',
+    'runway_months',
+  ]);
+
+  const notifications = tableStatement('notifications');
+  assert.match(
+    notifications,
+    /created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP/,
+  );
+});
+
+test('every application table pins the live engine and collation', () => {
+  for (const name of [
+    'users',
+    'portfolios',
+    'portfolio_documents',
+    'investor_interests',
+    'conversations',
+    'conversation_members',
+    'messages',
+    'notifications',
+    'audit_logs',
+  ]) {
+    assert.match(
+      tableStatement(name),
+      /\) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;$/,
+      `${name} must pin the production table options`,
+    );
+  }
+});
+
+test('notification names reproduce audited production metadata', () => {
+  const notifications = tableStatement('notifications');
+  for (const index of [
+    'user_id',
+    'related_portfolio_id',
+    'idx_notifications_conversation',
+    'idx_notifications_message',
+    'related_user_id',
+  ]) {
+    assert.match(notifications, new RegExp(`KEY ${index} \\(`));
+  }
+  for (const foreignKey of [
+    'notifications_ibfk_1',
+    'notifications_ibfk_2',
+    'fk_notifications_conversation',
+    'fk_notifications_message',
+    'notifications_ibfk_3',
+  ]) {
+    assert.match(
+      notifications,
+      new RegExp(`CONSTRAINT ${foreignKey} FOREIGN KEY`),
+    );
+  }
+});
+
+test('audit action and portfolio cascade reproduce accepted production behavior', () => {
+  const auditLogs = tableStatement('audit_logs');
+  assert.match(
+    auditLogs,
+    /action ENUM\('approved','rejected'\) NOT NULL/,
+  );
+  assert.match(
+    auditLogs,
+    /FOREIGN KEY \(portfolio_id\) REFERENCES portfolios\(id\) ON DELETE CASCADE/,
+  );
+  assert.match(
+    schema,
+    /Accepted product behavior: deleting an editable portfolio also deletes its audit rows\./,
+  );
+});
+
 test('authoritative schema defines managed rooms and removes direct-message columns', () => {
   assert.match(
     schema,
