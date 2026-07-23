@@ -152,3 +152,75 @@ test('manager directory ignores an older response and marks a failed refresh sta
   assert.match(client.element('manager-directory-status').className, /stale/);
   assert.match(client.element('rm-account-list').innerHTML, /Newest Manager/);
 });
+
+test('manager creation is single-flight and preserves fields while pending', async () => {
+  const create = deferred();
+  const client = adminHarness({
+    createRelationshipManager: async () => create.promise,
+  });
+  await client.init();
+  client.element('rm-name').value = 'New Manager';
+  client.element('rm-email').value = 'new.manager@example.com';
+  client.element('rm-password').value = '123456';
+
+  const first = client.element('rm-account-form').dispatch('submit');
+  const second = client.element('rm-account-form').dispatch('submit');
+  await flush();
+
+  assert.equal(client.calls.createRelationshipManager.length, 1);
+  assert.equal(client.element('rm-submit').disabled, true);
+  assert.equal(client.element('rm-name').value, 'New Manager');
+  assert.equal(client.element('rm-email').value, 'new.manager@example.com');
+  create.resolve({ id: 10 });
+  await Promise.all([first, second]);
+});
+
+test('created account plus failed directory refresh retries GET without repeating POST', async () => {
+  let directoryCalls = 0;
+  const client = adminHarness({
+    getRelationshipManagers: async () => {
+      directoryCalls += 1;
+      if (directoryCalls === 1) return [];
+      if (directoryCalls === 2) throw new Error('refresh failed');
+      return [{
+        name: 'New Manager',
+        email: 'new.manager@example.com',
+        role: 'relationship_manager',
+      }];
+    },
+  });
+  await client.init();
+  client.element('rm-name').value = 'New Manager';
+  client.element('rm-email').value = 'new.manager@example.com';
+  client.element('rm-password').value = '123456';
+
+  await client.element('rm-account-form').dispatch('submit');
+  assert.equal(client.calls.createRelationshipManager.length, 1);
+  assert.match(client.element('rm-form-message').textContent, /created.*could not refresh/i);
+  assert.equal(client.element('rm-password').value, '');
+
+  await client.element('manager-directory-retry-btn').dispatch('click');
+  assert.equal(client.calls.createRelationshipManager.length, 1);
+  assert.equal(client.calls.getRelationshipManagers.length, 3);
+  assert.match(client.element('rm-account-list').innerHTML, /New Manager/);
+});
+
+test('manager creation failure keeps every entered field and restores submit', async () => {
+  const client = adminHarness({
+    createRelationshipManager: async () => {
+      throw new Error('email already exists');
+    },
+  });
+  await client.init();
+  client.element('rm-name').value = 'New Manager';
+  client.element('rm-email').value = 'new.manager@example.com';
+  client.element('rm-password').value = '123456';
+
+  await client.element('rm-account-form').dispatch('submit');
+
+  assert.equal(client.element('rm-name').value, 'New Manager');
+  assert.equal(client.element('rm-email').value, 'new.manager@example.com');
+  assert.equal(client.element('rm-password').value, '123456');
+  assert.equal(client.element('rm-submit').disabled, false);
+  assert.match(client.element('rm-form-message').textContent, /already exists/i);
+});

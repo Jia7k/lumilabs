@@ -39,6 +39,7 @@ let hasModerationSnapshot = false;
 let hasManagerSnapshot = false;
 let moderationRequestVersion = 0;
 let managerRequestVersion = 0;
+let managerCreateInFlight = false;
 
 function setRmFieldError(inputId, message) {
   const input = document.getElementById(inputId);
@@ -185,6 +186,8 @@ function bindRelationshipManagerForm() {
   const rmSubmit = document.getElementById("rm-submit");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (managerCreateInFlight) return;
+
     const name = document.getElementById("rm-name");
     const email = document.getElementById("rm-email");
     const password = document.getElementById("rm-password");
@@ -213,6 +216,7 @@ function bindRelationshipManagerForm() {
       return;
     }
 
+    managerCreateInFlight = true;
     rmSubmit.disabled = true;
     rmSubmit.innerHTML = '<i class="ti ti-loader-2"></i> Creating account…';
     try {
@@ -222,15 +226,25 @@ function bindRelationshipManagerForm() {
         password: password.value,
       });
       password.value = "";
-      relationshipManagers = await API.getRelationshipManagers();
-      renderRelationshipManagers();
-      setRmFormMessage("Relationship manager account created.", "success");
     } catch (error) {
       setRmFormMessage(error.message, "error");
+      return;
     } finally {
+      managerCreateInFlight = false;
       rmSubmit.disabled = false;
       rmSubmit.innerHTML = '<i class="ti ti-user-plus"></i> Create manager account';
     }
+
+    const refreshed = await loadManagerDirectory({
+      successMessage: "Manager directory updated.",
+      failureMessage: "Account created, but the manager directory could not refresh.",
+    });
+    setRmFormMessage(
+      refreshed
+        ? "Relationship manager account created."
+        : "Relationship manager account created, but the directory could not refresh.",
+      "success",
+    );
   });
 }
 
