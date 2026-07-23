@@ -356,6 +356,7 @@ test('approval is single-flight, disables both decisions, and refreshes moderati
   const second = client.run('handleApprove()');
   await flush();
   assert.equal(client.calls.approvePortfolio.length, 1);
+  assert.deepEqual(client.calls.approvePortfolio[0], [42]);
   assert.equal(client.element('review-approve-btn').disabled, true);
   assert.equal(client.element('review-reject-btn').disabled, true);
   assert.match(client.element('review-action-status').textContent, /approving/i);

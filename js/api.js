@@ -216,11 +216,8 @@ const API = {
     apiFetch(`/portfolios/${portfolioId}/documents/${docId}`, { method: "DELETE" }),
   // Admin
   getQueue: () => apiFetch("/admin/queue"),
-  approvePortfolio: (id, notes = null) =>
-    apiFetch(`/admin/portfolios/${id}/approve`, {
-      method: "PUT",
-      body: JSON.stringify({ notes })
-    }),
+  approvePortfolio: (id) =>
+    apiFetch(`/admin/portfolios/${id}/approve`, { method: "PUT" }),
   rejectPortfolio: (id, reason) =>
     apiFetch(`/admin/portfolios/${id}/reject`, {
       method: "PUT",

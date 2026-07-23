@@ -109,6 +109,33 @@ test('business dashboard normalizes database readiness before inline rendering',
   assert.doesNotMatch(html, /Readiness:\s*\$\{Number\(p\.readiness_score\)/);
 });
 
+test('database-derived labels describe the actual result sets', () => {
+  const audit = read('audit-logs.html');
+  for (const label of [
+    'Latest 100 actions',
+    'Actions in latest 100',
+    'Approved in latest 100',
+    'Rejected in latest 100',
+  ]) {
+    assert.match(audit, new RegExp(`>${label}<`), label);
+  }
+
+  assert.match(read('moderatordashboard.html'), />Investor Interests</);
+  assert.match(read('moderatordashboard.html'), />Relationship managers</);
+  assert.match(
+    read('messages.html'),
+    /id=["']conversation-search["'][^>]*placeholder=["']Search conversations["']/,
+  );
+});
+
+test('owner subpages keep Messages navigation without unwired badges', () => {
+  for (const page of ['mybusinesses.html', 'createportfolio.html']) {
+    const html = read(page);
+    assert.match(html, /href='messages\.html'[^>]*>[\s\S]*?Messages/);
+    assert.doesNotMatch(html, /id=["']nav-msg-badge["']/);
+  }
+});
+
 test('owner and investor entry points use only server-provided managed chat state', () => {
   for (const file of [
     'businessownerdashboard.html', 'js/browse.js', 'js/my-interests.js',

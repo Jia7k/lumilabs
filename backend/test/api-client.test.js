@@ -272,3 +272,18 @@ test('normalizeReadinessScore rejects coercible values and clamps numeric scores
     );
   }
 });
+
+test('portfolio approval sends PUT without an unused notes body', async () => {
+  const client = clientHarness();
+  let request;
+  client.context.fetch = async (url, options) => {
+    request = { url, options };
+    return response(200, { status: 'approved' });
+  };
+
+  await client.run('API.approvePortfolio(42)');
+
+  assert.equal(request.url, '/api/admin/portfolios/42/approve');
+  assert.equal(request.options.method, 'PUT');
+  assert.equal(Object.hasOwn(request.options, 'body'), false);
+});
