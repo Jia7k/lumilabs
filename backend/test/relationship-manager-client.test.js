@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..', '..');
 const htmlPath = path.join(root, 'relationshipmanagerdashboard.html');
 const clientPath = path.join(root, 'js', 'relationshipmanagerdashboard.js');
+const cssPath = path.join(root, 'css', 'style.css');
 
 function readRequired(file, label) {
   assert.equal(fs.existsSync(file), true, `${label} must exist`);
@@ -34,11 +35,18 @@ function managerHarness() {
     requirePageRole: async () => null, hooks,
   });
   vm.runInContext(readRequired(clientPath, 'relationship manager client'), context);
+  const originalSetStatus = context.setStatus;
   vm.runInContext(`
     setStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });
     renderDashboard = () => { hooks.renders += 1; };
   `, context);
-  return { context, elements, hooks, run: (code) => vm.runInContext(code, context) };
+  return {
+    context,
+    elements,
+    hooks,
+    originalSetStatus,
+    run: (code) => vm.runInContext(code, context),
+  };
 }
 
 test('manager dashboard has semantic loading, content, empty, and recoverable status regions', () => {
@@ -52,6 +60,22 @@ test('manager dashboard has semantic loading, content, empty, and recoverable st
   assert.match(html, /Loading managed conversations/);
   assert.match(html, /<main/);
   assert.match(html, /signOut/);
+});
+
+test('Retry remains visually hidden when the dashboard status is not retryable', () => {
+  const css = readRequired(cssPath, 'shared stylesheet');
+  assert.match(
+    css,
+    /\.rm-retry\[hidden\]\s*\{[^}]*display:\s*none\s*;?[^}]*\}/s,
+  );
+
+  const client = managerHarness();
+
+  client.originalSetStatus('Dashboard is up to date.', 'success');
+  assert.equal(client.elements.get('dashboard-retry').hidden, true);
+
+  client.originalSetStatus('Could not load the dashboard.', 'error', true);
+  assert.equal(client.elements.get('dashboard-retry').hidden, false);
 });
 
 test('role authorization completes before dashboard data loading', () => {
@@ -196,6 +220,48 @@ test('disabled Reopen explains why while Open Group Chat remains enabled', () =>
   assert.match(rendered, /data-action="reopen"[^>]*[\s\S]*disabled/);
   assert.match(rendered, /aria-describedby="reopen-reason-12"/);
   assert.match(rendered, /Add an eligible investor/);
+});
+
+test('managed room distinguishes zero investors from an exhausted eligible list', () => {
+  const client = managerHarness();
+
+  client.run(`
+    state.dashboard = {
+      stats: {},
+      unclaimed_portfolios: [],
+      rooms: [{
+        conversation_id: 12,
+        portfolio_id: 1,
+        title: 'Solar Stack',
+        status: 'archived',
+        archived_reason: 'no_active_investors',
+        unread_count: 0,
+        owner: { id: 3, name: 'Charlie' },
+        investors: [],
+        eligible_interests: []
+      }]
+    };
+    renderManagedRooms();
+  `);
+
+  let rendered = client.elements.get('managed-room-list').innerHTML;
+  assert.match(rendered, /No investors are currently interested\./);
+  assert.doesNotMatch(
+    rendered,
+    /All currently interested investors are already in this room/,
+  );
+
+  client.run(`
+    state.dashboard.rooms[0].investors = [{ id: 6, name: 'Investor One' }];
+    renderManagedRooms();
+  `);
+
+  rendered = client.elements.get('managed-room-list').innerHTML;
+  assert.match(
+    rendered,
+    /All currently interested investors are already in this room/,
+  );
+  assert.doesNotMatch(rendered, /No investors are currently interested\./);
 });
 
 test('Open Group Chat navigates only by conversation ID', () => {

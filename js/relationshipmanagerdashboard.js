@@ -157,6 +157,9 @@ function renderManagedRooms() {
     const eligibleInterests = Array.isArray(room.eligible_interests)
       ? room.eligible_interests
       : [];
+    const noEligibleMessage = investors.length
+      ? "All currently interested investors are already in this room."
+      : "No investors are currently interested.";
     const reopen = archived ? reopenEligibility(room) : { enabled: true, reason: "" };
     const statusDisabled = mutationsDisabled || (archived && !reopen.enabled);
     const reasonId = `reopen-reason-${conversationId}`;
@@ -195,7 +198,7 @@ function renderManagedRooms() {
           <button class="btn btn-outline rm-add-investors" type="button" data-action="add"
                   data-id="${escapeHtml(conversationId)}"${addDisabled ? " disabled" : ""}>
             <i class="ti ti-user-plus"></i> ${state.pending.size ? "Adding…" : "Add selected investors"}
-          </button>` : '<p class="rm-no-eligible">All currently interested investors are already in this room.</p>'}
+          </button>` : `<p class="rm-no-eligible">${escapeHtml(noEligibleMessage)}</p>`}
         <div class="rm-room-actions">
           <button class="btn btn-primary" type="button" data-action="open" data-id="${escapeHtml(conversationId)}">
             <i class="ti ti-message-circle"></i> Open Group Chat

@@ -2201,6 +2201,7 @@ body.audit .card {
 .dashboard-status.success { border-color: #BBF7D0; background: #F0FDF4; color: #166534; }
 .dashboard-status.error { border-color: #FECACA; background: #FEF2F2; color: #991B1B; }
 .rm-retry { margin-bottom: 16px; }
+.rm-retry[hidden] { display: none; }
 
 .rm-stats-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
