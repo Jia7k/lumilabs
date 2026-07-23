@@ -30,6 +30,65 @@ test('serves the unified API health endpoint', async (t) => {
   assert.deepEqual(payload, { status: 'ok' });
 });
 
+test('readiness checks connectivity and the complete schema contract', {
+  concurrency: false,
+}, async (t) => {
+  const queries = [];
+  const database = {
+    async query(sql) {
+      queries.push(sql);
+      return [[{ ready: 1 }], []];
+    },
+  };
+  let verifierDatabase;
+  const server = await listen(createApp({
+    database,
+    verifySchema: async (receivedDatabase) => {
+      verifierDatabase = receivedDatabase;
+      return true;
+    },
+  }));
+  t.after(server.close);
+
+  const response = await fetch(`${server.origin}/api/ready`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: 'ready' });
+  assert.deepEqual(queries, ['SELECT 1']);
+  assert.equal(verifierDatabase, database);
+});
+
+test('readiness returns 503 and logs the precise schema invariant', {
+  concurrency: false,
+}, async (t) => {
+  const invariant =
+    'Missing schema invariants: audit_logs foreign key (portfolio_id) must use ON DELETE CASCADE';
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...parts) => errors.push(parts.join(' '));
+  t.after(() => {
+    console.error = originalError;
+  });
+
+  const database = {
+    async query(sql) {
+      assert.equal(sql, 'SELECT 1');
+      return [[{ ready: 1 }], []];
+    },
+  };
+  const server = await listen(createApp({
+    database,
+    verifySchema: async () => {
+      throw new Error(invariant);
+    },
+  }));
+  t.after(server.close);
+
+  const response = await fetch(`${server.origin}/api/ready`);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { status: 'not ready' });
+  assert.equal(errors.some((message) => message.includes(invariant)), true);
+});
+
 test('returns JSON for unknown unified API routes', async (t) => {
   const server = await listen(createApp());
   t.after(server.close);

@@ -169,62 +169,151 @@ const COLUMN_CONTRACT = {
   ]),
 };
 
-const REQUIRED_INDEXES = {
-  'conversations.unique_conversation_portfolio': {
-    unique: true,
-    columns: ['portfolio_id'],
-  },
-  'conversation_members.PRIMARY': {
-    unique: true,
-    columns: ['conversation_id', 'user_id'],
-  },
-  'conversation_members.unique_conversation_singleton': {
-    unique: true,
-    columns: ['conversation_id', 'singleton_role'],
-  },
-  'messages.idx_messages_conversation_id': {
-    unique: false,
-    columns: ['conversation_id', 'id'],
-  },
-};
+const PRIMARY_INDEX_CONTRACT = [
+  ['users', ['id']],
+  ['portfolios', ['id']],
+  ['portfolio_documents', ['id']],
+  ['investor_interests', ['id']],
+  ['conversations', ['id']],
+  ['conversation_members', ['conversation_id', 'user_id']],
+  ['messages', ['id']],
+  ['notifications', ['id']],
+  ['audit_logs', ['id']],
+];
 
-const REQUIRED_FOREIGN_KEYS = {
-  'conversations.fk_conversations_portfolio': {
-    columns: ['portfolio_id'],
-    referencedTable: 'portfolios',
-    referencedColumns: ['id'],
-  },
-  'conversations.fk_conversations_manager': {
-    columns: ['relationship_manager_id'],
-    referencedTable: 'users',
-    referencedColumns: ['id'],
-  },
-  'conversation_members.fk_members_conversation': {
-    columns: ['conversation_id'],
-    referencedTable: 'conversations',
-    referencedColumns: ['id'],
-  },
-  'conversation_members.fk_members_user': {
-    columns: ['user_id'],
-    referencedTable: 'users',
-    referencedColumns: ['id'],
-  },
-  'messages.fk_messages_member': {
-    columns: ['conversation_id', 'sender_id'],
-    referencedTable: 'conversation_members',
-    referencedColumns: ['conversation_id', 'user_id'],
-  },
-  'notifications.fk_notifications_conversation': {
-    columns: ['related_conversation_id'],
-    referencedTable: 'conversations',
-    referencedColumns: ['id'],
-  },
-  'notifications.fk_notifications_message': {
-    columns: ['related_message_id'],
-    referencedTable: 'messages',
-    referencedColumns: ['id'],
-  },
-};
+const UNIQUE_INDEX_CONTRACT = [
+  ['users', ['email']],
+  ['investor_interests', ['investor_id', 'portfolio_id']],
+  ['conversations', ['portfolio_id']],
+  ['conversation_members', ['conversation_id', 'singleton_role']],
+];
+
+const ACCESS_INDEX_CONTRACT = [
+  ['portfolios', ['owner_id']],
+  ['portfolio_documents', ['portfolio_id']],
+  ['investor_interests', ['portfolio_id']],
+  ['conversations', ['relationship_manager_id']],
+  ['conversation_members', ['user_id', 'membership_status']],
+  ['messages', ['conversation_id', 'id']],
+  ['messages', ['conversation_id', 'sender_id']],
+  ['notifications', ['user_id']],
+  ['notifications', ['related_portfolio_id']],
+  ['notifications', ['related_conversation_id']],
+  ['notifications', ['related_message_id']],
+  ['notifications', ['related_user_id']],
+  ['audit_logs', ['admin_id']],
+  ['audit_logs', ['portfolio_id']],
+];
+
+const FOREIGN_KEY_CONTRACT = [
+  ['portfolios', ['owner_id'], 'users', ['id'], 'CASCADE', 'NO ACTION'],
+  [
+    'portfolio_documents',
+    ['portfolio_id'],
+    'portfolios',
+    ['id'],
+    'CASCADE',
+    'NO ACTION',
+  ],
+  [
+    'investor_interests',
+    ['investor_id'],
+    'users',
+    ['id'],
+    'CASCADE',
+    'NO ACTION',
+  ],
+  [
+    'investor_interests',
+    ['portfolio_id'],
+    'portfolios',
+    ['id'],
+    'CASCADE',
+    'NO ACTION',
+  ],
+  [
+    'conversations',
+    ['portfolio_id'],
+    'portfolios',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'conversations',
+    ['relationship_manager_id'],
+    'users',
+    ['id'],
+    'RESTRICT',
+    'NO ACTION',
+  ],
+  [
+    'conversation_members',
+    ['conversation_id'],
+    'conversations',
+    ['id'],
+    'CASCADE',
+    'NO ACTION',
+  ],
+  [
+    'conversation_members',
+    ['user_id'],
+    'users',
+    ['id'],
+    'RESTRICT',
+    'NO ACTION',
+  ],
+  [
+    'messages',
+    ['conversation_id', 'sender_id'],
+    'conversation_members',
+    ['conversation_id', 'user_id'],
+    'RESTRICT',
+    'NO ACTION',
+  ],
+  ['notifications', ['user_id'], 'users', ['id'], 'CASCADE', 'NO ACTION'],
+  [
+    'notifications',
+    ['related_portfolio_id'],
+    'portfolios',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'notifications',
+    ['related_conversation_id'],
+    'conversations',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'notifications',
+    ['related_message_id'],
+    'messages',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'notifications',
+    ['related_user_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  ['audit_logs', ['admin_id'], 'users', ['id'], 'CASCADE', 'NO ACTION'],
+  [
+    'audit_logs',
+    ['portfolio_id'],
+    'portfolios',
+    ['id'],
+    'CASCADE',
+    'NO ACTION',
+  ],
+];
 
 function property(row, lower, upper = lower.toUpperCase()) {
   return row?.[lower] ?? row?.[upper];
@@ -346,6 +435,39 @@ function sameValues(actual, expected) {
     && actual.every((value, index) => value === expected[index]);
 }
 
+function indexColumns(rows) {
+  return rows.map((row) => property(row, 'column_name'));
+}
+
+function usableIndex(rows, { unique }) {
+  return rows.length > 0
+    && rows.every((row) => (
+      Number(property(row, 'non_unique')) === (unique ? 0 : 1)
+      && String(property(row, 'index_type')).toUpperCase() === 'BTREE'
+      && String(property(row, 'is_visible')).toUpperCase() === 'YES'
+    ));
+}
+
+function indexIssue(table, kind, columns) {
+  if (kind === 'PRIMARY') {
+    return `${table} PRIMARY must be (${columns.join(',')})`;
+  }
+  return `${table} ${kind} index (${columns.join(',')}) is required`;
+}
+
+function foreignKeyIssue([
+  table,
+  columns,
+  referencedTable,
+  referencedColumns,
+  deleteRule,
+  updateRule,
+]) {
+  return `${table} foreign key (${columns.join(',')}) -> `
+    + `${referencedTable}(${referencedColumns.join(',')}) must use `
+    + `ON DELETE ${deleteRule} and ON UPDATE ${updateRule}`;
+}
+
 function columnIssueLabel(field, attribute, expected) {
   if (attribute === 'type') return `${field} type must be ${expected}`;
   if (attribute === 'nullable') return `${field} nullability must be ${expected}`;
@@ -375,20 +497,28 @@ async function verifySchema(database) {
             INDEX_NAME AS index_name,
             NON_UNIQUE AS non_unique,
             SEQ_IN_INDEX AS seq_in_index,
-            COLUMN_NAME AS column_name
+            COLUMN_NAME AS column_name,
+            INDEX_TYPE AS index_type,
+            IS_VISIBLE AS is_visible
        FROM information_schema.statistics
       WHERE table_schema = DATABASE()`,
   );
   const [foreignKeyRows] = await database.query(
-    `SELECT TABLE_NAME AS table_name,
-            CONSTRAINT_NAME AS constraint_name,
-            COLUMN_NAME AS column_name,
-            REFERENCED_TABLE_NAME AS referenced_table_name,
-            REFERENCED_COLUMN_NAME AS referenced_column_name,
-            ORDINAL_POSITION AS ordinal_position
-       FROM information_schema.key_column_usage
-      WHERE table_schema = DATABASE()
-        AND referenced_table_name IS NOT NULL`,
+    `SELECT k.TABLE_NAME AS table_name,
+            k.CONSTRAINT_NAME AS constraint_name,
+            k.COLUMN_NAME AS column_name,
+            k.REFERENCED_TABLE_NAME AS referenced_table_name,
+            k.REFERENCED_COLUMN_NAME AS referenced_column_name,
+            k.ORDINAL_POSITION AS ordinal_position,
+            r.UPDATE_RULE AS update_rule,
+            r.DELETE_RULE AS delete_rule
+       FROM information_schema.key_column_usage k
+       JOIN information_schema.referential_constraints r
+         ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+        AND r.TABLE_NAME = k.TABLE_NAME
+        AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+      WHERE k.TABLE_SCHEMA = DATABASE()
+        AND k.REFERENCED_TABLE_NAME IS NOT NULL`,
   );
 
   const issues = [];
@@ -482,36 +612,61 @@ async function verifySchema(database) {
   }
 
   const indexes = orderedGroups(indexRows, 'index_name');
-  for (const [key, required] of Object.entries(REQUIRED_INDEXES)) {
-    const rows = indexes.get(key);
-    if (!rows) {
-      issues.push(key);
-      continue;
+  const indexGroups = [...indexes.values()];
+  for (const [table, columnsInPrimary] of PRIMARY_INDEX_CONTRACT) {
+    const rows = indexes.get(`${table}.PRIMARY`) || [];
+    if (
+      !usableIndex(rows, { unique: true })
+      || !sameValues(indexColumns(rows), columnsInPrimary)
+    ) {
+      issues.push(indexIssue(table, 'PRIMARY', columnsInPrimary));
     }
-    const columnsInIndex = rows.map((row) => property(row, 'column_name'));
-    const unique = Number(property(rows[0], 'non_unique')) === 0;
-    if (!sameValues(columnsInIndex, required.columns) || unique !== required.unique) {
-      issues.push(key);
-    }
+  }
+  for (const [table, columnsInUnique] of UNIQUE_INDEX_CONTRACT) {
+    const match = indexGroups.some((rows) => (
+      property(rows[0], 'table_name') === table
+      && usableIndex(rows, { unique: true })
+      && sameValues(indexColumns(rows), columnsInUnique)
+    ));
+    if (!match) issues.push(indexIssue(table, 'unique', columnsInUnique));
+  }
+  for (const [table, prefix] of ACCESS_INDEX_CONTRACT) {
+    const match = indexGroups.some((rows) => (
+      property(rows[0], 'table_name') === table
+      && usableIndex(rows, { unique: false })
+      && sameValues(indexColumns(rows).slice(0, prefix.length), prefix)
+    ));
+    if (!match) issues.push(indexIssue(table, 'access', prefix));
   }
 
   const foreignKeys = orderedGroups(foreignKeyRows, 'constraint_name');
-  for (const [key, required] of Object.entries(REQUIRED_FOREIGN_KEYS)) {
-    const rows = foreignKeys.get(key);
-    if (!rows) {
-      issues.push(key);
-      continue;
-    }
-    const local = rows.map((row) => property(row, 'column_name'));
-    const referenced = rows.map((row) => property(row, 'referenced_column_name'));
-    const referencedTable = property(rows[0], 'referenced_table_name');
-    if (
-      !sameValues(local, required.columns)
-      || !sameValues(referenced, required.referencedColumns)
-      || referencedTable !== required.referencedTable
-    ) {
-      issues.push(key);
-    }
+  const foreignKeyGroups = [...foreignKeys.values()];
+  for (const required of FOREIGN_KEY_CONTRACT) {
+    const [
+      table,
+      localColumns,
+      referencedTable,
+      referencedColumns,
+      deleteRule,
+      updateRule,
+    ] = required;
+    const match = foreignKeyGroups.some((rows) => (
+      property(rows[0], 'table_name') === table
+      && sameValues(
+        rows.map((row) => property(row, 'column_name')),
+        localColumns,
+      )
+      && rows.every((row) => (
+        property(row, 'referenced_table_name') === referencedTable
+        && String(property(row, 'delete_rule')).toUpperCase() === deleteRule
+        && String(property(row, 'update_rule')).toUpperCase() === updateRule
+      ))
+      && sameValues(
+        rows.map((row) => property(row, 'referenced_column_name')),
+        referencedColumns,
+      )
+    ));
+    if (!match) issues.push(foreignKeyIssue(required));
   }
 
   if (issues.length) {

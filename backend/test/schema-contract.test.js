@@ -17,6 +17,19 @@ function row(metadata, tableName, columnName) {
   return match;
 }
 
+function indexRows(metadata, tableName, indexName) {
+  return metadata.indexes.filter((candidate) => (
+    candidate.table_name === tableName && candidate.index_name === indexName
+  ));
+}
+
+function foreignKeyRows(metadata, tableName, constraintName) {
+  return metadata.foreignKeys.filter((candidate) => (
+    candidate.table_name === tableName
+    && candidate.constraint_name === constraintName
+  ));
+}
+
 async function verifyMetadata(metadata) {
   const { database } = createSchemaMetadataDatabase(metadata);
   return verifySchema(database);
@@ -174,4 +187,161 @@ test('accepts equivalent metadata representations', async () => {
     "(( CASE WHEN ( member_role IN ( _utf8mb4'relationship_manager' , _utf8mb4'business_owner' ) ) THEN member_role ELSE NULL END ))";
 
   assert.equal(await verifyMetadata(metadata), true);
+});
+
+test('requires every primary and business-unique index structurally', async () => {
+  await expectInvariant((metadata) => {
+    metadata.indexes = metadata.indexes.filter((candidate) => (
+      !(candidate.table_name === 'users' && candidate.index_name === 'email')
+    ));
+  }, /users unique index \(email\) is required/);
+
+  await expectInvariant((metadata) => {
+    metadata.indexes = metadata.indexes.filter((candidate) => (
+      !(
+        candidate.table_name === 'investor_interests'
+        && candidate.index_name === 'unique_interest'
+      )
+    ));
+  }, /investor_interests unique index \(investor_id,portfolio_id\) is required/);
+
+  await expectInvariant((metadata) => {
+    const primary = indexRows(metadata, 'conversation_members', 'PRIMARY');
+    [primary[0].column_name, primary[1].column_name] =
+      [primary[1].column_name, primary[0].column_name];
+  }, /conversation_members PRIMARY must be \(conversation_id,user_id\)/);
+
+  await expectInvariant((metadata) => {
+    const unique = indexRows(
+      metadata,
+      'conversation_members',
+      'unique_conversation_singleton',
+    );
+    [unique[0].column_name, unique[1].column_name] =
+      [unique[1].column_name, unique[0].column_name];
+  }, /conversation_members unique index \(conversation_id,singleton_role\) is required/);
+});
+
+test('matches non-unique access indexes by a visible left prefix', async () => {
+  const renamed = cloneProductionSchemaMetadata();
+  for (const candidate of indexRows(
+    renamed,
+    'messages',
+    'idx_messages_conversation_id',
+  )) {
+    candidate.index_name = 'renamed_messages_access';
+  }
+  renamed.indexes.push({
+    table_name: 'messages',
+    index_name: 'renamed_messages_access',
+    non_unique: 1,
+    seq_in_index: 3,
+    column_name: 'created_at',
+    index_type: 'BTREE',
+    is_visible: 'YES',
+  });
+  assert.equal(await verifyMetadata(renamed), true);
+
+  await expectInvariant((metadata) => {
+    for (const candidate of indexRows(
+      metadata,
+      'messages',
+      'idx_messages_conversation_id',
+    )) {
+      candidate.is_visible = 'NO';
+    }
+  }, /messages access index \(conversation_id,id\) is required/);
+
+  await expectInvariant((metadata) => {
+    for (const candidate of indexRows(
+      metadata,
+      'messages',
+      'idx_messages_conversation_id',
+    )) {
+      candidate.index_type = 'HASH';
+    }
+  }, /messages access index \(conversation_id,id\) is required/);
+
+  await expectInvariant((metadata) => {
+    const access = indexRows(
+      metadata,
+      'conversation_members',
+      'idx_members_user_status',
+    );
+    [access[0].column_name, access[1].column_name] =
+      [access[1].column_name, access[0].column_name];
+  }, /conversation_members access index \(user_id,membership_status\) is required/);
+});
+
+test('allows extra non-conflicting and automatic foreign-key support indexes', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  metadata.indexes.push(
+    {
+      table_name: 'portfolios',
+      index_name: 'idx_extra_status',
+      non_unique: 1,
+      seq_in_index: 1,
+      column_name: 'status',
+      index_type: 'BTREE',
+      is_visible: 'YES',
+    },
+    {
+      table_name: 'notifications',
+      index_name: 'automatic_fk_support',
+      non_unique: 1,
+      seq_in_index: 1,
+      column_name: 'related_user_id',
+      index_type: 'BTREE',
+      is_visible: 'YES',
+    },
+  );
+  assert.equal(await verifyMetadata(metadata), true);
+});
+
+test('matches foreign keys structurally rather than by constraint name', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  for (const candidate of foreignKeyRows(
+    metadata,
+    'messages',
+    'fk_messages_member',
+  )) {
+    candidate.constraint_name = 'renamed_message_membership';
+  }
+  assert.equal(await verifyMetadata(metadata), true);
+});
+
+test('rejects foreign-key column order, target, and referential-action drift', async () => {
+  await expectInvariant((metadata) => {
+    const members = foreignKeyRows(metadata, 'messages', 'fk_messages_member');
+    [members[0].column_name, members[1].column_name] =
+      [members[1].column_name, members[0].column_name];
+  }, /messages foreign key \(conversation_id,sender_id\) -> conversation_members\(conversation_id,user_id\)/);
+
+  await expectInvariant((metadata) => {
+    const members = foreignKeyRows(metadata, 'messages', 'fk_messages_member');
+    [members[0].referenced_column_name, members[1].referenced_column_name] =
+      [members[1].referenced_column_name, members[0].referenced_column_name];
+  }, /messages foreign key \(conversation_id,sender_id\) -> conversation_members\(conversation_id,user_id\)/);
+
+  await expectInvariant((metadata) => {
+    foreignKeyRows(metadata, 'notifications', 'fk_notifications_message')[0]
+      .referenced_table_name = 'users';
+  }, /notifications foreign key \(related_message_id\) -> messages\(id\)/);
+
+  await expectInvariant((metadata) => {
+    foreignKeyRows(metadata, 'conversations', 'fk_conversations_portfolio')[0]
+      .delete_rule = 'CASCADE';
+  }, /conversations foreign key \(portfolio_id\).*ON DELETE SET NULL/);
+
+  await expectInvariant((metadata) => {
+    foreignKeyRows(metadata, 'conversations', 'fk_conversations_manager')[0]
+      .update_rule = 'CASCADE';
+  }, /conversations foreign key \(relationship_manager_id\).*ON UPDATE NO ACTION/);
+});
+
+test('preserves the accepted audit portfolio cascade', async () => {
+  await expectInvariant((metadata) => {
+    foreignKeyRows(metadata, 'audit_logs', 'audit_logs_ibfk_2')[0]
+      .delete_rule = 'RESTRICT';
+  }, /audit_logs foreign key \(portfolio_id\).*ON DELETE CASCADE/);
 });
