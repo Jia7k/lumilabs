@@ -335,6 +335,7 @@ async function init() {
 
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
+  initRoleMenu();
   const browseStatus = document.getElementById("browse-status");
   if (browseStatus) {
     browseStatus.addEventListener("click", (event) => {
@@ -374,12 +375,10 @@ async function init() {
       "error",
       true,
     );
-    initRoleMenu();
     return;
   }
 
   applyFilters();
-  initRoleMenu();
 }
 
 init();

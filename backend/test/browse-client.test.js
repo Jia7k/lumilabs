@@ -653,3 +653,38 @@ test('missing, malformed, and unauthorized requested IDs are silent no-ops', () 
     assert.equal(client.context.window.location.href, '');
   }
 });
+
+test('account menu binds before a deferred Browse workspace settles', async () => {
+  const workspace = deferred();
+  const client = browseHarness({
+    captureFilters: false,
+    captureStatus: false,
+    captureRecommendationStatus: false,
+  });
+  client.context.pendingWorkspace = workspace.promise;
+  client.run(`
+    requirePageRole = async () => ({
+      id: 9,
+      name: 'Investor',
+      role: 'investor',
+    });
+    API.getAllPortfolios = async () => pendingWorkspace;
+    API.getMyInterests = async () => [];
+    API.getRecommendations = async () => [];
+  `);
+
+  const initialization = client.run('init()');
+  await flush();
+
+  assert.equal(
+    client.elements.get('role-menu-button')?.listeners.get('click')?.length,
+    1,
+  );
+
+  workspace.resolve([]);
+  await initialization;
+  assert.equal(
+    client.elements.get('role-menu-button')?.listeners.get('click')?.length,
+    1,
+  );
+});
