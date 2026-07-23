@@ -78,6 +78,12 @@ function editorHarness() {
     confirm() { return false; },
     console,
     Set,
+    normalizeReadinessScore(value) {
+      if (typeof value !== 'number' && typeof value !== 'string') return 0;
+      if (typeof value === 'string' && value.trim() === '') return 0;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+    },
     hooks,
   });
   vm.runInContext(source, context);
@@ -275,4 +281,15 @@ test('invalid input preserves every value, focuses its field, and sends no API c
   for (const [id, value] of Object.entries(values)) {
     assert.equal(editor.fields.get(id).value, value, id);
   }
+});
+
+test('create and edit summary normalizes nullable and malformed readiness', () => {
+  const editor = editorHarness();
+
+  editor.run("renderPortfolioSummary('draft', null)");
+  assert.match(editor.fields.get('page-sub').innerHTML, /Readiness 0\/100/);
+
+  editor.run("renderPortfolioSummary('draft', [88])");
+  assert.match(editor.fields.get('page-sub').innerHTML, /Readiness 0\/100/);
+  assert.doesNotMatch(editor.fields.get('page-sub').innerHTML, /Readiness 88\/100/);
 });

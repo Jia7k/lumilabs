@@ -106,17 +106,20 @@ function renderRecommendationResult(result) {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 4);
   document.getElementById("recently-added-grid").innerHTML = recent.length
-    ? recent.map((portfolio) => `
+    ? recent.map((portfolio) => {
+      const readinessScore = normalizeReadinessScore(portfolio.readiness_score);
+      return `
       <div class="recent-card" style="cursor:pointer;" onclick="window.location.href='browse.html'">
         <div class="rc-top">
           <div class="rc-icon"><i class="ti ti-briefcase"></i></div>
-          <div class="rc-star" style="background:${portfolio.readiness_score >= 75 ? "var(--purple-light)" : "var(--bg-page)"}; color:${portfolio.readiness_score >= 75 ? "var(--purple-text)" : "var(--text-muted)"}"><i class="ti ti-star"></i></div>
+          <div class="rc-star" style="background:${readinessScore >= 75 ? "var(--purple-light)" : "var(--bg-page)"}; color:${readinessScore >= 75 ? "var(--purple-text)" : "var(--text-muted)"}"><i class="ti ti-star"></i></div>
         </div>
         <div><div class="rc-name">${escapeHtml(portfolio.name)}</div>
         <div class="rc-industry">${escapeHtml(portfolio.sector)}</div></div>
         <div class="rc-bottom"><div class="rc-money">${formatFunding(portfolio.funding_goal)}</div>
-        <div class="rc-score" style="color:${portfolio.readiness_score >= 70 ? "var(--primary-green)" : "#D98F39"}; background:${portfolio.readiness_score >= 70 ? "rgba(82,164,117,0.1)" : "rgba(217,143,57,0.1)"}">${portfolio.readiness_score}</div></div>
-      </div>`).join("")
+        <div class="rc-score" style="color:${readinessScore >= 70 ? "var(--primary-green)" : "#D98F39"}; background:${readinessScore >= 70 ? "rgba(82,164,117,0.1)" : "rgba(217,143,57,0.1)"}">${readinessScore}</div></div>
+      </div>`;
+    }).join("")
     : '<p style="color:var(--text-muted);">No startups yet.</p>';
 }
 

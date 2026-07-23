@@ -53,6 +53,7 @@ function render() {
   }
 
   list.innerHTML = interests.map((p) => {
+    const readinessScore = normalizeReadinessScore(p.readiness_score);
     return `
     <div class="interest-card" id="interest-${p.id}">
       <div class="interest-icon"><i class="ti ti-briefcase"></i></div>
@@ -60,7 +61,7 @@ function render() {
         <div class="interest-name">${escapeHtml(p.name)}</div>
         <div class="interest-meta">
           <span class="sector-tag">${escapeHtml(p.sector)}</span>
-          <span class="score-tag">${p.readiness_score}/100</span>
+          <span class="score-tag">${readinessScore}/100</span>
           <span>${formatFunding(p.funding_goal)}</span>
           <span>by ${escapeHtml(p.owner_name)}</span>
         </div>

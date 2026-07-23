@@ -38,6 +38,12 @@ function browseHarness({
     alert() {},
     console,
     Set,
+    normalizeReadinessScore(value) {
+      if (typeof value !== 'number' && typeof value !== 'string') return 0;
+      if (typeof value === 'string' && value.trim() === '') return 0;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+    },
     hooks,
   });
   vm.runInContext(source, context);
@@ -204,5 +210,53 @@ test('sector filtering uses the exact database value instead of a substring', ()
   assert.deepEqual(
     JSON.parse(JSON.stringify(client.hooks.filteredIds)),
     [1],
+  );
+});
+
+test('Browse normalizes card readiness and blocks coercible high-potential values', () => {
+  const client = browseHarness();
+  client.run(`
+    interestedIds = new Set();
+    renderGrid([{
+      id: 1,
+      name: 'Malformed Score',
+      owner_name: 'Owner',
+      sector: 'Fintech',
+      funding_goal: 1000,
+      readiness_score: [88],
+      interest_count: 0
+    }]);
+  `);
+
+  const html = client.elements.get('card-grid').innerHTML;
+  assert.match(html, />0\/100</);
+  assert.doesNotMatch(html, /High Potential/);
+  assert.doesNotMatch(html, />88\/100</);
+});
+
+test('Browse threshold and fallback sort use normalized readiness', () => {
+  const client = browseHarness({ captureFilters: false });
+  client.run(`
+    document.getElementById('score-filter').value = '0';
+    allPortfolios = [
+      {
+        id: 1, name: 'Malformed', owner_name: 'Owner', sector: 'Fintech',
+        readiness_score: 'not-a-score', created_at: '2026-01-02'
+      },
+      {
+        id: 2, name: 'Ready', owner_name: 'Owner', sector: 'Fintech',
+        readiness_score: '88', created_at: '2026-01-01'
+      }
+    ];
+    aiScores = {};
+    renderGrid = (portfolios) => {
+      hooks.filteredIds = portfolios.map(({ id }) => id);
+    };
+    applyFilters();
+  `);
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(client.hooks.filteredIds)),
+    [2, 1],
   );
 });

@@ -185,6 +185,12 @@ function adminHarness(overrides = {}) {
     console,
     setTimeout,
     clearTimeout,
+    normalizeReadinessScore(value) {
+      if (typeof value !== 'number' && typeof value !== 'string') return 0;
+      if (typeof value === 'string' && value.trim() === '') return 0;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+    },
   };
   sandbox.globalThis = sandbox;
   const context = vm.createContext(sandbox);

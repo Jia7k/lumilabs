@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { normalizeReadinessScore } = require('../validation/database-boundaries');
 
 const router = express.Router();
 
@@ -57,12 +58,24 @@ router.get('/', authenticate, requireRole('investor'), async (req, res) => {
     );
 
     const ranked = portfolios
-      .map((p) => ({
-        ...p,
-        ai_score: computeScore(p, alreadyInterestedIds, maxInterests, oldestDate),
-        is_high_potential: p.readiness_score >= 75,
-        already_interested: alreadyInterestedIds.has(p.id),
-      }))
+      .map((p) => {
+        const readinessScore = normalizeReadinessScore(p.readiness_score);
+        const normalizedPortfolio = {
+          ...p,
+          readiness_score: readinessScore,
+        };
+        return {
+          ...normalizedPortfolio,
+          ai_score: computeScore(
+            normalizedPortfolio,
+            alreadyInterestedIds,
+            maxInterests,
+            oldestDate,
+          ),
+          is_high_potential: readinessScore >= 75,
+          already_interested: alreadyInterestedIds.has(p.id),
+        };
+      })
       .sort((a, b) => b.ai_score - a.ai_score);
 
     res.json(ranked);

@@ -487,3 +487,42 @@ test('manager directory retry is single-flight', async () => {
   retry.resolve([]);
   await Promise.all([first, second]);
 });
+
+test('moderator queue and review normalize malformed readiness and preserve team zero', async () => {
+  const portfolio = {
+    id: 42,
+    name: 'Malformed Readiness',
+    owner_name: 'Owner',
+    sector: 'Fintech',
+    submitted_at: '2026-01-01T00:00:00.000Z',
+    readiness_score: [88],
+    monthly_revenue: null,
+    user_count: null,
+    growth_rate: null,
+    market_size: null,
+    competitor_analysis: null,
+    advisor_names: null,
+    burn_rate: null,
+    runway_months: null,
+  };
+  const client = adminHarness({
+    getQueue: async () => [portfolio],
+    getPortfolio: async () => ({
+      ...portfolio,
+      mvp_status: 'Beta',
+      funding_goal: 1000,
+      team_size: 0,
+      documents: [],
+    }),
+  });
+
+  await client.init();
+  assert.match(client.element('queue-list').innerHTML, /--score:0/);
+  assert.doesNotMatch(client.element('queue-list').innerHTML, /--score:88/);
+
+  await client.run('openReviewModal(42)');
+  const html = client.element('review-card').innerHTML;
+  assert.match(html, /readiness-score">0\/100/);
+  assert.match(html, /Team Size[\s\S]*modal-field-value[^>]*>0</);
+  assert.doesNotMatch(html, /No team size provided/);
+});

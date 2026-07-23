@@ -99,6 +99,16 @@ test('business dashboard displays rejected portfolios in both status summaries',
   );
 });
 
+test('business dashboard normalizes database readiness before inline rendering', () => {
+  const html = read('businessownerdashboard.html');
+  assert.match(
+    html,
+    /const readinessScore\s*=\s*normalizeReadinessScore\(p\.readiness_score\)/,
+  );
+  assert.match(html, /Readiness:\s*\$\{readinessScore\}\/100/);
+  assert.doesNotMatch(html, /Readiness:\s*\$\{Number\(p\.readiness_score\)/);
+});
+
 test('owner and investor entry points use only server-provided managed chat state', () => {
   for (const file of [
     'businessownerdashboard.html', 'js/browse.js', 'js/my-interests.js',

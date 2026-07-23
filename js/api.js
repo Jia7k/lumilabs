@@ -22,6 +22,14 @@ function dashboardForRole(role) {
   return ROLE_DASHBOARDS[role] || "index.html";
 }
 
+function normalizeReadinessScore(value) {
+  if (typeof value !== "number" && typeof value !== "string") return 0;
+  if (typeof value === "string" && value.trim() === "") return 0;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.min(100, Math.max(0, numeric));
+}
+
 function showScoreInfo() {
   let overlay = document.getElementById("score-info-overlay");
   if (!overlay) {

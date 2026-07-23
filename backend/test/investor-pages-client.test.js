@@ -42,6 +42,12 @@ function loadClient(file) {
     hooks,
     Date,
     Intl,
+    normalizeReadinessScore(value) {
+      if (typeof value !== 'number' && typeof value !== 'string') return 0;
+      if (typeof value === 'string' && value.trim() === '') return 0;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+    },
   });
   vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context);
   return { context, hooks, elements: dom.elements, run: (code) => vm.runInContext(code, context) };
@@ -169,4 +175,46 @@ test('My Interests Retry performs one guarded read and replaces the error', asyn
   assert.equal(client.run('testCalls'), 2);
   assert.match(client.elements.get('interests-list').innerHTML, /Solar Stack/);
   assert.equal(client.elements.get('count-badge').innerText, 1);
+});
+
+test('investor recent cards normalize malformed readiness without a high badge', () => {
+  const client = loadClient('js/investordashboard.js');
+  client.run(`
+    renderRecommendationResult({
+      status: 'fulfilled',
+      value: [{
+        id: 1,
+        name: 'Malformed',
+        sector: 'Fintech',
+        ai_score: 20,
+        readiness_score: [88],
+        funding_goal: 1000,
+        created_at: '2026-01-01'
+      }]
+    });
+  `);
+
+  const html = client.elements.get('recently-added-grid').innerHTML;
+  assert.match(html, />0<\/div>/);
+  assert.doesNotMatch(html, /var\\(--purple-light\\)/);
+  assert.doesNotMatch(html, />88<\/div>/);
+});
+
+test('My Interests renders nullable readiness as numeric zero', () => {
+  const client = loadClient('js/my-interests.js');
+  client.run(`
+    interests = [{
+      id: 1,
+      name: 'Nullable',
+      sector: 'Fintech',
+      owner_name: 'Owner',
+      readiness_score: null,
+      funding_goal: 1000
+    }];
+    render();
+  `);
+
+  const html = client.elements.get('interests-list').innerHTML;
+  assert.match(html, />0\/100</);
+  assert.doesNotMatch(html, /null\/100/);
 });

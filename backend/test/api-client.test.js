@@ -247,3 +247,28 @@ test('requirePageRole leaves confirmed 401 recovery to the sign-in transition', 
   assert.equal(client.context.window.location.href, 'signin.html');
   assert.equal(client.hooks.recovery, null);
 });
+
+test('normalizeReadinessScore rejects coercible values and clamps numeric scores', () => {
+  const client = clientHarness();
+  const vectors = [
+    [null, 0],
+    [undefined, 0],
+    ['not-a-score', 0],
+    [-1, 0],
+    ['88', 88],
+    [101, 100],
+    [true, 0],
+    [[88], 0],
+    [{}, 0],
+    ['   ', 0],
+  ];
+
+  for (const [value, expected] of vectors) {
+    client.context.readinessCandidate = value;
+    assert.equal(
+      client.run('normalizeReadinessScore(readinessCandidate)'),
+      expected,
+      String(value),
+    );
+  }
+});

@@ -92,20 +92,33 @@ function applyFilters() {
   const sector = document.getElementById("sector-filter").value;
   const minScore = parseInt(document.getElementById("score-filter").value) || 0;
 
-  let filtered = allPortfolios.filter(p => {
+  let filtered = allPortfolios.map((portfolio) => ({
+    portfolio,
+    readinessScore: normalizeReadinessScore(portfolio.readiness_score),
+  })).filter(({ portfolio: p, readinessScore }) => {
     const matchSearch = !search || p.name.toLowerCase().includes(search) || (p.owner_name || "").toLowerCase().includes(search);
     const matchSector = !sector || p.sector === sector;
-    const matchScore = p.readiness_score >= minScore;
+    const matchScore = readinessScore >= minScore;
     return matchSearch && matchSector && matchScore;
   });
 
   if (sortMode === "ai") {
-    filtered.sort((a, b) => (aiScores[b.id] ?? 0) - (aiScores[a.id] ?? 0));
+    filtered.sort((a, b) => {
+      const scoreA = Object.hasOwn(aiScores, a.portfolio.id)
+        ? normalizeReadinessScore(aiScores[a.portfolio.id])
+        : a.readinessScore;
+      const scoreB = Object.hasOwn(aiScores, b.portfolio.id)
+        ? normalizeReadinessScore(aiScores[b.portfolio.id])
+        : b.readinessScore;
+      return scoreB - scoreA;
+    });
   } else {
-    filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    filtered.sort(
+      (a, b) => new Date(b.portfolio.created_at) - new Date(a.portfolio.created_at),
+    );
   }
 
-  renderGrid(filtered);
+  renderGrid(filtered.map(({ portfolio }) => portfolio));
 }
 
 function renderGrid(portfolios) {
@@ -120,8 +133,11 @@ function renderGrid(portfolios) {
 
   grid.innerHTML = portfolios.map(p => {
     const liked = interestedIds.has(p.id);
-    const score = aiScores[p.id] ?? p.readiness_score;
-    const isHighPotential = p.readiness_score >= 75;
+    const readinessScore = normalizeReadinessScore(p.readiness_score);
+    const score = Object.hasOwn(aiScores, p.id)
+      ? normalizeReadinessScore(aiScores[p.id])
+      : readinessScore;
+    const isHighPotential = readinessScore >= 75;
     return `
       <div class="startup-card" id="card-${p.id}">
         <div class="card-top">
@@ -140,7 +156,7 @@ function renderGrid(portfolios) {
           </div>
           <div class="meta-box">
             <div class="meta-label">Readiness <button onclick="showScoreInfo()" title="How is this calculated?" style="background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:14px;vertical-align:middle;padding:0 2px;line-height:1;">ℹ</button></div>
-            <div class="meta-value score-value">${p.readiness_score}/100</div>
+            <div class="meta-value score-value">${readinessScore}/100</div>
           </div>
           <div class="meta-box">
             <div class="meta-label">AI Score</div>

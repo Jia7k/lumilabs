@@ -145,6 +145,7 @@ function renderQueue(queue, { reviewDisabled = false } = {}) {
 
   tbody.innerHTML = queue.map((p) => {
     const submitted = formatSubmitted(p.submitted_at);
+    const readinessScore = normalizeReadinessScore(p.readiness_score);
     return `
       <tr>
         <td>
@@ -169,7 +170,7 @@ function renderQueue(queue, { reviewDisabled = false } = {}) {
         </td>
         <td>
           <div style="display:flex;align-items:center;gap:6px;">
-            <div class="score-circle" style="--score:${Number(p.readiness_score) || 0};"><span>${escapeHtml(p.readiness_score ?? 0)}</span></div>
+            <div class="score-circle" style="--score:${readinessScore};"><span>${readinessScore}</span></div>
             ${isScoreStale(p) ? '<i class="ti ti-alert-triangle" style="color:#F59E0B;font-size:15px;" title="Score may be outdated — new readiness fields are empty"></i>' : ""}
           </div>
         </td>
@@ -481,6 +482,8 @@ async function openReviewModal(rawId, trigger = null) {
 }
 
 function renderReviewDetails(full, p) {
+  const readinessScore = normalizeReadinessScore(full.readiness_score);
+  const hasTeamSize = full.team_size !== null && full.team_size !== undefined;
   document.getElementById("review-card").innerHTML = `
     <div class="modal-header-row">
       <div class="modal-title-group">
@@ -497,7 +500,7 @@ function renderReviewDetails(full, p) {
     <p class="modal-subtitle">Review all portfolio details before making a decision</p>
 
     <div class="modal-readiness">
-      <div class="score-circle" style="--score:${full.readiness_score}; width:48px; height:48px; font-size:15px;"><span>${full.readiness_score}</span></div>
+      <div class="score-circle" style="--score:${readinessScore}; width:48px; height:48px; font-size:15px;"><span>${readinessScore}</span></div>
       <div>
         <div class="readiness-label">
           Readiness
@@ -508,7 +511,7 @@ function renderReviewDetails(full, p) {
             <i class="ti ti-info-circle"></i>
           </button>
         </div>
-        <div class="readiness-score">${full.readiness_score}/100</div>
+        <div class="readiness-score">${readinessScore}/100</div>
       </div>
       ${isScoreStale(p) ? `
       <div class="score-stale-warning">
@@ -564,7 +567,7 @@ function renderReviewDetails(full, p) {
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Team Size</div>
-        <div class="modal-field-value ${full.team_size ? "" : "muted"}">${full.team_size ? escapeHtml(full.team_size) : "No team size provided"}</div>
+        <div class="modal-field-value ${hasTeamSize ? "" : "muted"}">${hasTeamSize ? escapeHtml(full.team_size) : "No team size provided"}</div>
       </div>
       <div>
         <div class="modal-field-label">Founded Year</div>

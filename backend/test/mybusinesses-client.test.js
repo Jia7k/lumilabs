@@ -36,9 +36,16 @@ function loadClient() {
     console,
     Date,
     Intl,
+    normalizeReadinessScore(value) {
+      if (typeof value !== 'number' && typeof value !== 'string') return 0;
+      if (typeof value === 'string' && value.trim() === '') return 0;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+    },
   });
   vm.runInContext(source, context);
   return {
+    elements,
     run(code) {
       return vm.runInContext(code, context);
     },
@@ -107,4 +114,25 @@ test('My Businesses shows no managed-chat guidance for ineligible portfolio stat
       chat_state: 'awaiting_manager',
     }), '');
   }
+});
+
+test('My Businesses renders malformed readiness as numeric zero', async () => {
+  const client = loadClient();
+  client.run(`
+    API.getMyPortfolios = async () => [{
+      id: 1,
+      name: 'Malformed',
+      sector: 'Fintech',
+      status: 'draft',
+      mvp_status: 'Beta',
+      funding_goal: 1000,
+      readiness_score: [88],
+      updated_at: '2026-01-01'
+    }];
+  `);
+
+  await client.run('render()');
+  const html = client.elements.get('biz-list').innerHTML;
+  assert.match(html, />0\/100</);
+  assert.doesNotMatch(html, />88\/100</);
 });

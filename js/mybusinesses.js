@@ -84,7 +84,9 @@ async function render() {
     return;
   }
 
-  const html = portfolios.map(p => `
+  const html = portfolios.map((p) => {
+    const readinessScore = normalizeReadinessScore(p.readiness_score);
+    return `
     <div class="card" style="margin-bottom:16px;">
       <div class="biz-card">
         <div style="flex:1;">
@@ -107,7 +109,7 @@ async function render() {
             </div>
             <div class="biz-info-box">
               <div class="biz-info-label">Readiness <button class="score-info-btn" onclick="showScoreInfo()" title="How is this calculated?"><i class="ti ti-info-circle"></i></button></div>
-              <div class="biz-info-value">${p.readiness_score}/100</div>
+              <div class="biz-info-value">${readinessScore}/100</div>
             </div>
             <div class="biz-info-box">
               <div class="biz-info-label">Last Updated</div>
@@ -133,7 +135,8 @@ async function render() {
         </div>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 
   document.getElementById("biz-list").innerHTML = html;
 }

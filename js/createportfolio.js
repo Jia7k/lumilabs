@@ -107,8 +107,9 @@ function updateSubmitBtn(status) {
 
 function renderPortfolioSummary(status, readinessScore) {
   currentStatus = status;
+  const normalizedReadinessScore = normalizeReadinessScore(readinessScore);
   document.getElementById("page-sub").innerHTML = `
-    <span class="badge ${status}">${statusLabel[status]}</span> · Readiness ${readinessScore}/100
+    <span class="badge ${status}">${statusLabel[status]}</span> · Readiness ${normalizedReadinessScore}/100
     ${status === "pending" ? " · Pending review is in progress; editing is temporarily locked." : ""}
   `;
   updateSubmitBtn(status);

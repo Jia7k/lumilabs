@@ -208,11 +208,12 @@
       document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.length
         ? data.recentPortfolios.map(p => {
           const status = statusLabel[p.status] ? p.status : "draft";
+          const readinessScore = normalizeReadinessScore(p.readiness_score);
           return `
             <div class="portfolio-item">
               <div>
                 <div class="portfolio-name">${escapeHtml(p.name)} <span class="badge ${escapeHtml(status)}">${escapeHtml(statusLabel[status])}</span></div>
-                <div class="portfolio-meta">${escapeHtml(p.sector)} · Readiness: ${Number(p.readiness_score) || 0}/100</div>
+                <div class="portfolio-meta">${escapeHtml(p.sector)} · Readiness: ${readinessScore}/100</div>
               </div>
               <button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${Number(p.id)}'" aria-label="Open ${escapeHtml(p.name)}"><i class="ti ti-eye"></i></button>
             </div>`;
