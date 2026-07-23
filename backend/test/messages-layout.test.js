@@ -45,3 +45,34 @@ test('participant rail and archive notice remain inside the fixed thread shell',
   assert.match(html, /class="composer-zone"[\s\S]*id="archive-notice"[\s\S]*id="message-form"/);
   assert.match(firstRule('.composer-zone'), /border-top:\s*1px solid var\(--border\)/);
 });
+
+test('message thread and composer use shrinkable explicit columns', () => {
+  assert.match(
+    firstRule('.thread-panel'),
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/,
+  );
+  assert.match(firstRule('.thread-header'), /min-width:\s*0\s*;/);
+  assert.match(firstRule('.message-list'), /min-width:\s*0\s*;/);
+  assert.match(firstRule('.composer-zone'), /min-width:\s*0\s*;/);
+  const composer = firstRule('.compose-form');
+  assert.match(composer, /min-width:\s*0\s*;/);
+  assert.match(
+    composer,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s*;/,
+  );
+  const input = firstRule('.compose-input');
+  assert.match(input, /min-width:\s*0\s*;/);
+  assert.match(input, /width:\s*100%\s*;/);
+  assert.match(firstRule('.message-bubble'), /overflow-wrap:\s*anywhere\s*;/);
+});
+
+test('narrow message shell uses a shrinkable single column', () => {
+  const match = html.match(
+    /@media\s*\(max-width:\s*820px\)[\s\S]*?\.messaging-shell\s*\{([^}]*)\}/,
+  );
+  assert.ok(match);
+  assert.match(
+    match[1],
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/,
+  );
+});

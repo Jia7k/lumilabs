@@ -30,6 +30,7 @@ let toastTimer = null;
 let eventsBound = false;
 let messagesWorkspaceLoading = false;
 let messagesApiLoadPromise = null;
+let composeAvailable = false;
 
 document.addEventListener('DOMContentLoaded', initMessages);
 
@@ -184,6 +185,7 @@ function bindEvents() {
     await selectConversation(button.dataset.conversationId);
   });
 
+  els.messageInput.addEventListener('input', updateComposerState);
   els.messageForm.addEventListener('submit', sendActiveMessage);
 }
 
@@ -746,21 +748,26 @@ async function sendActiveMessage(event) {
   }
 }
 
+function updateComposerState() {
+  const canWrite = Boolean(
+    composeAvailable
+    && !state.sending
+    && state.activeThread?.conversation?.status === 'active'
+    && state.activeThread?.conversation?.can_send,
+  );
+  els.messageInput.disabled = !canWrite;
+  els.sendBtn.disabled = !canWrite || !els.messageInput.value.trim();
+}
+
 function setComposeEnabled(enabled) {
-  els.messageInput.disabled = !enabled;
-  els.sendBtn.disabled = !enabled;
+  composeAvailable = Boolean(enabled);
+  updateComposerState();
 }
 
 function setSending(sending) {
   state.sending = sending;
   updateRefreshDisabled();
-  const canSend = Boolean(
-    !sending
-    && state.activeThread?.conversation?.status === 'active'
-    && state.activeThread?.conversation?.can_send,
-  );
-  els.messageInput.disabled = sending || !canSend;
-  els.sendBtn.disabled = sending || !canSend;
+  updateComposerState();
   els.sendBtn.innerHTML = sending
     ? '<i class="ti ti-loader-2"></i> Sending'
     : '<i class="ti ti-send"></i> Send';

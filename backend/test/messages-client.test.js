@@ -109,6 +109,7 @@ function clientHarness() {
     state.activeThread = normalizeThread(${JSON.stringify(thread())});
     cacheElements();
     els.messageInput.value = 'Hello group';
+    setComposeEnabled(true);
     apiFetch = async (path, options) => {
       testHooks.requests.push({ path, options });
       return testHooks.request(path, options);
@@ -162,7 +163,7 @@ test('a sent message reloads from the selected conversation and leaves composer 
 
   assert.equal(client.run('els.messageInput.value'), '');
   assert.equal(client.run('els.messageInput.disabled'), false);
-  assert.equal(client.run('els.sendBtn.disabled'), false);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
   assert.equal(client.run('state.activeThread.messages[0].content'), 'Hello group');
   assert.deepEqual(client.hooks.requests.map(({ path: requestPath }) => requestPath), [
     '/messages/conversations/12/messages',
@@ -186,6 +187,56 @@ test('failed send preserves the exact draft and restores active composer', async
     '/messages/conversations/12/messages',
   ]);
   assert.deepEqual(client.hooks.toasts, ['Room unavailable']);
+});
+
+test('writable room enables typing but requires a non-whitespace draft to send', () => {
+  const client = clientHarness();
+  client.run(`
+    els.messageInput.value = '';
+    setComposeEnabled(true);
+  `);
+  assert.equal(client.run('els.messageInput.disabled'), false);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+
+  client.run(`
+    els.messageInput.value = '   ';
+    updateComposerState();
+  `);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+
+  client.run(`
+    els.messageInput.value = 'Ready to send';
+    updateComposerState();
+  `);
+  assert.equal(client.run('els.sendBtn.disabled'), false);
+});
+
+test('input events update Send without changing active-room writability', async () => {
+  const client = clientHarness();
+  client.run(`
+    bindEvents();
+    els.messageInput.value = '';
+    setComposeEnabled(true);
+  `);
+  await client.elements.get('message-input').listeners.get('input')[0]({});
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+
+  client.run("els.messageInput.value = 'New draft'");
+  await client.elements.get('message-input').listeners.get('input')[0]({});
+  assert.equal(client.run('els.sendBtn.disabled'), false);
+});
+
+test('archived rooms cannot enable Send through draft input', () => {
+  const client = clientHarness();
+  client.run(`
+    state.activeThread.conversation.status = 'archived';
+    state.activeThread.conversation.can_send = false;
+    els.messageInput.value = 'Blocked draft';
+    setComposeEnabled(false);
+    updateComposerState();
+  `);
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
 });
 
 test('refresh is blocked during send while the send reconciliation applies an archived summary', async () => {

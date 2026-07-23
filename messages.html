@@ -364,10 +364,12 @@
     min-height: 0;
     overflow: hidden;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     background: #FFFFFF;
   }
   .thread-header {
+    min-width: 0;
     min-height: 72px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -432,6 +434,7 @@
   }
 
   .message-list {
+    min-width: 0;
     padding: 20px 18px;
     min-height: 0;
     overflow-y: auto;
@@ -452,6 +455,7 @@
     padding: 10px 12px;
     line-height: 1.45;
     word-wrap: break-word;
+    overflow-wrap: anywhere;
   }
   .message-row.mine .message-bubble {
     background: var(--primary);
@@ -466,6 +470,7 @@
   .message-row.mine .message-meta { color: rgba(255,255,255,0.72); }
 
   .composer-zone {
+    min-width: 0;
     border-top: 1px solid var(--border);
     background: var(--bg-card);
   }
@@ -480,13 +485,16 @@
     line-height: 1.45;
   }
   .compose-form {
+    min-width: 0;
     padding: 14px;
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     background: transparent;
   }
   .compose-input {
+    width: 100%;
+    min-width: 0;
     min-height: 44px;
     max-height: 130px;
     resize: vertical;
@@ -540,7 +548,7 @@
     .messaging-shell {
       height: auto;
       min-height: 0;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
     .conversation-panel {
       max-height: 330px;
@@ -590,7 +598,7 @@
           <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
         </button>
         <div class="role-dropdown" role="menu">
-          <button class="role-option" id="messages-signout" type="button" onclick="signOut()" role="menuitem">
+          <button class="role-option" id="messages-signout" type="button" onclick="signOutMessages()" role="menuitem">
             <span class="role-option-avatar" style="background:#EF4444;"><i class="ti ti-logout"></i></span>
             <span class="role-option-name">Sign out</span>
           </button>

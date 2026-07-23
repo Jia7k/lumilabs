@@ -21,7 +21,8 @@ test('messages page uses the shared authenticated API client without global coll
   );
   assert.equal(apiScript[1], messagesScript[1], 'message scripts must share one release cache key');
   assert.ok(apiScript.index < messagesScript.index, 'js/api.js must load before js/messages.js');
-  assert.match(html, /onclick="signOut\(\)"/);
+  assert.match(html, /onclick="signOutMessages\(\)"/);
+  assert.doesNotMatch(html, /id="messages-signout"[^>]*onclick="signOut\(\)"/);
   assert.doesNotMatch(source, /const API_BASE/);
   assert.doesNotMatch(source, /function apiFetch\s*\(/);
   assert.doesNotMatch(source, /function getAuthToken\s*\(/);
