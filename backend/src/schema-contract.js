@@ -386,7 +386,8 @@ function outerParenthesesEnclose(value) {
 }
 
 function normalizeGenerationExpression(value) {
-  let normalized = normalizeSqlText(value, { removeBackticks: true });
+  const metadataExpression = String(value ?? '').replace(/\\'/g, "'");
+  let normalized = normalizeSqlText(metadataExpression, { removeBackticks: true });
   while (outerParenthesesEnclose(normalized)) {
     normalized = normalized.slice(1, -1);
   }

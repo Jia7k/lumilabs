@@ -197,6 +197,15 @@ test('accepts equivalent metadata representations', async () => {
   assert.equal(await verifyMetadata(metadata), true);
 });
 
+test('accepts MySQL backslash-escaped generated-expression quotes', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  row(metadata, 'conversation_members', 'singleton_role').generation_expression =
+    "(case when (`member_role` in (_utf8mb4\\'relationship_manager\\',"
+      + "_utf8mb4\\'business_owner\\')) then `member_role` else NULL end)";
+
+  assert.equal(await verifyMetadata(metadata), true);
+});
+
 test('requires every primary and business-unique index structurally', async () => {
   await expectInvariant((metadata) => {
     metadata.indexes = metadata.indexes.filter((candidate) => (
