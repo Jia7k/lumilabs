@@ -34,6 +34,11 @@ let currentUser = null;
 let currentQueue = [];
 let relationshipManagers = [];
 let activeReviewId = null; // portfolio id currently open in the review modal
+let currentStats = null;
+let hasModerationSnapshot = false;
+let hasManagerSnapshot = false;
+let moderationRequestVersion = 0;
+let managerRequestVersion = 0;
 
 function setRmFieldError(inputId, message) {
   const input = document.getElementById(inputId);
@@ -48,15 +53,15 @@ function setRmFormMessage(message, type = "") {
   element.className = message ? `form-message show ${type}` : "form-message";
 }
 
-function renderRelationshipManagers() {
+function renderRelationshipManagers(managers = relationshipManagers) {
   const list = document.getElementById("rm-account-list");
   document.getElementById("rm-account-count").textContent =
-    `${relationshipManagers.length} ${relationshipManagers.length === 1 ? "account" : "accounts"}`;
-  if (!relationshipManagers.length) {
+    `${managers.length} ${managers.length === 1 ? "account" : "accounts"}`;
+  if (!managers.length) {
     list.innerHTML = '<tr class="rm-empty-row"><td colspan="3">No relationship manager accounts yet.</td></tr>';
     return;
   }
-  list.innerHTML = relationshipManagers.map((manager) => {
+  list.innerHTML = managers.map((manager) => {
     const created = manager.created_at
       ? new Date(manager.created_at).toLocaleDateString("en-SG", {
         day: "numeric", month: "short", year: "numeric"
@@ -72,6 +77,107 @@ function renderRelationshipManagers() {
         <td>${escapeHtml(created)}</td>
       </tr>`;
   }).join("");
+}
+
+function setSectionStatus(statusId, retryId, message, {
+  type = "",
+  retryable = false,
+  loading = false,
+} = {}) {
+  const status = document.getElementById(statusId);
+  const retry = document.getElementById(retryId);
+  if (status) {
+    status.textContent = message;
+    status.className = `dashboard-status admin-dashboard-status${type ? ` ${type}` : ""}`;
+    status.hidden = !message;
+  }
+  if (retry) {
+    retry.hidden = !retryable;
+    retry.disabled = loading;
+  }
+}
+
+function renderStats(stats) {
+  const values = stats
+    ? {
+        "nav-pending-badge": stats.pending,
+        "stat-pending": stats.pending,
+        "stat-approved": stats.approved,
+        "stat-rejected": stats.rejected,
+        "stat-matches": stats.total_matches,
+        "queue-badge": `${stats.pending} pending`,
+      }
+    : {
+        "nav-pending-badge": "",
+        "stat-pending": "—",
+        "stat-approved": "—",
+        "stat-rejected": "—",
+        "stat-matches": "—",
+        "queue-badge": "Unavailable",
+      };
+
+  for (const [id, value] of Object.entries(values)) {
+    document.getElementById(id).innerText = value;
+  }
+}
+
+function queueStateRow(message, type = "") {
+  return `<tr class="admin-row-state${type ? ` ${type}` : ""}"><td colspan="6">${escapeHtml(message)}</td></tr>`;
+}
+
+function renderQueue(queue, { reviewDisabled = false } = {}) {
+  const tbody = document.getElementById("queue-list");
+  if (!queue.length) {
+    tbody.innerHTML = queueStateRow("No portfolios are waiting for review.");
+    return;
+  }
+
+  tbody.innerHTML = queue.map((p) => {
+    const submitted = formatSubmitted(p.submitted_at);
+    return `
+      <tr>
+        <td>
+          <div class="startup-cell">
+            <div class="startup-icon"><i class="ti ti-building"></i></div>
+            <div>
+              <div class="startup-name">${escapeHtml(p.name)}</div>
+              <div class="startup-owner">${escapeHtml(p.owner_name)}</div>
+            </div>
+          </div>
+        </td>
+        <td>${escapeHtml(p.sector)}</td>
+        <td>
+          <div>${submitted.date}</div>
+          <div style="color: var(--text-secondary); font-size: 12px;">${submitted.time}</div>
+        </td>
+        <td>
+          <div class="status-wrapper">
+            <span class="badge-yellow">Pending Review</span>
+            <i class="ti ti-alert-triangle" style="color: var(--amber-text)"></i>
+          </div>
+        </td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="score-circle" style="--score:${Number(p.readiness_score) || 0};"><span>${escapeHtml(p.readiness_score ?? 0)}</span></div>
+            ${isScoreStale(p) ? '<i class="ti ti-alert-triangle" style="color:#F59E0B;font-size:15px;" title="Score may be outdated — new readiness fields are empty"></i>' : ""}
+          </div>
+        </td>
+        <td>
+          <button class="btn-review"
+                  data-portfolio-id="${escapeHtml(p.id)}"
+                  onclick="openReviewModal(${Number(p.id)})"
+                  type="button"
+                  ${reviewDisabled ? "disabled" : ""}>
+            <i class="ti ti-eye"></i> Review
+          </button>
+        </td>
+      </tr>`;
+  }).join("");
+}
+
+function renderModerationSnapshot(stats, queue, options = {}) {
+  renderStats(stats);
+  renderQueue(queue, options);
 }
 
 function bindRelationshipManagerForm() {
@@ -142,66 +248,123 @@ async function initAdmin() {
   document.getElementById("page-subtitle").innerText = "Review and manage startup portfolios";
 
   bindRelationshipManagerForm();
+  document.getElementById("moderation-retry-btn")
+    ?.addEventListener("click", () => loadModeration());
+  document.getElementById("manager-directory-retry-btn")
+    ?.addEventListener("click", () => loadManagerDirectory());
   await renderAdmin();
 }
 
-async function renderAdmin() {
-  let stats;
-  try {
-    [stats, currentQueue, relationshipManagers] = await Promise.all([
-      API.getStats(),
-      API.getQueue(),
-      API.getRelationshipManagers(),
-    ]);
-  } catch (err) {
-    alert("Couldn't load dashboard data: " + err.message);
-    return;
+async function loadModeration({
+  successMessage = "",
+  failureMessage = "Couldn't load moderation data. Try again.",
+} = {}) {
+  const requestVersion = ++moderationRequestVersion;
+  const hadSnapshot = hasModerationSnapshot;
+  setSectionStatus(
+    "moderation-status",
+    "moderation-retry-btn",
+    hadSnapshot ? "Refreshing moderation data…" : "Loading moderation data…",
+    { type: "loading", loading: true },
+  );
+  if (hadSnapshot) {
+    renderModerationSnapshot(currentStats, currentQueue, { reviewDisabled: true });
+  } else {
+    renderStats(null);
+    document.getElementById("queue-list").innerHTML = queueStateRow("Loading portfolios…");
   }
 
-  document.getElementById("nav-pending-badge").innerText = stats.pending;
-  document.getElementById("stat-pending").innerText = stats.pending;
-  document.getElementById("stat-approved").innerText = stats.approved;
-  document.getElementById("stat-rejected").innerText = stats.rejected;
-  document.getElementById("stat-matches").innerText = stats.total_matches;
-  document.getElementById("queue-badge").innerText = `${stats.pending} pending`;
-  renderRelationshipManagers();
+  try {
+    const [nextStats, nextQueue] = await Promise.all([API.getStats(), API.getQueue()]);
+    if (requestVersion !== moderationRequestVersion) return false;
+    if (!nextStats || typeof nextStats !== "object" || !Array.isArray(nextQueue)) {
+      throw new Error("Invalid moderation response");
+    }
+    currentStats = nextStats;
+    currentQueue = nextQueue;
+    hasModerationSnapshot = true;
+    renderModerationSnapshot(currentStats, currentQueue);
+    setSectionStatus(
+      "moderation-status",
+      "moderation-retry-btn",
+      successMessage,
+      { type: successMessage ? "success" : "" },
+    );
+    return true;
+  } catch (error) {
+    if (requestVersion !== moderationRequestVersion) return false;
+    if (hadSnapshot) {
+      renderModerationSnapshot(currentStats, currentQueue, { reviewDisabled: true });
+      setSectionStatus(
+        "moderation-status",
+        "moderation-retry-btn",
+        `${failureMessage} Showing the last loaded data.`,
+        { type: "stale", retryable: true },
+      );
+    } else {
+      renderStats(null);
+      document.getElementById("queue-list").innerHTML =
+        queueStateRow("Couldn't load the moderation queue.", "error");
+      setSectionStatus(
+        "moderation-status",
+        "moderation-retry-btn",
+        failureMessage,
+        { type: "error", retryable: true },
+      );
+    }
+    return false;
+  }
+}
 
-  const tbody = document.getElementById("queue-list");
-  tbody.innerHTML = "";
-  currentQueue.forEach(p => {
-    const submitted = formatSubmitted(p.submitted_at);
-    tbody.innerHTML += `
-      <tr>
-        <td>
-          <div class="startup-cell">
-            <div class="startup-icon"><i class="ti ti-building"></i></div>
-            <div>
-              <div class="startup-name">${escapeHtml(p.name)}</div>
-              <div class="startup-owner">${escapeHtml(p.owner_name)}</div>
-            </div>
-          </div>
-        </td>
-        <td>${escapeHtml(p.sector)}</td>
-        <td>
-          <div>${submitted.date}</div>
-          <div style="color: var(--text-secondary); font-size: 12px;">${submitted.time}</div>
-        </td>
-        <td>
-          <div class="status-wrapper">
-            <span class="badge-yellow">Pending Review</span>
-            <i class="ti ti-alert-triangle" style="color: var(--amber-text)"></i>
-          </div>
-        </td>
-        <td>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div class="score-circle" style="--score:${p.readiness_score};"><span>${p.readiness_score}</span></div>
-            ${isScoreStale(p) ? `<i class="ti ti-alert-triangle" style="color:#F59E0B;font-size:15px;" title="Score may be outdated — new readiness fields are empty"></i>` : ""}
-          </div>
-        </td>
-        <td><button class="btn-review" onclick="openReviewModal(${p.id})"><i class="ti ti-eye"></i> Review</button></td>
-      </tr>
-    `;
-  });
+async function loadManagerDirectory({
+  successMessage = "",
+  failureMessage = "Couldn't load the manager directory. Try again.",
+} = {}) {
+  const requestVersion = ++managerRequestVersion;
+  const hadSnapshot = hasManagerSnapshot;
+  setSectionStatus(
+    "manager-directory-status",
+    "manager-directory-retry-btn",
+    hadSnapshot ? "Refreshing manager directory…" : "Loading manager directory…",
+    { type: "loading", loading: true },
+  );
+  if (!hadSnapshot) {
+    document.getElementById("rm-account-list").innerHTML =
+      '<tr class="rm-empty-row"><td colspan="3">Loading manager accounts…</td></tr>';
+  }
+
+  try {
+    const managers = await API.getRelationshipManagers();
+    if (requestVersion !== managerRequestVersion) return false;
+    if (!Array.isArray(managers)) throw new Error("Invalid manager response");
+    relationshipManagers = managers;
+    hasManagerSnapshot = true;
+    renderRelationshipManagers(relationshipManagers);
+    setSectionStatus(
+      "manager-directory-status",
+      "manager-directory-retry-btn",
+      successMessage,
+      { type: successMessage ? "success" : "" },
+    );
+    return true;
+  } catch (error) {
+    if (requestVersion !== managerRequestVersion) return false;
+    if (!hadSnapshot) {
+      document.getElementById("rm-account-list").innerHTML =
+        '<tr class="rm-empty-row"><td colspan="3">Manager directory unavailable.</td></tr>';
+    }
+    setSectionStatus(
+      "manager-directory-status",
+      "manager-directory-retry-btn",
+      hadSnapshot ? `${failureMessage} Showing the last loaded directory.` : failureMessage,
+      { type: hadSnapshot ? "stale" : "error", retryable: true },
+    );
+    return false;
+  }
+}
+
+async function renderAdmin() {
+  await Promise.allSettled([loadModeration(), loadManagerDirectory()]);
 }
 
 async function openReviewModal(id) {
