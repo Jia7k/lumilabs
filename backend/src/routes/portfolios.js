@@ -10,6 +10,16 @@ const {
   saveUploadedDocuments,
 } = require('../services/document-workflow');
 const { submitPortfolio, updatePortfolioDetails } = require('../services/workflow');
+const {
+  CANONICAL_SECTORS,
+  MVP_STATUSES,
+  DB_LIMITS,
+  hasMaxCharacters,
+  hasMaxUtf8Bytes,
+  isBoundedInteger,
+  isBoundedDecimal,
+  isAbsoluteHttpUrl,
+} = require('../validation/database-boundaries');
 
 const router = express.Router();
 
@@ -74,18 +84,149 @@ async function relationshipManagerCanAccessPortfolio(userId, portfolioId) {
   return rows.length === 1;
 }
 
-const optFloat = (min = 0) => (v) => {
-  if (v == null || v === '') return true;
-  const n = Number(v);
-  if (!isNaN(n) && n >= min) return true;
-  throw new Error(`Must be a number >= ${min}`);
-};
-const optInt = (min = 0, max) => (v) => {
-  if (v == null || v === '') return true;
-  const n = Number(v);
-  if (Number.isInteger(n) && n >= min && (max == null || n <= max)) return true;
-  throw new Error(`Must be an integer >= ${min}`);
-};
+function requiredText(field, label, maxCharacters) {
+  return body(field)
+    .isString().withMessage(`${label} must be a string`)
+    .bail()
+    .trim()
+    .notEmpty().withMessage(`${label} is required`)
+    .bail()
+    .custom((value) => hasMaxCharacters(value, maxCharacters))
+    .withMessage(`${label} must be at most ${maxCharacters} characters`);
+}
+
+function optionalText(field, label, maxCharacters, { httpUrl = false } = {}) {
+  return body(field)
+    .optional({ values: 'undefined' })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value !== 'string') {
+        throw new Error(`${label} must be a string`);
+      }
+      if (!hasMaxCharacters(value, maxCharacters)) {
+        throw new Error(`${label} must be at most ${maxCharacters} characters`);
+      }
+      if (httpUrl && !isAbsoluteHttpUrl(value)) {
+        throw new Error(`${label} must be an absolute HTTP(S) URL`);
+      }
+      return true;
+    })
+    .trim();
+}
+
+function optionalDatabaseText(field, label) {
+  return body(field)
+    .optional({ values: 'undefined' })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value !== 'string') {
+        throw new Error(`${label} must be a string`);
+      }
+      if (!hasMaxUtf8Bytes(value, DB_LIMITS.TEXT_BYTES)) {
+        throw new Error(`${label} exceeds the database text limit`);
+      }
+      return true;
+    });
+}
+
+function decimalValidation(field, label, maximum, { optional = true } = {}) {
+  let validator = body(field);
+  if (optional) validator = validator.optional({ values: 'undefined' });
+  return validator
+    .custom((value) => isBoundedDecimal(value, {
+      min: '0',
+      max: maximum,
+      scale: 2,
+    }))
+    .withMessage(`${label} must be a non-negative decimal within the database limit`);
+}
+
+function integerValidation(field, label, minimum, maximum) {
+  return body(field)
+    .optional({ values: 'undefined' })
+    .custom((value) => isBoundedInteger(value, {
+      min: minimum,
+      max: maximum,
+    }))
+    .withMessage(`${label} must be a whole number within the database limit`);
+}
+
+function requiredChoice(field, label, choices) {
+  return body(field)
+    .isString().withMessage(`${label} must be a string`)
+    .bail()
+    .trim()
+    .notEmpty().withMessage(`${label} is required`)
+    .bail()
+    .isIn(choices).withMessage(`${label} is invalid`);
+}
+
+function optionalChoice(field, label, choices) {
+  return body(field)
+    .optional({ values: 'undefined' })
+    .isString().withMessage(`${label} must be a string`)
+    .bail()
+    .trim()
+    .notEmpty().withMessage(`${label} cannot be blank`)
+    .bail()
+    .isIn(choices).withMessage(`${label} is invalid`);
+}
+
+const portfolioCreateValidation = [
+  requiredText('name', 'Name', DB_LIMITS.PORTFOLIO_NAME_CHARS),
+  requiredChoice('sector', 'Sector', CANONICAL_SECTORS),
+  requiredChoice('mvp_status', 'MVP status', MVP_STATUSES),
+  optionalDatabaseText('description', 'Description'),
+  decimalValidation(
+    'funding_goal',
+    'Funding goal',
+    DB_LIMITS.DECIMAL_15_2_MAX,
+    { optional: false },
+  ),
+  integerValidation('team_size', 'Team size', 0, DB_LIMITS.SIGNED_INT_MAX),
+  integerValidation(
+    'founded_year',
+    'Founded year',
+    DB_LIMITS.YEAR_MIN,
+    DB_LIMITS.YEAR_MAX,
+  ),
+  optionalText('location', 'Location', DB_LIMITS.LOCATION_CHARS),
+  optionalText('website', 'Website', DB_LIMITS.WEBSITE_CHARS, { httpUrl: true }),
+  decimalValidation('monthly_revenue', 'Monthly revenue', DB_LIMITS.DECIMAL_15_2_MAX),
+  integerValidation('user_count', 'User count', 0, DB_LIMITS.SIGNED_INT_MAX),
+  decimalValidation('growth_rate', 'Growth rate', DB_LIMITS.DECIMAL_5_2_MAX),
+  optionalText('market_size', 'Market size', DB_LIMITS.MARKET_SIZE_CHARS),
+  optionalDatabaseText('competitor_analysis', 'Competitor analysis'),
+  optionalText('advisor_names', 'Advisor names', DB_LIMITS.ADVISOR_NAMES_CHARS),
+  decimalValidation('burn_rate', 'Burn rate', DB_LIMITS.DECIMAL_15_2_MAX),
+  integerValidation('runway_months', 'Runway months', 0, DB_LIMITS.SIGNED_INT_MAX),
+];
+
+const portfolioUpdateValidation = [
+  requiredText('name', 'Name', DB_LIMITS.PORTFOLIO_NAME_CHARS)
+    .optional({ values: 'undefined' }),
+  optionalChoice('sector', 'Sector', CANONICAL_SECTORS),
+  optionalChoice('mvp_status', 'MVP status', MVP_STATUSES),
+  optionalDatabaseText('description', 'Description'),
+  decimalValidation('funding_goal', 'Funding goal', DB_LIMITS.DECIMAL_15_2_MAX),
+  integerValidation('team_size', 'Team size', 0, DB_LIMITS.SIGNED_INT_MAX),
+  integerValidation(
+    'founded_year',
+    'Founded year',
+    DB_LIMITS.YEAR_MIN,
+    DB_LIMITS.YEAR_MAX,
+  ),
+  optionalText('location', 'Location', DB_LIMITS.LOCATION_CHARS),
+  optionalText('website', 'Website', DB_LIMITS.WEBSITE_CHARS, { httpUrl: true }),
+  decimalValidation('monthly_revenue', 'Monthly revenue', DB_LIMITS.DECIMAL_15_2_MAX),
+  integerValidation('user_count', 'User count', 0, DB_LIMITS.SIGNED_INT_MAX),
+  decimalValidation('growth_rate', 'Growth rate', DB_LIMITS.DECIMAL_5_2_MAX),
+  optionalText('market_size', 'Market size', DB_LIMITS.MARKET_SIZE_CHARS),
+  optionalDatabaseText('competitor_analysis', 'Competitor analysis'),
+  optionalText('advisor_names', 'Advisor names', DB_LIMITS.ADVISOR_NAMES_CHARS),
+  decimalValidation('burn_rate', 'Burn rate', DB_LIMITS.DECIMAL_15_2_MAX),
+  integerValidation('runway_months', 'Runway months', 0, DB_LIMITS.SIGNED_INT_MAX),
+];
 
 // Readiness score based on Village Capital / SICouncil methodology
 // Dimensions: Team (25) + Traction (25) + Market (20) + Product (15) + Financials (15) = 100
@@ -280,32 +421,14 @@ router.post(
   '/',
   authenticate,
   requireRole('business_owner'),
-  [
-    body('name').trim().notEmpty(),
-    body('sector').trim().notEmpty(),
-    body('mvp_status').isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
-    body('description').optional().trim(),
-    body('funding_goal').custom(optFloat(0)),
-    body('team_size').custom(optInt(0)),
-    body('founded_year').custom(optInt(1900, 2100)),
-    body('location').optional().trim(),
-    body('website').optional().trim(),
-    body('monthly_revenue').custom(optFloat(0)),
-    body('user_count').custom(optInt(0)),
-    body('growth_rate').custom(optFloat(0)),
-    body('market_size').optional().trim(),
-    body('competitor_analysis').optional().trim(),
-    body('advisor_names').optional().trim(),
-    body('burn_rate').custom(optFloat(0)),
-    body('runway_months').custom(optInt(0)),
-  ],
+  portfolioCreateValidation,
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const {
       name, sector, mvp_status,
-      description = '', funding_goal = 0,
+      description = '', funding_goal,
       team_size = null, founded_year = null, location = null, website = null,
       monthly_revenue = null, user_count = null, growth_rate = null,
       market_size = null, competitor_analysis = null, advisor_names = null,
@@ -341,25 +464,7 @@ router.put(
   '/:id',
   authenticate,
   requireRole('business_owner'),
-  [
-    body('name').optional().trim().notEmpty(),
-    body('sector').optional().trim().notEmpty(),
-    body('mvp_status').optional().isIn(['Idea', 'Prototype', 'Beta', 'Launched']),
-    body('description').optional().trim(),
-    body('funding_goal').custom(optFloat(0)),
-    body('team_size').custom(optInt(0)),
-    body('founded_year').custom(optInt(1900, 2100)),
-    body('location').optional().trim(),
-    body('website').optional().trim(),
-    body('monthly_revenue').custom(optFloat(0)),
-    body('user_count').custom(optInt(0)),
-    body('growth_rate').custom(optFloat(0)),
-    body('market_size').optional().trim(),
-    body('competitor_analysis').optional().trim(),
-    body('advisor_names').optional().trim(),
-    body('burn_rate').custom(optFloat(0)),
-    body('runway_months').custom(optInt(0)),
-  ],
+  portfolioUpdateValidation,
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
