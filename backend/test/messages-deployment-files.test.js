@@ -37,6 +37,7 @@ const expectedRuntimeFiles = [
   'backend/package-lock.json',
   'backend/scripts/live-four-role-smoke.js',
   'backend/src/schema-contract.js',
+  'backend/src/validation/database-boundaries.js',
   'backend/src/config/db.js',
   'backend/src/middleware/auth.js',
   'backend/src/middleware/upload.js',
