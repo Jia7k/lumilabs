@@ -299,9 +299,6 @@ test('administrator dashboard exposes recoverable sections and synchronized asse
     html,
     /id=["']review-card["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["'][^>]*tabindex=["']-1["']/,
   );
-  assert.match(html, /href=["']css\/style\.css\?v=20260723\.4["']/);
-  assert.match(html, /src=["']js\/api\.js\?v=20260723\.4["']/);
-  assert.match(html, /src=["']js\/moderatordashboard\.js\?v=20260723\.4["']/);
   assert.match(css, /\.admin-retry-btn\[hidden\][^{]*\{[^}]*display:\s*none/s);
   assert.match(css, /\.admin-dashboard-status\.stale/);
   assert.match(css, /\.admin-row-state/);
@@ -315,9 +312,9 @@ test('administrator queue Review uses delegated data attributes without inline c
   assert.doesNotMatch(client, /onclick=["']openReviewModal/);
 });
 
-test('investor pages use the exact pinned Tabler dist stylesheet', () => {
+test('every Tabler page uses the exact pinned dist stylesheet', () => {
   const expected = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css';
-  for (const page of ['browse.html', 'investordashboard.html', 'my-interests.html']) {
+  for (const page of pages.filter((name) => /ti ti-/.test(read(name)))) {
     const source = read(page);
     const urls = [...source.matchAll(/<link[^>]+href=["']([^"']*tabler-icons[^"']*)["']/g)]
       .map((match) => match[1]);
@@ -326,26 +323,35 @@ test('investor pages use the exact pinned Tabler dist stylesheet', () => {
   }
 });
 
-test('confirmed QA pages cache-key every changed frontend asset', () => {
-  assert.match(
-    read('businessownerdashboard.html'),
-    /href=["']css\/style\.css\?v=20260723\.3["']/,
-  );
-  assert.match(
-    read('browse.html'),
-    /src=["']js\/browse\.js\?v=20260723\.3["']/,
-  );
-  assert.match(
-    read('mybusinesses.html'),
-    /src=["']js\/mybusinesses\.js\?v=20260723\.3["']/,
-  );
+test('changed shared-client pages use one coherent frontend release key', () => {
+  const releaseKey = '20260723.5';
+  const changedSharedClientPages = [
+    'audit-logs.html',
+    'browse.html',
+    'businessownerdashboard.html',
+    'createportfolio.html',
+    'investordashboard.html',
+    'messages.html',
+    'moderatordashboard.html',
+    'my-interests.html',
+    'mybusinesses.html',
+    'relationshipmanagerdashboard.html',
+    'index.html',
+    'signin.html',
+    'signup.html',
+  ];
 
-  const manager = read('relationshipmanagerdashboard.html');
-  assert.match(manager, /href=["']css\/style\.css\?v=20260723\.3["']/);
-  assert.match(
-    manager,
-    /src=["']js\/relationshipmanagerdashboard\.js\?v=20260723\.3["']/,
-  );
+  for (const page of changedSharedClientPages) {
+    const source = read(page);
+    const localAssets = [
+      ...source.matchAll(/<link[^>]+href=["']((?:css)\/[^"']+)["']/g),
+      ...source.matchAll(/<script[^>]+src=["']((?:js)\/[^"']+)["']/g),
+    ].map((match) => match[1]);
+    assert.ok(localAssets.length > 0, `${page}: no local assets found`);
+    for (const asset of localAssets) {
+      assert.match(asset, new RegExp(`\\?v=${releaseKey}$`), `${page}: ${asset}`);
+    }
+  }
 });
 
 test('browser JavaScript passes node syntax checking', () => {
