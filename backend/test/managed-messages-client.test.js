@@ -17,7 +17,7 @@ test('messages page uses the shared authenticated API client without global coll
   assert.ok(messagesScript, 'messages.html must load a cache-keyed js/messages.js');
   assert.match(
     source,
-    /const MESSAGES_API_SCRIPT_SRC = 'js\/api\.js\?v=20260723\.5';/,
+    /const MESSAGES_API_SCRIPT_SRC = 'js\/api\.js\?v=20260723\.6';/,
   );
   assert.equal(apiScript[1], messagesScript[1], 'message scripts must share one release cache key');
   assert.ok(apiScript.index < messagesScript.index, 'js/api.js must load before js/messages.js');

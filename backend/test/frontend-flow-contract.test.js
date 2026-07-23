@@ -324,7 +324,7 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260723.5';
+  const releaseKey = '20260723.6';
   const changedSharedClientPages = [
     'audit-logs.html',
     'browse.html',
@@ -377,11 +377,15 @@ test('shared protected pages collapse without widening the document', () => {
   assert.match(css, /\.table-scroll\s*\{[^}]*overflow-x:\s*auto/s);
   assert.match(
     css,
-    /@media \(max-width:\s*900px\)[\s\S]*?\.protected-page \.stats-grid\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+    /@media \(max-width:\s*900px\)[\s\S]*?body\.protected-page \.stats-grid\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
   );
   assert.match(
     css,
     /@media \(max-width:\s*699px\)[\s\S]*?\.protected-page \.nav\s*\{[^}]*flex-wrap:\s*wrap/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*699px\)[\s\S]*?body\.protected-page \.stats-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
     css,

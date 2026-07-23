@@ -111,7 +111,7 @@ test('an overlong multipart filename is rejected before storage or transaction',
   db.query = async (sql, params) => {
     queryCalls += 1;
     assert.match(sql, /SELECT \* FROM portfolios WHERE id = \? AND owner_id = \?/);
-    assert.deepEqual(params, ['12', 7]);
+    assert.deepEqual(params, [12, 7]);
     return [[{ id: 12, owner_id: 7, status: 'draft' }], []];
   };
   db.getConnection = async () => {

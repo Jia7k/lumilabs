@@ -2709,7 +2709,7 @@ body.audit .card {
 }
 
 @media (max-width: 900px) {
-  .protected-page .stats-grid {
+  body.protected-page .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2757,7 +2757,7 @@ body.audit .card {
     padding: 20px 16px 36px;
   }
 
-  .protected-page .stats-grid {
+  body.protected-page .stats-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
