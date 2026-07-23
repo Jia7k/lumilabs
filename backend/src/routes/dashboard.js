@@ -14,6 +14,7 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
         COUNT(*) AS total,
         SUM(status = 'approved') AS approved,
         SUM(status = 'pending') AS pending,
+        SUM(status = 'rejected') AS rejected,
         SUM(status = 'draft') AS draft,
         ROUND(AVG(readiness_score), 0) AS avg_readiness
        FROM portfolios WHERE owner_id = ?`,
@@ -94,6 +95,7 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
         total: portfolioStats.total || 0,
         approved: portfolioStats.approved || 0,
         pending: portfolioStats.pending || 0,
+        rejected: portfolioStats.rejected || 0,
         draft: portfolioStats.draft || 0,
       },
       investorInterests: interestStats.total || 0,

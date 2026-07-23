@@ -1003,7 +1003,7 @@ body.audit .card {
 
 .count-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -1019,6 +1019,10 @@ body.audit .card {
 
 .count-box.pending {
   background: var(--amber-bg);
+}
+
+.count-box.rejected {
+  background: var(--red-bg);
 }
 
 .count-box.draft {
@@ -1040,6 +1044,11 @@ body.audit .card {
 
 .count-box.pending .count-label {
   color: var(--amber-text);
+}
+
+.count-box.rejected .count-label,
+.count-box.rejected .count-num {
+  color: var(--red-text);
 }
 
 .count-box.draft .count-label {
@@ -1379,6 +1388,10 @@ body.audit .card {
 }
 
 @media (max-width: 720px) {
+  .count-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .biz-info-grid {
     grid-template-columns: repeat(2, 1fr);
   }

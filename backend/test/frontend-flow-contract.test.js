@@ -46,6 +46,34 @@ test('business dashboard escapes database strings before interpolation', () => {
   }
 });
 
+test('business dashboard displays rejected portfolios in both status summaries', () => {
+  const html = read('businessownerdashboard.html');
+  const css = read('css/style.css');
+
+  assert.match(
+    html,
+    /class=["']count-box rejected["'][\s\S]*?class=["']count-label["']>Rejected<[\s\S]*?id=["']count-rejected["']/,
+  );
+  assert.match(html, /data\.portfolios\.rejected\}\s+rejected/);
+  assert.match(
+    html,
+    /getElementById\(["']count-rejected["']\)\.innerText\s*=\s*data\.portfolios\.rejected/,
+  );
+  assert.match(
+    css,
+    /\.count-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*1fr\)/s,
+  );
+  assert.match(css, /\.count-box\.rejected\s*\{[^}]*var\(--red-bg\)/s);
+  assert.match(
+    css,
+    /\.count-box\.rejected \.count-(?:label|num)[\s\S]*var\(--red-text\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*720px\)[\s\S]*?\.count-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*1fr\)/,
+  );
+});
+
 test('owner and investor entry points use only server-provided managed chat state', () => {
   for (const file of [
     'businessownerdashboard.html', 'js/browse.js', 'js/my-interests.js',

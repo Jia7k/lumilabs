@@ -103,6 +103,10 @@
             <div class="count-label">Pending</div>
             <div class="count-num" id="count-pending"></div>
           </div>
+          <div class="count-box rejected">
+            <div class="count-label">Rejected</div>
+            <div class="count-num" id="count-rejected"></div>
+          </div>
           <div class="count-box draft">
             <div class="count-label">Draft</div>
             <div class="count-num" id="count-draft"></div>
@@ -190,7 +194,7 @@
       }
 
       document.getElementById("stat-total").innerText = data.portfolios.total;
-      document.getElementById("stat-breakdown").innerText = `${data.portfolios.approved} approved · ${data.portfolios.pending} pending · ${data.portfolios.draft} draft`;
+      document.getElementById("stat-breakdown").innerText = `${data.portfolios.approved} approved · ${data.portfolios.pending} pending · ${data.portfolios.rejected} rejected · ${data.portfolios.draft} draft`;
       document.getElementById("stat-interests").innerText = data.investorInterests;
       document.getElementById("stat-messages").innerText = data.messages.total;
       document.getElementById("stat-unread-label").innerText = data.messages.unread > 0 ? `${data.messages.unread} unread` : "";
@@ -198,6 +202,7 @@
 
       document.getElementById("count-approved").innerText = data.portfolios.approved;
       document.getElementById("count-pending").innerText = data.portfolios.pending;
+      document.getElementById("count-rejected").innerText = data.portfolios.rejected;
       document.getElementById("count-draft").innerText = data.portfolios.draft;
 
       document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.length
