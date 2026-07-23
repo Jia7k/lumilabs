@@ -4,13 +4,24 @@ const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { moderatePortfolio } = require('../services/workflow');
+const { DB_LIMITS } = require('../validation/database-boundaries');
 
 const router = express.Router();
 
 const relationshipManagerValidation = [
-  body('name').trim().isLength({ min: 1, max: 100 }),
-  body('email').isEmail().normalizeEmail().isLength({ max: 255 }),
-  body('password').isLength({ min: 6, max: 128 }),
+  body('name')
+    .isString().bail()
+    .trim()
+    .notEmpty().bail()
+    .isLength({ max: DB_LIMITS.USER_NAME_CHARS })
+    .withMessage('Name must be at most 100 characters'),
+  body('email')
+    .isString().bail()
+    .normalizeEmail()
+    .isLength({ max: DB_LIMITS.USER_EMAIL_CHARS })
+    .withMessage('Email must be at most 255 characters').bail()
+    .isEmail(),
+  body('password').isString().bail().isLength({ min: 6, max: 128 }),
 ];
 
 function safeValidationErrors(req) {

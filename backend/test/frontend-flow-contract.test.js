@@ -119,6 +119,20 @@ test('public registration exposes only owner and investor roles', () => {
   assert.doesNotMatch(registerRoute, /isIn\([^\n]*relationship_manager/);
 });
 
+test('signup and signin controls mirror user-column limits', () => {
+  const signup = read('signup.html');
+  const signin = read('signin.html');
+  for (const [source, id, max] of [
+    [signup, 'su-name', 100],
+    [signup, 'su-email', 255],
+    [signin, 'si-email', 255],
+  ]) {
+    const tag = elementTag(source, id);
+    assertAttribute(tag, 'required');
+    assertAttribute(tag, 'maxlength', max);
+  }
+});
+
 test('portfolio editor and Browse expose the same canonical sector order', () => {
   const expected = [
     'SaaS',

@@ -1,5 +1,9 @@
 const API_BASE = window.LUMILABS_API_BASE || '/api';
 
+const AUTH_LIMITS = Object.freeze({
+  NAME_CHARS: 100,
+  EMAIL_CHARS: 255,
+});
 
 const ROLE_MAP = {
   business_owner: { dashboard: 'businessownerdashboard.html' },
@@ -118,17 +122,25 @@ function initSignupPage() {
     const email = document.getElementById('su-email');
     const password = document.getElementById('su-password');
     const confirmPassword = document.getElementById('su-confirm-password');
+    const nameValue = name.value.trim();
+    const emailValue = email.value.trim();
 
     let valid = true;
 
     setFieldError(name.closest('.form-group'), document.getElementById('su-name-error'), '');
-    if (!name.value.trim()) {
+    if (!nameValue) {
       setFieldError(name.closest('.form-group'), document.getElementById('su-name-error'), 'Full name is required.');
+      valid = false;
+    } else if (Array.from(nameValue).length > AUTH_LIMITS.NAME_CHARS) {
+      setFieldError(name.closest('.form-group'), document.getElementById('su-name-error'), 'Full name must be at most 100 characters.');
       valid = false;
     }
 
     setFieldError(email.closest('.form-group'), document.getElementById('su-email-error'), '');
-    if (!isValidEmail(email.value.trim())) {
+    if (Array.from(emailValue).length > AUTH_LIMITS.EMAIL_CHARS) {
+      setFieldError(email.closest('.form-group'), document.getElementById('su-email-error'), 'Email must be at most 255 characters.');
+      valid = false;
+    } else if (!isValidEmail(emailValue)) {
       setFieldError(email.closest('.form-group'), document.getElementById('su-email-error'), 'Enter a valid email address.');
       valid = false;
     }
@@ -157,8 +169,8 @@ function initSignupPage() {
 
     try {
       const { token, user } = await apiPost('/auth/register', {
-        name: name.value.trim(),
-        email: email.value.trim(),
+        name: nameValue,
+        email: emailValue,
         password: password.value,
         role,
       });
@@ -190,11 +202,15 @@ function initSigninPage() {
 
     const email = document.getElementById('si-email');
     const password = document.getElementById('si-password');
+    const emailValue = email.value.trim();
 
     let valid = true;
 
     setFieldError(email.closest('.form-group'), document.getElementById('si-email-error'), '');
-    if (!isValidEmail(email.value.trim())) {
+    if (Array.from(emailValue).length > AUTH_LIMITS.EMAIL_CHARS) {
+      setFieldError(email.closest('.form-group'), document.getElementById('si-email-error'), 'Email must be at most 255 characters.');
+      valid = false;
+    } else if (!isValidEmail(emailValue)) {
       setFieldError(email.closest('.form-group'), document.getElementById('si-email-error'), 'Enter a valid email address.');
       valid = false;
     }
@@ -215,7 +231,7 @@ function initSigninPage() {
 
     try {
       const { token, user } = await apiPost('/auth/login', {
-        email: email.value.trim(),
+        email: emailValue,
         password: password.value,
       });
 

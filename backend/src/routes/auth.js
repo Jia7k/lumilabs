@@ -4,23 +4,52 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate } = require('../middleware/auth');
+const { DB_LIMITS } = require('../validation/database-boundaries');
 
 const router = express.Router();
+
+const emailValidation = () => (
+  body('email')
+    .isString().bail()
+    .normalizeEmail()
+    .isLength({ max: DB_LIMITS.USER_EMAIL_CHARS })
+    .withMessage('Email must be at most 255 characters').bail()
+    .isEmail()
+);
+
+const registrationValidation = [
+  emailValidation(),
+  body('password').isString().bail().isLength({ min: 6 }),
+  body('name')
+    .isString().bail()
+    .trim()
+    .notEmpty().bail()
+    .isLength({ max: DB_LIMITS.USER_NAME_CHARS })
+    .withMessage('Name must be at most 100 characters'),
+  body('role').isIn(['business_owner', 'investor']),
+];
+
+const loginValidation = [
+  emailValidation(),
+  body('password').isString().bail().notEmpty(),
+];
+
+function safeValidationErrors(req) {
+  return validationResult(req).array().map(({ type, msg, path, location }) => ({
+    type,
+    msg,
+    path,
+    location,
+  }));
+}
 
 // POST /api/auth/register
 router.post(
   '/register',
-  [
-    body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 6 }),
-    body('name').trim().notEmpty(),
-    body('role').isIn(['business_owner', 'investor']),
-  ],
+  registrationValidation,
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    const errors = safeValidationErrors(req);
+    if (errors.length) return res.status(400).json({ errors });
 
     const { email, password, name, role } = req.body;
 
@@ -53,15 +82,10 @@ router.post(
 // POST /api/auth/login
 router.post(
   '/login',
-  [
-    body('email').isEmail().normalizeEmail(),
-    body('password').notEmpty(),
-  ],
+  loginValidation,
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    const errors = safeValidationErrors(req);
+    if (errors.length) return res.status(400).json({ errors });
 
     const { email, password } = req.body;
 
