@@ -4,6 +4,31 @@ let isSaving = false;
 const ALLOWED_UPLOAD_EXTENSIONS = new Set(['pdf', 'ppt', 'pptx', 'doc', 'docx']);
 const MAX_UPLOAD_FILES = 5;
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const CANONICAL_SECTORS = Object.freeze([
+  'SaaS',
+  'Fintech',
+  'Healthtech',
+  'Edtech',
+  'AI / ML',
+  'Clean Energy',
+  'E-commerce',
+  'Logistics',
+  'Other',
+]);
+const MVP_STATUSES = Object.freeze(['Idea', 'Prototype', 'Beta', 'Launched']);
+const PORTFOLIO_LIMITS = Object.freeze({
+  NAME_CHARS: 255,
+  LOCATION_CHARS: 255,
+  WEBSITE_CHARS: 500,
+  MARKET_SIZE_CHARS: 500,
+  ADVISOR_NAMES_CHARS: 500,
+  TEXT_BYTES: 65535,
+  SIGNED_INT_MAX: 2147483647,
+  YEAR_MIN: 1901,
+  YEAR_MAX: 2100,
+  DECIMAL_15_2_MAX: '9999999999999.99',
+  DECIMAL_5_2_MAX: '999.99',
+});
 const statusLabel = {
   draft: "Draft",
   pending: "Pending Review",
@@ -94,18 +119,71 @@ function inputValue(value) {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function parseIntegerOrNull(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const number = Number(text);
-  return Number.isSafeInteger(number) ? number : null;
+function utf8ByteLength(value) {
+  return new TextEncoder().encode(String(value)).length;
 }
 
-function parseDecimalOrNull(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const number = Number(text);
-  return Number.isFinite(number) ? number : null;
+function parseExactDecimal(value) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return null;
+  const source = String(value).trim();
+  if (!source) return null;
+  const match = source.match(
+    /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/,
+  );
+  if (!match) return null;
+  const exponent = Number(match[5] || 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 1000) return null;
+
+  const fraction = match[3] ?? match[4] ?? "";
+  let digits = `${match[2] ?? "0"}${fraction}`.replace(/^0+(?=\d)/, "");
+  let scale = fraction.length - exponent;
+  if (/^0+$/.test(digits)) return { integer: 0n, scale: 0 };
+  while (scale > 0 && digits.endsWith("0")) {
+    digits = digits.slice(0, -1);
+    scale -= 1;
+  }
+  if (scale < 0) {
+    digits += "0".repeat(-scale);
+    scale = 0;
+  }
+  return {
+    integer: (match[1] === "-" ? -1n : 1n) * BigInt(digits),
+    scale,
+  };
+}
+
+function integerAtScale(parsed, scale) {
+  if (!parsed || parsed.scale > scale) return null;
+  return parsed.integer * (10n ** BigInt(scale - parsed.scale));
+}
+
+function isBoundedDecimal(value, max, scale = 2) {
+  const parsed = integerAtScale(parseExactDecimal(value), scale);
+  const maximum = integerAtScale(parseExactDecimal(max), scale);
+  return parsed !== null && maximum !== null && parsed >= 0n && parsed <= maximum;
+}
+
+function isBoundedInteger(value, min, max) {
+  const parsed = parseExactDecimal(value);
+  return parsed !== null
+    && parsed.scale === 0
+    && parsed.integer >= BigInt(min)
+    && parsed.integer <= BigInt(max);
+}
+
+function hasMaxCharacters(value, max) {
+  return typeof value === "string" && Array.from(value).length <= max;
+}
+
+function isAbsoluteHttpUrl(value) {
+  if (typeof value !== "string" || !value) return false;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 function populatePortfolioForm(portfolio) {
@@ -134,25 +212,169 @@ function populatePortfolioForm(portfolio) {
 }
 
 function buildPortfolioPayload() {
-  return {
+  const payload = {
     name: document.getElementById("f-name").value.trim(),
     sector: document.getElementById("f-sector").value.trim(),
     mvp_status: document.getElementById("f-mvp_status").value.trim(),
-    funding_goal: parseDecimalOrNull(document.getElementById("f-funding_goal").value),
+    funding_goal: document.getElementById("f-funding_goal").value.trim(),
     description: document.getElementById("f-description").value.trim(),
-    team_size: parseIntegerOrNull(document.getElementById("f-team_size").value),
-    founded_year: parseIntegerOrNull(document.getElementById("f-founded_year").value),
     location: document.getElementById("f-location").value.trim(),
     website: document.getElementById("f-website").value.trim(),
     advisor_names: document.getElementById("f-advisor_names").value.trim(),
-    monthly_revenue: parseDecimalOrNull(document.getElementById("f-monthly_revenue").value),
-    user_count: parseIntegerOrNull(document.getElementById("f-user_count").value),
-    growth_rate: parseDecimalOrNull(document.getElementById("f-growth_rate").value),
     market_size: document.getElementById("f-market_size").value.trim(),
     competitor_analysis: document.getElementById("f-competitor_analysis").value.trim(),
-    burn_rate: parseDecimalOrNull(document.getElementById("f-burn_rate").value),
-    runway_months: parseIntegerOrNull(document.getElementById("f-runway_months").value),
   };
+  for (const [key, elementId] of [
+    ["team_size", "f-team_size"],
+    ["founded_year", "f-founded_year"],
+    ["monthly_revenue", "f-monthly_revenue"],
+    ["user_count", "f-user_count"],
+    ["growth_rate", "f-growth_rate"],
+    ["burn_rate", "f-burn_rate"],
+    ["runway_months", "f-runway_months"],
+  ]) {
+    const value = document.getElementById(elementId).value.trim();
+    if (value !== "") payload[key] = value;
+  }
+  return payload;
+}
+
+function validatePortfolioPayload(payload) {
+  if (!payload.name) {
+    return {
+      valid: false,
+      field: "f-name",
+      message: "Company Name is required.",
+    };
+  }
+  if (!hasMaxCharacters(payload.name, PORTFOLIO_LIMITS.NAME_CHARS)) {
+    return {
+      valid: false,
+      field: "f-name",
+      message: "Company Name must be at most 255 characters.",
+    };
+  }
+  if (!CANONICAL_SECTORS.includes(payload.sector)) {
+    return {
+      valid: false,
+      field: "f-sector",
+      message: "Industry must be selected from the available options.",
+    };
+  }
+  if (!MVP_STATUSES.includes(payload.mvp_status)) {
+    return {
+      valid: false,
+      field: "f-mvp_status",
+      message: "MVP Status must be selected from the available options.",
+    };
+  }
+  if (!isBoundedDecimal(
+    payload.funding_goal,
+    PORTFOLIO_LIMITS.DECIMAL_15_2_MAX,
+  )) {
+    return {
+      valid: false,
+      field: "f-funding_goal",
+      message: "Funding Goal must be between 0 and 9999999999999.99 with at most 2 decimal places.",
+    };
+  }
+
+  for (const [key, field, label] of [
+    ["team_size", "f-team_size", "Team Size"],
+    ["user_count", "f-user_count", "User Count"],
+    ["runway_months", "f-runway_months", "Runway Months"],
+  ]) {
+    if (
+      Object.hasOwn(payload, key)
+      && !isBoundedInteger(payload[key], 0, PORTFOLIO_LIMITS.SIGNED_INT_MAX)
+    ) {
+      return {
+        valid: false,
+        field,
+        message: `${label} must be a whole number between 0 and 2147483647.`,
+      };
+    }
+  }
+  if (
+    Object.hasOwn(payload, "founded_year")
+    && !isBoundedInteger(
+      payload.founded_year,
+      PORTFOLIO_LIMITS.YEAR_MIN,
+      PORTFOLIO_LIMITS.YEAR_MAX,
+    )
+  ) {
+    return {
+      valid: false,
+      field: "f-founded_year",
+      message: "Founded Year must be between 1901 and 2100.",
+    };
+  }
+  for (const [key, field, label] of [
+    ["monthly_revenue", "f-monthly_revenue", "Monthly Revenue"],
+    ["burn_rate", "f-burn_rate", "Monthly Burn Rate"],
+  ]) {
+    if (
+      Object.hasOwn(payload, key)
+      && !isBoundedDecimal(payload[key], PORTFOLIO_LIMITS.DECIMAL_15_2_MAX)
+    ) {
+      return {
+        valid: false,
+        field,
+        message: `${label} must be between 0 and 9999999999999.99 with at most 2 decimal places.`,
+      };
+    }
+  }
+  if (
+    Object.hasOwn(payload, "growth_rate")
+    && !isBoundedDecimal(
+      payload.growth_rate,
+      PORTFOLIO_LIMITS.DECIMAL_5_2_MAX,
+    )
+  ) {
+    return {
+      valid: false,
+      field: "f-growth_rate",
+      message: "Growth Rate must be between 0 and 999.99 with at most 2 decimal places.",
+    };
+  }
+
+  for (const [key, field, label, limit] of [
+    ["location", "f-location", "Location", PORTFOLIO_LIMITS.LOCATION_CHARS],
+    ["website", "f-website", "Website", PORTFOLIO_LIMITS.WEBSITE_CHARS],
+    ["advisor_names", "f-advisor_names", "Advisors", PORTFOLIO_LIMITS.ADVISOR_NAMES_CHARS],
+    ["market_size", "f-market_size", "Target Market Size", PORTFOLIO_LIMITS.MARKET_SIZE_CHARS],
+  ]) {
+    if (!hasMaxCharacters(payload[key], limit)) {
+      return {
+        valid: false,
+        field,
+        message: `${label} must be at most ${limit} characters.`,
+      };
+    }
+  }
+  if (payload.website && !isAbsoluteHttpUrl(payload.website)) {
+    return {
+      valid: false,
+      field: "f-website",
+      message: "Website must be a complete http:// or https:// URL.",
+    };
+  }
+  for (const [key, field, label] of [
+    ["description", "f-description", "Description"],
+    ["competitor_analysis", "f-competitor_analysis", "Competitor Analysis"],
+  ]) {
+    if (
+      typeof payload[key] !== "string"
+      || utf8ByteLength(payload[key]) > PORTFOLIO_LIMITS.TEXT_BYTES
+    ) {
+      return {
+        valid: false,
+        field,
+        message: `${label} must be at most 65,535 UTF-8 bytes.`,
+      };
+    }
+  }
+  return { valid: true };
 }
 
 async function init() {
@@ -218,38 +440,11 @@ async function submitForm(status) {
 
   try {
     const payload = buildPortfolioPayload();
-    const { name, sector, mvp_status, funding_goal, team_size, founded_year } = payload;
-
-    if (!name || !sector || !mvp_status || document.getElementById("f-funding_goal").value.trim() === "") {
-      alert("Please fill in all required fields (Company Name, Industry, MVP Status, Funding Goal).");
-      return;
-    }
-
-    if (funding_goal === null || funding_goal < 0) {
-      alert("Funding Goal must be zero or greater.");
-      return;
-    }
-
-    const invalidIntegerField = [
-      ["f-team_size", "team_size", "Team Size"],
-      ["f-founded_year", "founded_year", "Founded Year"],
-      ["f-user_count", "user_count", "User Count"],
-      ["f-runway_months", "runway_months", "Runway Months"],
-    ].find(([id, key]) => (
-      document.getElementById(id).value.trim() !== "" && payload[key] === null
-    ));
-    if (invalidIntegerField) {
-      alert(`${invalidIntegerField[2]} must be a whole number.`);
-      return;
-    }
-
-    if (team_size !== null && team_size < 0) {
-      alert("Team Size can't be negative.");
-      return;
-    }
-
-    if (founded_year !== null && (founded_year < 1900 || founded_year > 2100)) {
-      alert("Founded Year must be between 1900 and 2100.");
+    const validation = validatePortfolioPayload(payload);
+    if (!validation.valid) {
+      const field = document.getElementById(validation.field);
+      if (field && typeof field.focus === "function") field.focus();
+      alert(validation.message);
       return;
     }
 

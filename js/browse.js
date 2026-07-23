@@ -89,12 +89,12 @@ function setSort(mode) {
 
 function applyFilters() {
   const search = document.getElementById("search-input").value.toLowerCase();
-  const sector = document.getElementById("sector-filter").value.toLowerCase();
+  const sector = document.getElementById("sector-filter").value;
   const minScore = parseInt(document.getElementById("score-filter").value) || 0;
 
   let filtered = allPortfolios.filter(p => {
     const matchSearch = !search || p.name.toLowerCase().includes(search) || (p.owner_name || "").toLowerCase().includes(search);
-    const matchSector = !sector || p.sector.toLowerCase().includes(sector);
+    const matchSector = !sector || p.sector === sector;
     const matchScore = p.readiness_score >= minScore;
     return matchSearch && matchSector && matchScore;
   });

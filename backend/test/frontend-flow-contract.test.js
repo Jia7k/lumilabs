@@ -8,6 +8,31 @@ const root = path.join(__dirname, '..', '..');
 const pages = fs.readdirSync(root).filter((name) => name.endsWith('.html'));
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
+function elementTag(source, id) {
+  const match = source.match(
+    new RegExp(`<(?:input|textarea|select)\\b[^>]*\\bid=["']${id}["'][^>]*>`, 'i'),
+  );
+  assert.ok(match, `missing form control ${id}`);
+  return match[0];
+}
+
+function selectOptions(source, id) {
+  const match = source.match(
+    new RegExp(`<select\\b[^>]*\\bid=["']${id}["'][^>]*>([\\s\\S]*?)<\\/select>`, 'i'),
+  );
+  assert.ok(match, `missing select ${id}`);
+  return [...match[1].matchAll(/<option\b[^>]*>([\s\S]*?)<\/option>/gi)]
+    .map((option) => option[1].replace(/<[^>]+>/g, '').trim());
+}
+
+function assertAttribute(tag, name, value = true) {
+  if (value === true) {
+    assert.match(tag, new RegExp(`\\b${name}(?:\\s|=|\\/?>)`, 'i'));
+    return;
+  }
+  assert.match(tag, new RegExp(`\\b${name}=["']${String(value).replaceAll('.', '\\.')}["']`, 'i'));
+}
+
 test('every literal local html target exists', () => {
   for (const page of pages) {
     const source = read(page);
@@ -92,6 +117,74 @@ test('public registration exposes only owner and investor roles', () => {
   const registerRoute = read('backend/src/routes/auth.js').split('// POST /api/auth/login')[0];
   assert.match(registerRoute, /isIn\(\['business_owner', 'investor'\]\)/);
   assert.doesNotMatch(registerRoute, /isIn\([^\n]*relationship_manager/);
+});
+
+test('portfolio editor and Browse expose the same canonical sector order', () => {
+  const expected = [
+    'SaaS',
+    'Fintech',
+    'Healthtech',
+    'Edtech',
+    'AI / ML',
+    'Clean Energy',
+    'E-commerce',
+    'Logistics',
+    'Other',
+  ];
+  assert.deepEqual(
+    selectOptions(read('createportfolio.html'), 'f-sector').slice(1),
+    expected,
+  );
+  assert.deepEqual(
+    selectOptions(read('browse.html'), 'sector-filter').slice(1),
+    expected,
+  );
+});
+
+test('portfolio editor mirrors database-backed form limits', () => {
+  const html = read('createportfolio.html');
+  const constraints = {
+    'f-name': { required: true, maxlength: 255 },
+    'f-sector': { required: true },
+    'f-mvp_status': { required: true },
+    'f-funding_goal': {
+      required: true,
+      min: 0,
+      max: '9999999999999.99',
+      step: '0.01',
+    },
+    'f-description': { maxlength: 65535 },
+    'f-team_size': { min: 0, max: 2147483647, step: 1 },
+    'f-founded_year': { min: 1901, max: 2100, step: 1 },
+    'f-location': { maxlength: 255 },
+    'f-website': { maxlength: 500 },
+    'f-advisor_names': { maxlength: 500 },
+    'f-monthly_revenue': {
+      min: 0,
+      max: '9999999999999.99',
+      step: '0.01',
+    },
+    'f-user_count': { min: 0, max: 2147483647, step: 1 },
+    'f-growth_rate': { min: 0, max: '999.99', step: '0.01' },
+    'f-market_size': { maxlength: 500 },
+    'f-competitor_analysis': { maxlength: 65535 },
+    'f-burn_rate': {
+      min: 0,
+      max: '9999999999999.99',
+      step: '0.01',
+    },
+    'f-runway_months': { min: 0, max: 2147483647, step: 1 },
+  };
+  for (const [id, attributes] of Object.entries(constraints)) {
+    const tag = elementTag(html, id);
+    for (const [name, value] of Object.entries(attributes)) {
+      assertAttribute(tag, name, value);
+    }
+  }
+  assert.match(
+    html,
+    /Accepted: PDF, PPT, PPTX, DOC, and DOCX • Max size: 10MB/,
+  );
 });
 
 test('homepage offers four roles without public manager signup', () => {

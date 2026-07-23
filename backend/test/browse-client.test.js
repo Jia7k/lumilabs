@@ -6,14 +6,30 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'browse.js'), 'utf8');
 
-function browseHarness({ includeStatus = true, captureStatus = true } = {}) {
+function browseHarness({
+  includeStatus = true,
+  captureStatus = true,
+  captureFilters = true,
+} = {}) {
   const hooks = { calls: [], statuses: [], renders: 0 };
+  const elements = new Map();
   const context = vm.createContext({
     window: { location: { href: '' } },
     document: {
       getElementById(id) {
         if (id === 'browse-status' && !includeStatus) return null;
-        return { addEventListener() {} };
+        if (!elements.has(id)) {
+          elements.set(id, {
+            value: '',
+            innerHTML: '',
+            innerText: '',
+            hidden: false,
+            className: '',
+            addEventListener() {},
+            classList: { toggle() {}, add() {}, remove() {} },
+          });
+        }
+        return elements.get(id);
       },
       addEventListener() {},
     },
@@ -26,11 +42,16 @@ function browseHarness({ includeStatus = true, captureStatus = true } = {}) {
   });
   vm.runInContext(source, context);
   vm.runInContext(
-    `applyFilters = () => { hooks.renders += 1; };
+    `${captureFilters ? 'applyFilters = () => { hooks.renders += 1; };' : ''}
     ${captureStatus ? 'setBrowseStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });' : ''}`,
     context,
   );
-  return { context, hooks, run: (code) => vm.runInContext(code, context) };
+  return {
+    context,
+    elements,
+    hooks,
+    run: (code) => vm.runInContext(code, context),
+  };
 }
 
 test('new browse client tolerates a cached page without the status target', () => {
@@ -158,5 +179,30 @@ test('renderGrid supplies the reconciled current-investor state to chat guidance
   assert.deepEqual(
     JSON.parse(JSON.stringify(client.hooks.calls)),
     [[1, true], [2, false]],
+  );
+});
+
+test('sector filtering uses the exact database value instead of a substring', () => {
+  const client = browseHarness({ captureFilters: false });
+  client.run(`
+    document.getElementById('sector-filter').value = 'Fintech';
+    allPortfolios = [
+      {
+        id: 1, name: 'Exact', owner_name: 'Owner', sector: 'Fintech',
+        readiness_score: 50, created_at: '2026-01-01'
+      },
+      {
+        id: 2, name: 'Substring', owner_name: 'Owner', sector: 'Fintech Services',
+        readiness_score: 50, created_at: '2026-01-02'
+      }
+    ];
+    renderGrid = (portfolios) => {
+      hooks.filteredIds = portfolios.map(({ id }) => id);
+    };
+    applyFilters();
+  `);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(client.hooks.filteredIds)),
+    [1],
   );
 });
