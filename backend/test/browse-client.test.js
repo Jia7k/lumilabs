@@ -58,7 +58,7 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.listeners = new Map();
     this.focused = false;
-    this.scrolled = false;
+    this.scrollCalls = [];
   }
 
   addEventListener(type, handler) {
@@ -85,8 +85,8 @@ class FakeElement {
     this.focused = true;
   }
 
-  scrollIntoView() {
-    this.scrolled = true;
+  scrollIntoView(options) {
+    this.scrollCalls.push(options);
   }
 }
 
@@ -96,6 +96,7 @@ function browseHarness({
   captureStatus = true,
   captureRecommendationStatus = true,
   captureFilters = true,
+  locationSearch = '',
 } = {}) {
   const hooks = {
     calls: [],
@@ -106,7 +107,7 @@ function browseHarness({
   const elements = new Map();
   const documentListeners = new Map();
   const context = vm.createContext({
-    window: { location: { href: '' } },
+    window: { location: { href: '', search: locationSearch } },
     document: {
       getElementById(id) {
         if (id === 'browse-status' && !includeStatus) return null;
@@ -133,6 +134,7 @@ function browseHarness({
     },
     hooks,
     Object,
+    URLSearchParams,
   });
   vm.runInContext(source, context);
   vm.runInContext(
@@ -561,4 +563,93 @@ test('workspace and recommendation errors cannot overwrite each other', async ()
   `);
   await client.run('loadRecommendations({ supersede: true })');
   assert.match(client.elements.get('browse-status').innerHTML, /Existing workspace warning/);
+});
+
+test('requested portfolio IDs accept only positive safe whole numbers', () => {
+  const client = browseHarness();
+  for (const [raw, expected] of [
+    ['1', 1],
+    ['42', 42],
+    ['9007199254740991', Number.MAX_SAFE_INTEGER],
+    ['', null],
+    ['0', null],
+    ['-1', null],
+    ['1.5', null],
+    ['2e1', null],
+    ['01', null],
+    [' 2', null],
+    ['9007199254740992', null],
+  ]) {
+    client.context.requestedIdCandidate = raw;
+    assert.equal(
+      client.run('normalizeRequestedPortfolioId(requestedIdCandidate)'),
+      expected,
+      raw,
+    );
+  }
+});
+
+test('an authorized requested portfolio is highlighted and scrolled exactly once', () => {
+  const client = browseHarness({
+    captureFilters: false,
+    locationSearch: '?portfolioId=2',
+  });
+  client.run(`
+    detailCalls = 0;
+    API.getPortfolio = async () => { detailCalls += 1; };
+    allPortfolios = [
+      ${JSON.stringify(portfolio(1, 80, 'First'))},
+      ${JSON.stringify(portfolio(2, 70, 'Requested'))}
+    ];
+    renderGrid(allPortfolios);
+    renderGrid(allPortfolios);
+  `);
+
+  const requested = client.elements.get('card-2');
+  assert.equal(requested.classList.contains('startup-card--requested'), true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(requested.scrollCalls)),
+    [{ block: 'center', behavior: 'smooth' }],
+  );
+  assert.equal(client.run('detailCalls'), 0);
+  assert.equal(client.context.window.location.href, '');
+});
+
+test('missing, malformed, and unauthorized requested IDs are silent no-ops', () => {
+  for (const raw of [
+    null,
+    '',
+    'abc',
+    '0',
+    '-1',
+    '1.5',
+    '2e1',
+    '01',
+    '9007199254740992',
+    '99',
+  ]) {
+    const search = raw === null ? '' : `?portfolioId=${encodeURIComponent(raw)}`;
+    const client = browseHarness({
+      captureFilters: false,
+      locationSearch: search,
+    });
+    client.run(`
+      detailCalls = 0;
+      API.getPortfolio = async () => { detailCalls += 1; };
+      allPortfolios = [
+        ${JSON.stringify(portfolio(1, 80, 'First'))},
+        ${JSON.stringify(portfolio(2, 70, 'Second'))}
+      ];
+      renderGrid(allPortfolios);
+    `);
+
+    for (const element of client.elements.values()) {
+      assert.equal(element.classList.contains('startup-card--requested'), false, String(raw));
+      assert.equal(element.scrollCalls.length, 0, String(raw));
+    }
+    assert.match(client.elements.get('card-grid').innerHTML, /First/);
+    assert.match(client.elements.get('card-grid').innerHTML, /Second/);
+    assert.equal(client.run('detailCalls'), 0);
+    assert.equal(client.context.window.location.href, '');
+  }
 });

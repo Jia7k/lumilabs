@@ -27,6 +27,17 @@ function formatFunding(n) {
   return "$" + n;
 }
 
+function normalizeRequestedPortfolioId(rawValue) {
+  if (!/^[1-9]\d*$/.test(String(rawValue || ""))) return null;
+  const id = Number(rawValue);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+const requestedPortfolioId = normalizeRequestedPortfolioId(
+  new URLSearchParams(window.location.search).get("portfolioId"),
+);
+let requestedPortfolioScrolled = false;
+
 let allPortfolios = [];
 let interestedIds = new Set();
 let sortMode = "ai";
@@ -93,6 +104,23 @@ function rankingScore(portfolio) {
     return normalizeReadinessScore(aiScores[portfolio.id]);
   }
   return readinessScore;
+}
+
+function focusRequestedPortfolio() {
+  if (requestedPortfolioId === null) return false;
+  const isAuthorized = allPortfolios.some(
+    (portfolio) => Number(portfolio.id) === requestedPortfolioId,
+  );
+  if (!isAuthorized) return false;
+
+  const card = document.getElementById(`card-${requestedPortfolioId}`);
+  if (!card) return false;
+  card.classList.add("startup-card--requested");
+  if (!requestedPortfolioScrolled) {
+    card.scrollIntoView({ block: "center", behavior: "smooth" });
+    requestedPortfolioScrolled = true;
+  }
+  return true;
 }
 
 function refreshRankingView() {
@@ -256,6 +284,7 @@ function renderGrid(portfolios) {
       </div>
     `;
   }).join("");
+  focusRequestedPortfolio();
 }
 
 async function toggleInterest(portfolioId) {

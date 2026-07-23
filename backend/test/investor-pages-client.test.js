@@ -218,3 +218,30 @@ test('My Interests renders nullable readiness as numeric zero', () => {
   assert.match(html, />0\/100</);
   assert.doesNotMatch(html, /null\/100/);
 });
+
+test('recommended and recently added cards preserve their selected portfolio ID', () => {
+  const client = loadClient('js/investordashboard.js');
+  client.run(`
+    renderRecommendationResult({
+      status: 'fulfilled',
+      value: [{
+        id: 42,
+        name: 'Selected',
+        sector: 'Fintech',
+        ai_score: 90,
+        readiness_score: 80,
+        funding_goal: 1000,
+        created_at: '2026-01-01'
+      }]
+    });
+  `);
+
+  assert.match(
+    client.elements.get('recommended-list').innerHTML,
+    /browse\.html\?portfolioId=42/,
+  );
+  assert.match(
+    client.elements.get('recently-added-grid').innerHTML,
+    /browse\.html\?portfolioId=42/,
+  );
+});

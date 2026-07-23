@@ -15,6 +15,12 @@ function formatFunding(n) {
   return "$" + n;
 }
 
+function browsePortfolioHref(id) {
+  const portfolioId = Number(id);
+  if (!Number.isSafeInteger(portfolioId) || portfolioId <= 0) return "browse.html";
+  return `browse.html?portfolioId=${portfolioId}`;
+}
+
 function managedChatAction(interest) {
   const conversationId = Number(interest.conversation_id);
   if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "open") {
@@ -91,7 +97,7 @@ function renderRecommendationResult(result) {
   const top = result.value.slice(0, 5);
   document.getElementById("recommended-list").innerHTML = top.length
     ? top.map((portfolio, index) => `
-      <div class="rec-item" style="cursor:pointer;" onclick="window.location.href='browse.html'">
+      <div class="rec-item" style="cursor:pointer;" onclick="window.location.href='${browsePortfolioHref(portfolio.id)}'">
         <div class="rec-rank">#${index + 1}</div>
         <div class="rec-info"><div class="rec-name-row">
           <span class="rec-name">${escapeHtml(portfolio.name)}</span>
@@ -109,7 +115,7 @@ function renderRecommendationResult(result) {
     ? recent.map((portfolio) => {
       const readinessScore = normalizeReadinessScore(portfolio.readiness_score);
       return `
-      <div class="recent-card" style="cursor:pointer;" onclick="window.location.href='browse.html'">
+      <div class="recent-card" style="cursor:pointer;" onclick="window.location.href='${browsePortfolioHref(portfolio.id)}'">
         <div class="rc-top">
           <div class="rc-icon"><i class="ti ti-briefcase"></i></div>
           <div class="rc-star" style="background:${readinessScore >= 75 ? "var(--purple-light)" : "var(--bg-page)"}; color:${readinessScore >= 75 ? "var(--purple-text)" : "var(--text-muted)"}"><i class="ti ti-star"></i></div>
