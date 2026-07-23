@@ -5,6 +5,12 @@ const ROLE_LABELS = Object.freeze({
   admin: 'Administrator',
 });
 
+const MESSAGE_ROLES = new Set([
+  'business_owner',
+  'investor',
+  'relationship_manager',
+]);
+
 const ARCHIVE_REASON_LABELS = Object.freeze({
   manual: 'The relationship manager archived this conversation.',
   no_active_investors: 'There are no active investors in this conversation.',
@@ -86,6 +92,12 @@ async function loadMessagesWorkspace() {
     const apiClientLoad = ensureMessagesApiClient();
     if (apiClientLoad) await apiClientLoad;
     const user = await apiFetch('/messages/me');
+    if (!MESSAGE_ROLES.has(user.role)) {
+      window.location.href = user.role === 'admin'
+        ? 'moderatordashboard.html'
+        : 'index.html';
+      return false;
+    }
     state.user = {
       id: String(user.id),
       name: user.name || 'Lumi5 Labs user',

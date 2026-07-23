@@ -563,3 +563,27 @@ test('overlapping workspace loads serialize identity and inbox requests', async 
   assert.equal(await second, false);
   assert.equal(identityCalls, 1);
 });
+
+test('administrator identity returns to moderation before loading an inbox', async () => {
+  const client = clientHarness();
+  client.run(`
+    state.user = null;
+    window.location.href = 'messages.html';
+  `);
+  client.hooks.request = async (requestPath) => {
+    assert.equal(requestPath, '/messages/me');
+    return {
+      id: 1,
+      name: 'Victor',
+      role: 'admin',
+    };
+  };
+
+  assert.equal(await client.run('loadMessagesWorkspace()'), false);
+  assert.equal(client.run('window.location.href'), 'moderatordashboard.html');
+  assert.deepEqual(
+    client.hooks.requests.map(({ path: requestPath }) => requestPath),
+    ['/messages/me'],
+  );
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+});

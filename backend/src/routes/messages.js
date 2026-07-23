@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param, validationResult } = require('express-validator');
 const db = require('../config/db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 const { ManagedConversationError } = require('../services/managed-conversation-workflow');
 const {
   listAccessibleConversations,
@@ -11,6 +11,12 @@ const {
 } = require('../services/group-message-workflow');
 
 const router = express.Router();
+
+const requireMessagingRole = requireRole(
+  'business_owner',
+  'investor',
+  'relationship_manager',
+);
 
 const conversationIdValidation = param('conversationId').isInt({ min: 1 }).toInt();
 
@@ -40,7 +46,7 @@ router.get('/me', authenticate, (req, res) => {
 });
 
 // GET /api/messages/conversations — rooms where the user is an active member
-router.get('/conversations', authenticate, async (req, res) => {
+router.get('/conversations', authenticate, requireMessagingRole, async (req, res) => {
   try {
     const conversations = await listAccessibleConversations({
       database: db,
@@ -56,6 +62,7 @@ router.get('/conversations', authenticate, async (req, res) => {
 router.get(
   '/conversations/:conversationId',
   authenticate,
+  requireMessagingRole,
   conversationIdValidation,
   async (req, res) => {
     if (sendValidationErrors(req, res)) return;
@@ -76,6 +83,7 @@ router.get(
 router.put(
   '/conversations/:conversationId/read',
   authenticate,
+  requireMessagingRole,
   [
     conversationIdValidation,
     body('message_id').isInt({ min: 1 }).toInt(),
@@ -100,6 +108,7 @@ router.put(
 router.post(
   '/conversations/:conversationId/messages',
   authenticate,
+  requireMessagingRole,
   [
     conversationIdValidation,
     body('content').trim().notEmpty().isLength({ max: 2000 }),

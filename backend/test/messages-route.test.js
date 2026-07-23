@@ -268,3 +268,46 @@ test('prototype headers cannot authenticate an anonymous message request', { con
 
   assert.equal(response.status, 401);
 });
+
+const admin = {
+  id: 1,
+  email: 'victor@example.test',
+  name: 'Victor',
+  role: 'admin',
+};
+
+for (const [method, path, body] of [
+  ['GET', '/conversations'],
+  ['GET', '/conversations/12'],
+  ['PUT', '/conversations/12/read', { message_id: 42 }],
+  ['POST', '/conversations/12/messages', { content: 'Blocked' }],
+]) {
+  test(`administrator receives 403 for ${method} ${path} before data access`, {
+    concurrency: false,
+  }, async (t) => {
+    const originalQuery = db.query;
+    const originalGetConnection = db.getConnection;
+    let dataCalls = 0;
+    db.query = async () => {
+      dataCalls += 1;
+      throw new Error('administrator request reached db.query');
+    };
+    db.getConnection = async () => {
+      dataCalls += 1;
+      throw new Error('administrator request reached db.getConnection');
+    };
+    t.after(() => {
+      db.query = originalQuery;
+      db.getConnection = originalGetConnection;
+    });
+
+    const { response, payload } = await request(t, path, admin, {
+      method,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(payload, { error: 'Insufficient permissions' });
+    assert.equal(dataCalls, 0);
+  });
+}
