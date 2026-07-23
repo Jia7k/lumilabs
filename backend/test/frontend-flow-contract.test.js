@@ -362,3 +362,78 @@ test('browser JavaScript passes node syntax checking', () => {
     assert.equal(result.status, 0, result.stderr);
   }
 });
+
+test('shared protected pages collapse without widening the document', () => {
+  const css = read('css/style.css');
+  for (const page of [
+    'businessownerdashboard.html',
+    'mybusinesses.html',
+    'createportfolio.html',
+    'moderatordashboard.html',
+    'audit-logs.html',
+  ]) {
+    assert.match(read(page), /<body class=["'][^"']*\bprotected-page\b/);
+  }
+  assert.match(css, /\.table-scroll\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(
+    css,
+    /@media \(max-width:\s*900px\)[\s\S]*?\.protected-page \.stats-grid\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.protected-page \.nav\s*\{[^}]*flex-wrap:\s*wrap/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.protected-page \.content-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.protected-page \.pf-form-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+});
+
+test('administrator data tables scroll inside their cards on narrow screens', () => {
+  for (const page of ['moderatordashboard.html', 'audit-logs.html']) {
+    assert.match(
+      read(page),
+      /<div class=["']table-scroll["']>[\s\S]*?<table class=["']table["'][\s\S]*?<\/table>[\s\S]*?<\/div>/,
+      page,
+    );
+  }
+});
+
+test('standalone investor pages define narrow-screen layout contracts', () => {
+  const dashboard = read('investordashboard.html');
+  const browse = read('browse.html');
+  const interests = read('my-interests.html');
+  for (const [page, source] of [
+    ['investordashboard.html', dashboard],
+    ['browse.html', browse],
+    ['my-interests.html', interests],
+  ]) {
+    assert.match(source, /@media \(max-width:\s*699px\)/, page);
+    assert.match(
+      source,
+      /@media \(max-width:\s*699px\)[\s\S]*?\.nav\s*\{[^}]*flex-wrap:\s*wrap/,
+      page,
+    );
+    assert.match(
+      source,
+      /@media \(max-width:\s*699px\)[\s\S]*?\.nav-links\s*\{[^}]*overflow-x:\s*auto/,
+      page,
+    );
+  }
+  assert.match(
+    dashboard,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.stats-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    browse,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.filter-input\s*\{[^}]*min-width:\s*0/,
+  );
+  assert.match(
+    interests,
+    /@media \(max-width:\s*699px\)[\s\S]*?\.interest-card\s*\{[^}]*flex-direction:\s*column/,
+  );
+});

@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="css/style.css?v=20260723.5" />
 </head>
 
-<body class="dashboard">
+<body class="dashboard protected-page">
 
   <nav class="nav">
     <a class="nav-logo" href="index.html">
@@ -158,19 +158,21 @@
           View Audit Logs
         </button>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Startup</th>
-            <th>Industry</th>
-            <th>Submitted</th>
-            <th>Status</th>
-            <th>Score</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="queue-list"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Startup</th>
+              <th>Industry</th>
+              <th>Submitted</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="queue-list"></tbody>
+        </table>
+      </div>
     </div>
   </main>
 

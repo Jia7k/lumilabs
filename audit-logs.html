@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="css/style.css?v=20260723.5" />
 </head>
 
-<body class="audit">
+<body class="audit protected-page">
 
     <nav class="nav">
         <a class="nav-logo" href="index.html">
@@ -91,21 +91,23 @@
                 </div>
             </div>
 
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Admin</th>
-                        <th>Action</th>
-                        <th>Portfolio</th>
-                        <th>Reason</th>
-                    </tr>
-                </thead>
+            <div class="table-scroll">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Admin</th>
+                            <th>Action</th>
+                            <th>Portfolio</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
 
-                <tbody id="audit-tbody">
-                    <!-- Rows are rendered by audit-logs.js -->
-                </tbody>
-            </table>
+                    <tbody id="audit-tbody">
+                        <!-- Rows are rendered by audit-logs.js -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </main>
 

@@ -59,6 +59,36 @@
   .empty-state { text-align: center; padding: 80px 24px; color: var(--text-secondary); }
   .empty-state i { font-size: 56px; display: block; margin-bottom: 16px; color: var(--text-muted); }
   .empty-state h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+
+  @media (max-width: 699px) {
+    .nav {
+      height: auto;
+      min-height: 56px;
+      padding: 10px 16px;
+      flex-wrap: wrap;
+    }
+    .nav-logo { margin-right: 0; }
+    .nav-links {
+      order: 3;
+      flex: 1 0 100%;
+      width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .nav-btn { flex: 0 0 auto; white-space: nowrap; }
+    .nav-right { gap: 8px; }
+    .user-info { display: none; }
+    .main { min-width: 0; padding: 20px 16px 36px; }
+    .page-header { align-items: stretch; flex-direction: column; gap: 14px; }
+    .page-title { align-items: flex-start; flex-wrap: wrap; }
+    .btn-browse { justify-content: center; width: 100%; }
+    .interest-card { align-items: stretch; flex-direction: column; }
+    .interest-info { min-width: 0; }
+    .interest-meta { align-items: flex-start; flex-wrap: wrap; }
+    .interest-actions { width: 100%; }
+    .interest-actions .btn-action { flex: 1; justify-content: center; }
+  }
 </style>
 </head>
 <body>

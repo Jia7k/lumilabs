@@ -2696,3 +2696,99 @@ body.audit .card {
     width: 100%;
   }
 }
+
+/* Responsive authenticated workspaces */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll > .table {
+  min-width: 640px;
+}
+
+@media (max-width: 900px) {
+  .protected-page .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .protected-page .content-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 699px) {
+  .protected-page .nav {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+
+  .protected-page .nav-logo {
+    margin-right: 0;
+  }
+
+  .protected-page .nav-links {
+    order: 3;
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .protected-page .nav-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .protected-page .nav-right {
+    gap: 8px;
+  }
+
+  .protected-page .user-info {
+    display: none;
+  }
+
+  .protected-page .main {
+    min-width: 0;
+    padding: 20px 16px 36px;
+  }
+
+  .protected-page .stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .protected-page .content-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .protected-page .pf-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .protected-page .biz-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .protected-page .page-header,
+  .protected-page .pf-header,
+  .protected-page .card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .protected-page .pf-header-left {
+    min-width: 0;
+  }
+
+  .protected-page .pf-header-actions {
+    width: 100%;
+  }
+
+  .protected-page .pf-header-actions .btn {
+    flex: 1;
+  }
+}
