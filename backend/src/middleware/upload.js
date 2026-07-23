@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { isValidDocumentFilename } = require('../validation/database-boundaries');
 
 // Files land in backend/uploads/portfolio-documents/
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads', 'portfolio-documents');
@@ -23,6 +24,9 @@ const storage = multer.diskStorage({
 });
 
 function fileFilter(req, file, cb) {
+  if (!isValidDocumentFilename(file.originalname)) {
+    return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'documents'));
+  }
   const expected = ALLOWED_MIME_TYPES[file.mimetype];
   const actual = path.extname(file.originalname).toLowerCase();
   if (!expected || actual !== expected) {
