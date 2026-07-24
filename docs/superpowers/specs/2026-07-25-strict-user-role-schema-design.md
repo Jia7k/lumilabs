@@ -102,9 +102,14 @@ the migration can retire `superadmin`; it is not a valid final contract. The
 complete post-migration contract remains strict and accepts only the four-role
 enum with no default.
 
-An exhaustive repository search will verify that no source, test, fixture,
-documentation used as an executable contract, or deployment artifact still
-defines or authorizes `superadmin`.
+An exhaustive repository search will verify that no usable runtime path,
+canonical schema contract, production fixture, role authorization, or
+deployment artifact defines or authorizes `superadmin`. This claim
+intentionally excludes the preserved-core preflight allowlist, one-way
+migration conversion, directly related regression tests, and explanatory
+documentation: those paths must still mention the retired value so they can
+recognize, convert, and verify its removal without treating it as a valid
+final role.
 
 ## Production Migration
 

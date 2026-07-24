@@ -445,9 +445,23 @@ Compare local, staged, and current-live SHA-256 hashes. Do not overwrite
 
 - [ ] **Step 4: Convert the retired value and narrow the enum**
 
-Using the backend's existing MySQL pool in one controlled Node process:
+Run a dedicated role-only Node process from `/var/www/lumilabs-backend`.
+Do not run `npm run migrate:managed-chat`, `node migrate.js`, or call
+`migrateManagedChat` for this deployment: those entry points perform the
+broader managed-chat migration, including destructive chat-schema work that
+is outside this role-only change.
+
+Load the deployed `.env` and open one explicit `mysql.createConnection()`.
+Every preflight, lock, count, conversion, post-check, `ALTER`, and unlock query
+must use that same connection because `LOCK TABLES` is scoped to its MySQL
+session. Close the connection in an outer `finally`; if explicit unlock fails,
+disconnecting the same session still releases its locks.
 
 ```js
+require('dotenv').config();
+const mysql = require('mysql2/promise');
+
+const environment = process.env;
 const allowedBefore = new Set([
   'business_owner',
   'investor',
@@ -455,56 +469,138 @@ const allowedBefore = new Set([
   'admin',
   'superadmin',
 ]);
-
-const [before] = await database.query(
-  'SELECT role, COUNT(*) AS account_count FROM users GROUP BY role ORDER BY role',
+const allowedAfter = new Set([
+  'business_owner',
+  'investor',
+  'relationship_manager',
+  'admin',
+]);
+const countsByRole = (rows) => new Map(rows.map(({ role, account_count: count }) => (
+  [role, Number(count)]
+)));
+const totalAccounts = (counts) => (
+  [...counts.values()].reduce((sum, count) => sum + count, 0)
 );
-if (before.some(({ role }) => !allowedBefore.has(role))) {
-  throw new Error('Unexpected production user role; refusing schema change');
-}
 
-await database.query('LOCK TABLES users WRITE');
-try {
-  const [[{ account_count: expectedConversions }]] = await database.query(
-    "SELECT COUNT(*) AS account_count FROM users WHERE role='superadmin'",
-  );
-  const [conversion] = await database.query(
-    "UPDATE users SET role='admin' WHERE role='superadmin'",
-  );
-  if (Number(conversion.affectedRows) !== Number(expectedConversions)) {
-    throw new Error('Legacy role conversion count mismatch');
+async function main() {
+  const missing = ['DB_USER', 'DB_PASSWORD', 'DB_NAME']
+    .filter((name) => !String(environment[name] || '').trim());
+  if (missing.length) {
+    throw new Error(`Missing role-migration environment variables: ${missing.join(', ')}`);
   }
 
-  const [finalRoles] = await database.query(
-    'SELECT DISTINCT role FROM users',
-  );
-  const allowedAfter = new Set([
-    'business_owner',
-    'investor',
-    'relationship_manager',
-    'admin',
-  ]);
-  if (finalRoles.some(({ role }) => !allowedAfter.has(role))) {
-    throw new Error('Unsupported role remains after legacy conversion');
-  }
+  let connection;
+  try {
+    connection = await mysql.createConnection({
+      host: environment.DB_HOST || '127.0.0.1',
+      port: Number(environment.DB_PORT || 3306),
+      user: environment.DB_USER,
+      password: environment.DB_PASSWORD,
+      database: environment.DB_NAME,
+    });
 
-  await database.query(
-    `ALTER TABLE users
-       MODIFY role ENUM(
-         'business_owner',
-         'investor',
-         'relationship_manager',
-         'admin'
-       ) NOT NULL`,
-  );
-} finally {
-  // ALTER TABLE may release the lock; this remains harmless cleanup.
-  await database.query('UNLOCK TABLES');
+    const [preflight] = await connection.query(
+      'SELECT role, COUNT(*) AS account_count FROM users GROUP BY role ORDER BY role',
+    );
+    if (preflight.some(({ role }) => !allowedBefore.has(role))) {
+      throw new Error('Unexpected production user role; refusing schema change');
+    }
+
+    let beforeCounts;
+    let beforeTotal;
+    let beforeAdmin;
+    await connection.query('LOCK TABLES users WRITE');
+    try {
+      const [lockedBefore] = await connection.query(
+        'SELECT role, COUNT(*) AS account_count FROM users GROUP BY role ORDER BY role',
+      );
+      if (lockedBefore.some(({ role }) => !allowedBefore.has(role))) {
+        throw new Error('Unexpected role appeared before the locked conversion');
+      }
+      beforeCounts = countsByRole(lockedBefore);
+      beforeTotal = totalAccounts(beforeCounts);
+      beforeAdmin = beforeCounts.get('admin') || 0;
+
+      const [[{ account_count: expectedConversions }]] = await connection.query(
+        "SELECT COUNT(*) AS account_count FROM users WHERE role='superadmin'",
+      );
+      const [conversion] = await connection.query(
+        "UPDATE users SET role='admin' WHERE role='superadmin'",
+      );
+      if (Number(conversion.affectedRows) !== Number(expectedConversions)) {
+        throw new Error('Legacy role conversion count mismatch');
+      }
+
+      const [finalRoles] = await connection.query(
+        'SELECT DISTINCT role FROM users',
+      );
+      if (finalRoles.some(({ role }) => !allowedAfter.has(role))) {
+        throw new Error('Unsupported role remains after legacy conversion');
+      }
+
+      await connection.query(
+        `ALTER TABLE users
+           MODIFY role ENUM(
+             'business_owner',
+             'investor',
+             'relationship_manager',
+             'admin'
+           ) NOT NULL`,
+      );
+    } finally {
+      // ALTER TABLE may release the lock; this remains harmless cleanup.
+      await connection.query('UNLOCK TABLES');
+    }
+
+    const [[roleColumn]] = await connection.query(
+      `SELECT COLUMN_TYPE AS column_type,
+              IS_NULLABLE AS is_nullable,
+              COLUMN_DEFAULT AS column_default
+         FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'users'
+          AND column_name = 'role'`,
+    );
+    if (
+      roleColumn?.column_type
+        !== "enum('business_owner','investor','relationship_manager','admin')"
+      || roleColumn?.is_nullable !== 'NO'
+      || roleColumn?.column_default !== null
+    ) {
+      throw new Error('Final users.role metadata does not match the strict contract');
+    }
+
+    const [after] = await connection.query(
+      'SELECT role, COUNT(*) AS account_count FROM users GROUP BY role ORDER BY role',
+    );
+    if (after.some(({ role }) => !allowedAfter.has(role))) {
+      throw new Error('Unsupported role remains after role narrowing');
+    }
+    const afterCounts = countsByRole(after);
+    if (totalAccounts(afterCounts) !== beforeTotal) {
+      throw new Error('Total user count changed during role migration');
+    }
+    if (
+      (afterCounts.get('admin') || 0)
+      !== beforeAdmin + (beforeCounts.get('superadmin') || 0)
+    ) {
+      throw new Error('Final admin count does not match the authorized conversion');
+    }
+
+    console.log(JSON.stringify({ roleColumn, roleCounts: after }, null, 2));
+  } finally {
+    if (connection) await connection.end();
+  }
 }
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});
 ```
 
-Immediately query `information_schema.columns` and aggregate role counts
-again. Require:
+The same dedicated process must query `information_schema.columns` and
+aggregate role counts again before closing its connection. Require:
 
 ```text
 COLUMN_TYPE = enum('business_owner','investor','relationship_manager','admin')
