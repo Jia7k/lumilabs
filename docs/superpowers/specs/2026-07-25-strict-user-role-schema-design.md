@@ -80,18 +80,27 @@ The application already supplies a role in every production insert:
 
 Tests will require those explicit insert values to remain in place.
 
-The documented preserved-core inputs used before the managed-chat migration
-are these three metadata states:
+The preserved-core check used before the managed-chat migration intentionally
+treats enum shape and column default as independent migration-compatibility
+dimensions. It allows these three enum shapes:
 
-- the historical three-role enum with `DEFAULT 'business_owner'`;
-- the final four-role enum with no default; and
-- the audited, migration-only five-role enum
-  `ENUM('business_owner','investor','relationship_manager','admin','superadmin')
-  NOT NULL` with `COLUMN_DEFAULT = NULL`.
+- the historical three-role enum;
+- the final four-role enum; and
+- the migration-only five-role enum containing `superadmin`.
 
-The five-role tuple is accepted only so the migration can retire
-`superadmin`; it is not a valid final contract. The complete post-migration
-contract remains strict and accepts only the four-role enum with no default.
+Independently, it allows either `DEFAULT 'business_owner'` or
+`COLUMN_DEFAULT = NULL`. The preserved-core check therefore accepts the full
+three-by-two cross-product: six migration-only type/default combinations, not
+only three exact metadata pairs. This compatibility breadth lets the reusable
+migration recognize supported intermediate repository and production states;
+it does not expand the final runtime role contract.
+
+The audited production tuple remains explicitly covered:
+`ENUM('business_owner','investor','relationship_manager','admin','superadmin')
+NOT NULL` with `COLUMN_DEFAULT = NULL`. The five-role enum is accepted only so
+the migration can retire `superadmin`; it is not a valid final contract. The
+complete post-migration contract remains strict and accepts only the four-role
+enum with no default.
 
 An exhaustive repository search will verify that no source, test, fixture,
 documentation used as an executable contract, or deployment artifact still
@@ -173,9 +182,10 @@ The implementation follows a red-green test cycle:
 
 1. update or add schema-contract tests that require no final role default and
    fail against the current contract;
-2. add coverage that the preserved migration preflight accepts its documented
-   historical, final, and audited five-role/no-default tuples while rejecting
-   other defaults;
+2. add coverage that the preserved migration preflight accepts all six
+   combinations in its three-enum-shape by two-default cross-product,
+   including the audited five-role/no-default tuple, while rejecting unknown
+   defaults and reordered or unknown enum values;
 3. update schema-source and migration-source tests to require the four-value
    enum with no `DEFAULT` clause;
 4. add route-level coverage that successful public registration passes its

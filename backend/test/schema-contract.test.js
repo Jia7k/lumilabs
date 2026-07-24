@@ -419,21 +419,37 @@ function legacyManagedChatMetadata() {
   return metadata;
 }
 
-test('preserved-core verifier accepts exact legacy and target role metadata', async () => {
-  assert.equal(
-    await verifyPreservedMetadata(legacyManagedChatMetadata()),
-    true,
-  );
-  assert.equal(
-    await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
-    true,
-  );
+test('preserved-core verifier accepts all six role type/default combinations', async (t) => {
+  const allowedTypes = [
+    [
+      'historical three-role enum',
+      "enum('business_owner','investor','admin')",
+    ],
+    [
+      'final four-role enum',
+      "enum('business_owner','investor','relationship_manager','admin')",
+    ],
+    [
+      'audited five-role enum',
+      "enum('business_owner','investor','relationship_manager','admin','superadmin')",
+    ],
+  ];
+  const allowedDefaults = [
+    ["DEFAULT 'business_owner'", 'business_owner'],
+    ['COLUMN_DEFAULT = NULL', null],
+  ];
 
-  const convertible = legacyManagedChatMetadata();
-  row(convertible, 'users', 'role').column_type =
-    "enum('business_owner','investor','relationship_manager','admin','superadmin')";
-  row(convertible, 'users', 'role').column_default = null;
-  assert.equal(await verifyPreservedMetadata(convertible), true);
+  assert.equal(allowedTypes.length * allowedDefaults.length, 6);
+  for (const [typeLabel, columnType] of allowedTypes) {
+    for (const [defaultLabel, columnDefault] of allowedDefaults) {
+      await t.test(`${typeLabel} with ${defaultLabel}`, async () => {
+        const metadata = legacyManagedChatMetadata();
+        row(metadata, 'users', 'role').column_type = columnType;
+        row(metadata, 'users', 'role').column_default = columnDefault;
+        assert.equal(await verifyPreservedMetadata(metadata), true);
+      });
+    }
+  }
 });
 
 test('preserved-core verifier rejects an unknown role default', async () => {

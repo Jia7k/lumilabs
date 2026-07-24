@@ -4,7 +4,7 @@
 
 **Goal:** Make `users.role` accept exactly four explicitly supplied roles, remove `superadmin`, remove the database default, and restore production readiness.
 
-**Architecture:** The complete schema contract and production fixture remain strict: they accept only the four approved enum values and a missing default. The managed-chat preserved-core preflight additionally accepts the exact audited migration-only tuple `ENUM('business_owner','investor','relationship_manager','admin','superadmin') NOT NULL` with `COLUMN_DEFAULT = NULL`; after read-only metadata and stored-value checks, the migration locks `users`, converts that legacy stored value to `admin`, verifies the conversion count and final stored roles, and narrows to the strict final form before any chat mutation.
+**Architecture:** The complete schema contract and production fixture remain strict: they accept only the four approved enum values and a missing default. The managed-chat preserved-core preflight intentionally validates three allowed migration enum shapes independently from two safe defaults (`business_owner` and no default), accepting their six-combination cross-product. That migration-only matrix explicitly includes the audited tuple `ENUM('business_owner','investor','relationship_manager','admin','superadmin') NOT NULL` with `COLUMN_DEFAULT = NULL`. After read-only metadata and stored-value checks, the migration locks `users`, converts the legacy stored value to `admin`, verifies the conversion count and final stored roles, and narrows to the strict final form before any chat mutation.
 
 **Tech Stack:** Node.js CommonJS, Node test runner, MySQL 8, Express readiness endpoint, systemd, SSH/SFTP
 
@@ -32,7 +32,7 @@
 
 **Interfaces:**
 - Consumes: MySQL `information_schema.columns.COLUMN_DEFAULT` metadata, where `null` means no declared default.
-- Produces: `verifySchema(database)` that requires the final four-role enum with no default, and `verifyPreservedCoreSchema(database)` that accepts only the documented legacy or target default during pre-migration checks.
+- Produces: `verifySchema(database)` that requires the final four-role enum with no default, and `verifyPreservedCoreSchema(database)` that independently accepts three documented migration enum shapes and two safe defaults, for six allowed pre-migration combinations.
 
 - [ ] **Step 1: Change the independent production fixture to the approved final metadata**
 
@@ -62,21 +62,47 @@ Make `legacyManagedChatMetadata()` reproduce the historical default:
   row(metadata, 'users', 'role').column_default = 'business_owner';
 ```
 
-Extend `preserved-core verifier accepts exact legacy and target enum shapes`
-so its name and assertions cover defaults:
+Replace the pair-oriented preserved-core acceptance test with a matrix test
+that covers every independently allowed enum-shape/default combination:
 
 ```js
-test('preserved-core verifier accepts exact legacy and target role metadata', async () => {
-  assert.equal(
-    await verifyPreservedMetadata(legacyManagedChatMetadata()),
-    true,
-  );
-  assert.equal(
-    await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
-    true,
-  );
+test('preserved-core verifier accepts all six role type/default combinations', async (t) => {
+  const allowedTypes = [
+    [
+      'historical three-role enum',
+      "enum('business_owner','investor','admin')",
+    ],
+    [
+      'final four-role enum',
+      "enum('business_owner','investor','relationship_manager','admin')",
+    ],
+    [
+      'audited five-role enum',
+      "enum('business_owner','investor','relationship_manager','admin','superadmin')",
+    ],
+  ];
+  const allowedDefaults = [
+    ["DEFAULT 'business_owner'", 'business_owner'],
+    ['COLUMN_DEFAULT = NULL', null],
+  ];
+
+  assert.equal(allowedTypes.length * allowedDefaults.length, 6);
+  for (const [typeLabel, columnType] of allowedTypes) {
+    for (const [defaultLabel, columnDefault] of allowedDefaults) {
+      await t.test(`${typeLabel} with ${defaultLabel}`, async () => {
+        const metadata = legacyManagedChatMetadata();
+        row(metadata, 'users', 'role').column_type = columnType;
+        row(metadata, 'users', 'role').column_default = columnDefault;
+        assert.equal(await verifyPreservedMetadata(metadata), true);
+      });
+    }
+  }
 });
 ```
+
+The named subtests must retain explicit coverage of the audited five-role enum
+with `COLUMN_DEFAULT = NULL`. The acceptance matrix is migration-only; it must
+not loosen `verifySchema`.
 
 Add a rejection test after it:
 
@@ -276,8 +302,10 @@ runtime contract, with exactly:
 
 Allow stored `superadmin` only during the migration preflight, reject every
 other unknown stored role before any mutation, and model the audited
-five-role tuple with `column_default = null`. After all read-only preflight
-checks, acquire `LOCK TABLES users WRITE`, count convertible rows, execute:
+five-role tuple with `column_default = null` explicitly even though preserved
+metadata validation accepts the full migration-only type/default
+cross-product. After all read-only preflight checks, acquire
+`LOCK TABLES users WRITE`, count convertible rows, execute:
 
 ```js
 await database.query("UPDATE users SET role='admin' WHERE role='superadmin'");
@@ -320,8 +348,8 @@ Expected:
 - the controlled smoke setup inserts `admin`;
 - no canonical schema, route, service, complete runtime contract, or
   production metadata fixture authorizes `superadmin`; and
-- the reusable migration mentions `superadmin` only to preflight the exact
-  legacy shape and convert it to `admin` before narrowing the enum.
+- the reusable migration mentions `superadmin` only in an allowed
+  migration-enum shape and to convert it to `admin` before narrowing the enum.
 
 - [ ] **Step 6: Commit canonical and migration DDL**
 
