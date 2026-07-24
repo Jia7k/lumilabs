@@ -219,6 +219,33 @@ test('My Interests renders nullable readiness as numeric zero', () => {
   assert.doesNotMatch(html, /null\/100/);
 });
 
+test('My Interests distinguishes open, archived, and awaiting managed chat states', () => {
+  const client = loadClient('js/my-interests.js');
+
+  const open = client.run(`managedChatAction({
+    conversation_id: 42,
+    chat_state: 'open'
+  })`);
+  assert.match(open, /class="btn-action btn-chat"/);
+  assert.match(open, /messages\.html\?conversationId=42/);
+  assert.match(open, /Open Managed Chat/);
+
+  const archived = client.run(`managedChatAction({
+    conversation_id: 42,
+    chat_state: 'archived'
+  })`);
+  assert.match(archived, /class="btn-action btn-chat-archived"/);
+  assert.match(archived, /View Archived Chat/);
+
+  const awaiting = client.run(`managedChatAction({
+    conversation_id: null,
+    chat_state: 'awaiting_manager'
+  })`);
+  assert.match(awaiting, /class="chat-awaiting"/);
+  assert.match(awaiting, /Awaiting Relationship Manager/);
+  assert.doesNotMatch(awaiting, /href=/);
+});
+
 test('recommended and recently added cards preserve their selected portfolio ID', () => {
   const client = loadClient('js/investordashboard.js');
   client.run(`

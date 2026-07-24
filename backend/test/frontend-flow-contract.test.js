@@ -324,7 +324,7 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260723.6';
+  const releaseKey = '20260724.1';
   const changedSharedClientPages = [
     'audit-logs.html',
     'browse.html',

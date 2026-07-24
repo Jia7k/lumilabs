@@ -48,3 +48,11 @@ test('relationship-manager clients use same-origin API helper paths', () => {
   ]) assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   assert.doesNotMatch(source, /https?:\/\//);
 });
+
+test('production server has no hard-coded local browser origin', () => {
+  const source = fs.readFileSync(path.join(root, 'backend/server.js'), 'utf8');
+  for (const fragment of forbiddenOriginFragments) {
+    assert.equal(source.includes(fragment), false, `backend/server.js: ${fragment}`);
+  }
+  assert.doesNotMatch(source, /req\.method\s*===\s*["']OPTIONS["']/);
+});

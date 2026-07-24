@@ -275,10 +275,16 @@ function renderGrid(portfolios) {
           </div>
         </div>
         <div class="card-actions">
-          <button class="btn-interest ${liked ? "interested" : ""}" id="btn-interest-${p.id}" onclick="toggleInterest(${p.id})"${interestDisabled}>
-            <i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i>
-            ${liked ? "Interested" : "Express Interest"}
-          </button>
+          ${liked
+            ? `<button class="btn-interest interested" id="btn-interest-${p.id}" type="button" disabled aria-disabled="true">
+                <i class="ti ti-heart-filled"></i> Interested
+              </button>
+              <button class="btn-remove-interest" type="button" onclick="toggleInterest(${p.id})"${interestDisabled}>
+                <i class="ti ti-heart-x"></i> Remove Interest
+              </button>`
+            : `<button class="btn-interest" id="btn-interest-${p.id}" type="button" onclick="toggleInterest(${p.id})"${interestDisabled}>
+                <i class="ti ti-heart"></i> Express Interest
+              </button>`}
           ${managedChatAction(p, liked)}
         </div>
       </div>

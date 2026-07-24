@@ -279,6 +279,30 @@ test('renderGrid supplies the reconciled current-investor state to chat guidance
   );
 });
 
+test('an interested Browse card has one explicit removal action', () => {
+  const client = browseHarness();
+  client.run(`
+    interestedIds = new Set([1]);
+    renderGrid([{
+      id: 1,
+      name: "Interested",
+      owner_name: "Owner",
+      sector: "SaaS",
+      funding_goal: 1000,
+      readiness_score: 70,
+      interest_count: 1,
+      chat_state: "awaiting_manager",
+      conversation_id: null
+    }]);
+  `);
+
+  const html = client.elements.get('card-grid').innerHTML;
+  assert.equal((html.match(/onclick="toggleInterest\(1\)"/g) || []).length, 1);
+  assert.match(html, /Remove Interest/);
+  assert.match(html, /Interested/);
+  assert.match(html, /Awaiting Relationship Manager/);
+});
+
 test('sector filtering uses the exact database value instead of a substring', () => {
   const client = browseHarness({ captureFilters: false });
   client.run(`
