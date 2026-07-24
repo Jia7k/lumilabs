@@ -11,6 +11,87 @@ const backendRoot = path.join(__dirname, '..');
 const schema = fs.readFileSync(path.join(backendRoot, 'schema.sql'), 'utf8');
 const migrationPath = path.join(backendRoot, 'scripts', 'migrate-managed-chat.js');
 
+function migrationEnvironment(migration) {
+  return {
+    CHAT_BACKUP_VERIFIED: migration.BACKUP_CONFIRMATION,
+    CONFIRM_CHAT_RESET: migration.CHAT_RESET_CONFIRMATION,
+  };
+}
+
+function createMigrationDatabase(metadata, roleRows) {
+  const metadataHarness = createSchemaMetadataDatabase(metadata);
+  const queries = [];
+  const database = {
+    async query(sql, params = []) {
+      const source = String(sql);
+      queries.push(source);
+
+      if (
+        /information_schema\.tables/i.test(source)
+        && /TABLE_TYPE/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.columns/i.test(source)
+        && /ORDINAL_POSITION/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.statistics/i.test(source)
+        && /INDEX_TYPE/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (
+        /information_schema\.key_column_usage/i.test(source)
+        && /referential_constraints/i.test(source)
+      ) {
+        return metadataHarness.database.query(source, params);
+      }
+      if (/information_schema\.tables/i.test(source)) {
+        return [metadata.tables.map(({ table_name }) => ({ table_name })), []];
+      }
+      if (
+        /information_schema\.columns/i.test(source)
+        && /table_name\s*=\s*'notifications'/i.test(source)
+      ) {
+        return [
+          metadata.columns
+            .filter(({ table_name }) => table_name === 'notifications')
+            .map(({ column_name, column_type }) => ({
+              column_name,
+              column_type,
+            })),
+          [],
+        ];
+      }
+      if (/SELECT DISTINCT role FROM users/i.test(source)) {
+        return [roleRows.map((role) => ({ role })), []];
+      }
+      if (/SELECT DISTINCT type FROM notifications/i.test(source)) return [[], []];
+      if (/SELECT COUNT\(\*\) AS count/i.test(source)) return [[{ count: 0 }], []];
+      if (/SELECT id,type FROM notifications/i.test(source)) return [[], []];
+      if (/information_schema\.key_column_usage/i.test(source)) return [[], []];
+      if (/information_schema\.(columns|statistics|table_constraints)/i.test(source)) {
+        return [[], []];
+      }
+
+      if (/ALTER TABLE users\s+MODIFY role/i.test(source)) {
+        const role = metadata.columns.find((candidate) => (
+          candidate.table_name === 'users' && candidate.column_name === 'role'
+        ));
+        role.column_type =
+          "enum('business_owner','investor','relationship_manager','admin')";
+        role.column_default = null;
+      }
+      return [{ affectedRows: 0 }, []];
+    },
+  };
+  return { database, queries };
+}
+
 function tableDefinition(name, nextName) {
   const pattern = new RegExp(
     `CREATE TABLE(?: IF NOT EXISTS)? ${name} \\(([\\s\\S]*?)CREATE TABLE(?: IF NOT EXISTS)? ${nextName}`,
@@ -233,7 +314,60 @@ test('managed chat migration leaves users with four explicit roles', () => {
     source,
     /MODIFY role[\s\S]*?NOT NULL DEFAULT 'business_owner'/,
   );
-  assert.doesNotMatch(source, /superadmin/);
+  assert.match(
+    source,
+    /UPDATE users SET role='admin' WHERE role='superadmin'/,
+  );
+});
+
+test('managed chat migration converts superadmin before narrowing users.role', async () => {
+  const migration = require(migrationPath);
+  const metadata = cloneProductionSchemaMetadata();
+  const role = metadata.columns.find((candidate) => (
+    candidate.table_name === 'users' && candidate.column_name === 'role'
+  ));
+  role.column_type =
+    "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+  role.column_default = 'business_owner';
+  const { database, queries } = createMigrationDatabase(metadata, [
+    'business_owner',
+    'investor',
+    'relationship_manager',
+    'admin',
+    'superadmin',
+  ]);
+
+  await migration.migrateManagedChat(database, migrationEnvironment(migration));
+
+  const conversion = queries.findIndex((sql) => (
+    /UPDATE users SET role='admin' WHERE role='superadmin'/.test(sql)
+  ));
+  const alter = queries.findIndex((sql) => /ALTER TABLE users\s+MODIFY role/.test(sql));
+  assert.ok(conversion >= 0, 'superadmin conversion must run');
+  assert.ok(alter >= 0, 'role-narrowing ALTER must run');
+  assert.ok(conversion < alter, 'superadmin conversion must precede role narrowing');
+  assert.equal(
+    role.column_type,
+    "enum('business_owner','investor','relationship_manager','admin')",
+  );
+  assert.equal(role.column_default, null);
+});
+
+test('managed chat migration rejects unknown stored roles before mutation', async () => {
+  const migration = require(migrationPath);
+  const { database, queries } = createMigrationDatabase(
+    cloneProductionSchemaMetadata(),
+    ['business_owner', 'root'],
+  );
+
+  await assert.rejects(
+    migration.migrateManagedChat(database, migrationEnvironment(migration)),
+    /unsupported user roles: root/,
+  );
+  assert.equal(
+    queries.every((sql) => /^\s*SELECT\b/i.test(sql)),
+    true,
+  );
 });
 
 test('managed chat migration requires both exact deployment guards', () => {

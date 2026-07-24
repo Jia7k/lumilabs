@@ -4,7 +4,7 @@
 
 **Goal:** Make `users.role` accept exactly four explicitly supplied roles, remove `superadmin`, remove the database default, and restore production readiness.
 
-**Architecture:** The complete schema contract remains strict: it accepts only the four approved enum values and a missing default. The managed-chat preserved-core preflight gains a narrow exception that accepts either the historical `business_owner` default or the final missing default before migration; the migration itself always produces the strict final form. Production is changed only after read-only metadata and stored-value checks pass.
+**Architecture:** The complete schema contract and production fixture remain strict: they accept only the four approved enum values and a missing default. The managed-chat preserved-core preflight additionally accepts the exact legacy five-value enum with trailing `superadmin`; after read-only metadata and stored-value checks, the migration converts that one legacy stored value to `admin` before narrowing to the strict final form.
 
 **Tech Stack:** Node.js CommonJS, Node test runner, MySQL 8, Express readiness endpoint, systemd, SSH/SFTP
 
@@ -190,14 +190,16 @@ Expected: one commit containing only the three listed files.
 ### Task 2: Align canonical and migration DDL with the strict role rule
 
 **Files:**
-- Modify: `backend/test/managed-chat-schema.test.js:30-85`
-- Modify: `backend/test/managed-chat-schema.test.js:155-180`
+- Modify: `backend/test/managed-chat-schema.test.js`
+- Modify: `backend/test/schema-contract.test.js`
 - Modify: `backend/schema.sql:13`
 - Modify: `backend/scripts/migrate-managed-chat.js:319-322`
+- Modify: `backend/src/schema-contract.js`
+- Modify: `docs/superpowers/plans/2026-07-25-strict-user-role-schema.md`
 
 **Interfaces:**
 - Consumes: the strict final metadata contract from Task 1.
-- Produces: canonical and post-migration DDL for `ENUM('business_owner','investor','relationship_manager','admin') NOT NULL` with no default.
+- Produces: canonical and post-migration DDL for `ENUM('business_owner','investor','relationship_manager','admin') NOT NULL` with no default, after converting only stored `superadmin` values to `admin`.
 
 - [ ] **Step 1: Add source-level regression assertions**
 
@@ -229,7 +231,10 @@ test('managed chat migration leaves users with four explicit roles', () => {
     source,
     /MODIFY role[\s\S]*?NOT NULL DEFAULT 'business_owner'/,
   );
-  assert.doesNotMatch(source, /superadmin/);
+  assert.match(
+    source,
+    /UPDATE users SET role='admin' WHERE role='superadmin'/,
+  );
 });
 ```
 
@@ -262,6 +267,24 @@ Change the managed-chat migration statement to:
   );
 ```
 
+Extend the preserved-core migration enum allowlist, but not the complete
+runtime contract, with exactly:
+
+```js
+"enum('business_owner','investor','relationship_manager','admin','superadmin')"
+```
+
+Allow stored `superadmin` only during the migration preflight, reject every
+other unknown stored role before any mutation, then execute:
+
+```js
+await database.query("UPDATE users SET role='admin' WHERE role='superadmin'");
+```
+
+immediately before the final four-role `ALTER TABLE users ... MODIFY role`.
+The complete verifier and production metadata fixture must continue to reject
+the five-value enum.
+
 - [ ] **Step 4: Run focused and full automated verification**
 
 Run:
@@ -290,10 +313,10 @@ Expected:
 - public registration inserts its validated `role`;
 - administrator provisioning inserts `relationship_manager`;
 - the controlled smoke setup inserts `admin`;
-- no production schema, route, service, or migration authorizes
-  `superadmin`; and
-- any test occurrence of the word is a rejection assertion, not an allowed
-  role.
+- no canonical schema, route, service, complete runtime contract, or
+  production metadata fixture authorizes `superadmin`; and
+- the reusable migration mentions `superadmin` only to preflight the exact
+  legacy shape and convert it to `admin` before narrowing the enum.
 
 - [ ] **Step 6: Commit canonical and migration DDL**
 
@@ -302,12 +325,16 @@ Run:
 ```bash
 git add backend/schema.sql \
   backend/scripts/migrate-managed-chat.js \
-  backend/test/managed-chat-schema.test.js
+  backend/src/schema-contract.js \
+  backend/test/managed-chat-schema.test.js \
+  backend/test/schema-contract.test.js \
+  docs/superpowers/plans/2026-07-25-strict-user-role-schema.md
 git diff --cached --check
-git commit -m "fix(schema): remove implicit user role default"
+git commit -m "fix(schema): convert legacy superadmin roles"
 ```
 
-Expected: one commit containing only the three listed files.
+Expected: one follow-up commit containing the migration conversion, its strict
+preflight exception, regression coverage, and this amended plan.
 
 ---
 

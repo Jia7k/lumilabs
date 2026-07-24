@@ -170,6 +170,11 @@ test('rejects enum value or order drift', async () => {
   }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin'\)/);
 
   await expectInvariant((metadata) => {
+    row(metadata, 'users', 'role').column_type =
+      "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+  }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin'\)/);
+
+  await expectInvariant((metadata) => {
     row(metadata, 'portfolios', 'mvp_status').column_type =
       "enum('Idea','Prototype','Beta','Launched','Retired')";
   }, /portfolios\.mvp_status type must be enum\('Idea','Prototype','Beta','Launched'\)/);
@@ -423,6 +428,11 @@ test('preserved-core verifier accepts exact legacy and target role metadata', as
     await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
     true,
   );
+
+  const convertible = legacyManagedChatMetadata();
+  row(convertible, 'users', 'role').column_type =
+    "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+  assert.equal(await verifyPreservedMetadata(convertible), true);
 });
 
 test('preserved-core verifier rejects an unknown role default', async () => {
@@ -441,6 +451,14 @@ test('preserved-core verifier rejects reordered or unknown enum values', async (
     "enum('investor','business_owner','admin')";
   await assert.rejects(
     verifyPreservedMetadata(reordered),
+    /users\.role must use an allowed migration enum shape/,
+  );
+
+  const unknownRole = legacyManagedChatMetadata();
+  row(unknownRole, 'users', 'role').column_type =
+    "enum('business_owner','investor','relationship_manager','admin','root')";
+  await assert.rejects(
+    verifyPreservedMetadata(unknownRole),
     /users\.role must use an allowed migration enum shape/,
   );
 

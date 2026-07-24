@@ -327,6 +327,7 @@ const PRESERVED_CORE_TABLES = new Set([
 const ALLOWED_MIGRATION_ROLE_TYPES = [
   "enum('business_owner','investor','admin')",
   "enum('business_owner','investor','relationship_manager','admin')",
+  "enum('business_owner','investor','relationship_manager','admin','superadmin')",
 ];
 
 const ALLOWED_MIGRATION_NOTIFICATION_TYPES = [

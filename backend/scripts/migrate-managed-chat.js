@@ -244,7 +244,13 @@ async function migrateManagedChat(database, environment = process.env) {
   }
 
   const roleRows = await rows(database, 'SELECT DISTINCT role FROM users');
-  const allowedRoles = new Set(['business_owner', 'investor', 'relationship_manager', 'admin']);
+  const allowedRoles = new Set([
+    'business_owner',
+    'investor',
+    'relationship_manager',
+    'admin',
+    'superadmin',
+  ]);
   const unexpectedRoles = roleRows
     .map((row) => row.role)
     .filter((role) => !allowedRoles.has(role));
@@ -315,6 +321,7 @@ async function migrateManagedChat(database, environment = process.env) {
   await database.query('DROP TABLE IF EXISTS conversation_members');
   await database.query('DROP TABLE IF EXISTS conversations');
 
+  await database.query("UPDATE users SET role='admin' WHERE role='superadmin'");
   await database.query(
     `ALTER TABLE users
        MODIFY role ENUM('business_owner','investor','relationship_manager','admin')
