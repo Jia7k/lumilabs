@@ -4,7 +4,7 @@
 
 **Goal:** Make `users.role` accept exactly four explicitly supplied roles, remove `superadmin`, remove the database default, and restore production readiness.
 
-**Architecture:** The complete schema contract and production fixture remain strict: they accept only the four approved enum values and a missing default. The managed-chat preserved-core preflight additionally accepts the exact legacy five-value enum with trailing `superadmin`; after read-only metadata and stored-value checks, the migration converts that one legacy stored value to `admin` before narrowing to the strict final form.
+**Architecture:** The complete schema contract and production fixture remain strict: they accept only the four approved enum values and a missing default. The managed-chat preserved-core preflight additionally accepts the exact audited migration-only tuple `ENUM('business_owner','investor','relationship_manager','admin','superadmin') NOT NULL` with `COLUMN_DEFAULT = NULL`; after read-only metadata and stored-value checks, the migration locks `users`, converts that legacy stored value to `admin`, verifies the conversion count and final stored roles, and narrows to the strict final form before any chat mutation.
 
 **Tech Stack:** Node.js CommonJS, Node test runner, MySQL 8, Express readiness endpoint, systemd, SSH/SFTP
 
@@ -275,15 +275,20 @@ runtime contract, with exactly:
 ```
 
 Allow stored `superadmin` only during the migration preflight, reject every
-other unknown stored role before any mutation, then execute:
+other unknown stored role before any mutation, and model the audited
+five-role tuple with `column_default = null`. After all read-only preflight
+checks, acquire `LOCK TABLES users WRITE`, count convertible rows, execute:
 
 ```js
 await database.query("UPDATE users SET role='admin' WHERE role='superadmin'");
 ```
 
-immediately before the final four-role `ALTER TABLE users ... MODIFY role`.
-The complete verifier and production metadata fixture must continue to reject
-the five-value enum.
+Require `affectedRows` to equal the locked count, re-query stored roles, and
+reject `superadmin`, empty, null, or any unknown value. Run the final
+four-role `ALTER TABLE users ... MODIFY role`, then issue `UNLOCK TABLES` in a
+`finally` block. Only after that gate succeeds may notification deletion,
+foreign-key removal, or chat-table drops begin. The complete verifier and
+production metadata fixture must continue to reject the five-value enum.
 
 - [ ] **Step 4: Run focused and full automated verification**
 
@@ -365,7 +370,7 @@ Expected: the working tree is clean; changes are limited to the approved
 design, plan, schema contract, schema fixture/tests, canonical schema,
 managed-chat migration, and its test.
 
-- [ ] **Step 2: Capture non-sensitive live rollback evidence**
+- [ ] **Step 2: Capture non-sensitive live pre-change evidence**
 
 Over the existing authenticated SSH connection, run a Node process from
 `/var/www/lumilabs-backend` that loads `.env` and queries only:
@@ -378,9 +383,11 @@ GROUP BY role
 ORDER BY role;
 ```
 
-Store `SHOW CREATE TABLE users` in a permission-restricted rollback file under
-`/home/user/lumilabs-role-schema-backup-20260725/`. Print only the aggregate
-role counts, never rows, emails, hashes, or environment values.
+Store `SHOW CREATE TABLE users` in a permission-restricted evidence file under
+`/home/user/lumilabs-role-schema-backup-20260725/`. This capture is forensic
+evidence of the pre-change shape, not an executable restore statement for an
+existing table. Print only aggregate role counts, never rows, emails, hashes,
+or environment values.
 
 Expected starting metadata:
 
@@ -428,18 +435,44 @@ if (before.some(({ role }) => !allowedBefore.has(role))) {
   throw new Error('Unexpected production user role; refusing schema change');
 }
 
-await database.query(
-  "UPDATE users SET role='admin' WHERE role='superadmin'",
-);
-await database.query(
-  `ALTER TABLE users
-     MODIFY role ENUM(
-       'business_owner',
-       'investor',
-       'relationship_manager',
-       'admin'
-     ) NOT NULL`,
-);
+await database.query('LOCK TABLES users WRITE');
+try {
+  const [[{ account_count: expectedConversions }]] = await database.query(
+    "SELECT COUNT(*) AS account_count FROM users WHERE role='superadmin'",
+  );
+  const [conversion] = await database.query(
+    "UPDATE users SET role='admin' WHERE role='superadmin'",
+  );
+  if (Number(conversion.affectedRows) !== Number(expectedConversions)) {
+    throw new Error('Legacy role conversion count mismatch');
+  }
+
+  const [finalRoles] = await database.query(
+    'SELECT DISTINCT role FROM users',
+  );
+  const allowedAfter = new Set([
+    'business_owner',
+    'investor',
+    'relationship_manager',
+    'admin',
+  ]);
+  if (finalRoles.some(({ role }) => !allowedAfter.has(role))) {
+    throw new Error('Unsupported role remains after legacy conversion');
+  }
+
+  await database.query(
+    `ALTER TABLE users
+       MODIFY role ENUM(
+         'business_owner',
+         'investor',
+         'relationship_manager',
+         'admin'
+       ) NOT NULL`,
+  );
+} finally {
+  // ALTER TABLE may release the lock; this remains harmless cleanup.
+  await database.query('UNLOCK TABLES');
+}
 ```
 
 Immediately query `information_schema.columns` and aggregate role counts
@@ -454,8 +487,35 @@ admin count after = admin count before + superadmin count before
 total account count unchanged
 ```
 
-If the `ALTER` fails, stop before deploying the new runtime contract and use
-the captured DDL to restore metadata. Do not modify another table.
+If the `ALTER` fails, stop before deploying the new runtime contract. The
+captured `SHOW CREATE TABLE users` is not directly executable restoration.
+Use this exact compatibility rollback sequence instead:
+
+1. restore the database shape expected by the pre-change runtime contract:
+
+   ```sql
+   ALTER TABLE users
+     MODIFY role ENUM(
+       'business_owner',
+       'investor',
+       'relationship_manager',
+       'admin'
+     ) NOT NULL DEFAULT 'business_owner';
+   ```
+
+2. restore
+   `/home/user/lumilabs-role-schema-backup-20260725/schema-contract.js.pre-task3`
+   to `/var/www/lumilabs-backend/src/schema-contract.js`;
+3. restart only `lumilabs-backend.service`; and
+4. verify `systemctl is-active lumilabs-backend.service`, then require HTTP
+   `200` from both `/api/health` and `/api/ready` on loopback and the public
+   origin.
+
+This compatibility rollback is documented but was not rehearsed in
+production. The `superadmin` to `admin` conversion is intentionally
+permanent. Because no account-identity mapping was retained, full semantic
+reversal to the former role values is unsupported. Do not modify another
+table.
 
 - [ ] **Step 5: Install the staged contract and restart only the backend**
 

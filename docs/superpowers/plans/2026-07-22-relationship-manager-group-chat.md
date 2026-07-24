@@ -259,7 +259,11 @@ Expected: FAIL because the migration module and managed-chat tables do not exist
 
 - [ ] **Step 3: Replace the authoritative chat schema**
 
-Update `backend/schema.sql` with these exact logical definitions; preserve all non-chat tables and existing portfolio fields:
+Update `backend/schema.sql` with these logical definitions; preserve all
+non-chat tables and existing portfolio fields. The `users.role` declaration
+below is superseded by the strict 2026-07-25 role plan and is shown in its
+current no-default form so it cannot be mistaken for the retired implicit
+`business_owner` contract:
 
 ```sql
 CREATE TABLE IF NOT EXISTS users (
@@ -268,7 +272,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(100) NOT NULL,
   role ENUM('business_owner','investor','relationship_manager','admin')
-    NOT NULL DEFAULT 'business_owner',
+    NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

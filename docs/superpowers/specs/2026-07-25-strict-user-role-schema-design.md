@@ -80,16 +80,18 @@ The application already supplies a role in every production insert:
 
 Tests will require those explicit insert values to remain in place.
 
-The preserved-core preflight used before the managed-chat migration must
-continue accepting both legitimate starting states:
+The documented preserved-core inputs used before the managed-chat migration
+are these three metadata states:
 
-- the historical three-role enum; and
-- the final four-role enum.
+- the historical three-role enum with `DEFAULT 'business_owner'`;
+- the final four-role enum with no default; and
+- the audited, migration-only five-role enum
+  `ENUM('business_owner','investor','relationship_manager','admin','superadmin')
+  NOT NULL` with `COLUMN_DEFAULT = NULL`.
 
-For that pre-migration check only, both the historical
-`DEFAULT 'business_owner'` metadata and the target no-default metadata are
-acceptable. The complete post-migration contract remains strict and accepts
-only the four-role enum with no default.
+The five-role tuple is accepted only so the migration can retire
+`superadmin`; it is not a valid final contract. The complete post-migration
+contract remains strict and accepts only the four-role enum with no default.
 
 An exhaustive repository search will verify that no source, test, fixture,
 documentation used as an executable contract, or deployment artifact still
@@ -100,11 +102,15 @@ defines or authorizes `superadmin`.
 Before changing the column, the deployment will:
 
 1. capture the current `SHOW CREATE TABLE users` definition and aggregate role
-   counts as rollback evidence without exporting emails or password hashes;
+   counts as forensic pre-change evidence without exporting emails or password
+   hashes;
 2. verify every stored role is one of the four supported values or
    `superadmin`;
-3. change any `superadmin` rows to `admin`; and
-4. verify that zero unsupported rows remain.
+3. acquire a `WRITE` lock on `users`, count the stored `superadmin` rows,
+   convert them to `admin`, and require the affected-row count to match;
+4. re-query stored roles under the lock and verify that zero unsupported,
+   `superadmin`, empty, or null values remain; and
+5. narrow the enum before releasing the lock in cleanup.
 
 The column will then be narrowed with:
 
@@ -121,10 +127,34 @@ ALTER TABLE users
 The migration must abort before `ALTER TABLE` if an unexpected role value is
 found. Existing rows with the four supported roles are not rewritten.
 
-The rollback definition is the captured pre-change DDL. The expected live
-data change is the exact preflight `superadmin` count, currently one row.
-Only the aggregate converted-row count is recorded; account identities and
-credentials are not exposed.
+The captured `SHOW CREATE TABLE users` output is evidence of the pre-change
+state. It is not directly executable restoration for an existing table and
+must not be presented as a rollback command.
+
+The executable compatibility rollback is:
+
+1. restore the previous runtime-compatible database shape:
+
+   ```sql
+   ALTER TABLE users
+     MODIFY role ENUM(
+       'business_owner',
+       'investor',
+       'relationship_manager',
+       'admin'
+     ) NOT NULL DEFAULT 'business_owner';
+   ```
+
+2. restore the backed-up pre-change `schema-contract.js`;
+3. restart only the backend service; and
+4. require an active service plus successful `/api/health` and `/api/ready`
+   checks from loopback and the public origin.
+
+This compatibility rollback has been documented but was not rehearsed in
+production. The `superadmin` to `admin` data conversion is intentional and
+permanent: no account-identity mapping was retained, so a full semantic
+reversal is unsupported. Only the aggregate converted-row count is recorded;
+account identities and credentials are not exposed.
 
 ## Error Handling and Safety
 
@@ -144,12 +174,18 @@ The implementation follows a red-green test cycle:
 1. update or add schema-contract tests that require no final role default and
    fail against the current contract;
 2. add coverage that the preserved migration preflight accepts its documented
-   legacy and target defaults but rejects other defaults;
+   historical, final, and audited five-role/no-default tuples while rejecting
+   other defaults;
 3. update schema-source and migration-source tests to require the four-value
    enum with no `DEFAULT` clause;
-4. implement the smallest schema-related changes needed to pass those tests;
-5. run the complete backend test suite; and
-6. confirm the diff contains only approved files.
+4. add route-level coverage that successful public registration passes its
+   approved role to an explicit `role` insert and source coverage that the
+   controlled smoke insert explicitly supplies `admin`;
+5. add a conversion-count mismatch test proving the migration unlocks and
+   stops before role narrowing or chat mutation;
+6. implement the smallest schema-related changes needed to pass those tests;
+7. run the complete backend test suite; and
+8. confirm the diff contains only approved files.
 
 Production verification will require:
 

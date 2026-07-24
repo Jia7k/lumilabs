@@ -432,6 +432,7 @@ test('preserved-core verifier accepts exact legacy and target role metadata', as
   const convertible = legacyManagedChatMetadata();
   row(convertible, 'users', 'role').column_type =
     "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+  row(convertible, 'users', 'role').column_default = null;
   assert.equal(await verifyPreservedMetadata(convertible), true);
 });
 

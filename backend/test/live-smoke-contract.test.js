@@ -42,6 +42,10 @@ test('four-role smoke is explicitly targeted and creates managers through the ad
   assert.match(source, /assert\.rejects[\s\S]*\/auth\/register/);
   assert.match(source, /\/relationship-manager\/dashboard/);
   assert.match(source, /interest_ids/);
+  assert.match(
+    source,
+    /INSERT INTO users \(email,password_hash,name,role\) VALUES \(\?,\?,\?,'admin'\)/,
+  );
 });
 
 test('four-role smoke exercises group messages, isolation, archive, and withdrawal', () => {

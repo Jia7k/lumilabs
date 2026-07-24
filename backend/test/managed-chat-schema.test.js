@@ -18,9 +18,17 @@ function migrationEnvironment(migration) {
   };
 }
 
-function createMigrationDatabase(metadata, roleRows) {
+function createMigrationDatabase(
+  metadata,
+  roleRows,
+  {
+    superadminCount = roleRows.includes('superadmin') ? 1 : 0,
+    conversionAffectedRows = superadminCount,
+  } = {},
+) {
   const metadataHarness = createSchemaMetadataDatabase(metadata);
   const queries = [];
+  let storedRoles = [...roleRows];
   const database = {
     async query(sql, params = []) {
       const source = String(sql);
@@ -68,9 +76,15 @@ function createMigrationDatabase(metadata, roleRows) {
         ];
       }
       if (/SELECT DISTINCT role FROM users/i.test(source)) {
-        return [roleRows.map((role) => ({ role })), []];
+        return [storedRoles.map((role) => ({ role })), []];
       }
       if (/SELECT DISTINCT type FROM notifications/i.test(source)) return [[], []];
+      if (
+        /SELECT COUNT\(\*\) AS count FROM users WHERE role='superadmin'/i
+          .test(source.replace(/\s+/g, ' ').trim())
+      ) {
+        return [[{ count: superadminCount }], []];
+      }
       if (/SELECT COUNT\(\*\) AS count/i.test(source)) return [[{ count: 0 }], []];
       if (/SELECT id,type FROM notifications/i.test(source)) return [[], []];
       if (/information_schema\.key_column_usage/i.test(source)) return [[], []];
@@ -78,6 +92,14 @@ function createMigrationDatabase(metadata, roleRows) {
         return [[], []];
       }
 
+      if (/UPDATE users SET role='admin' WHERE role='superadmin'/i.test(source)) {
+        if (conversionAffectedRows === superadminCount) {
+          storedRoles = [...new Set(storedRoles.map((role) => (
+            role === 'superadmin' ? 'admin' : role
+          )))];
+        }
+        return [{ affectedRows: conversionAffectedRows }, []];
+      }
       if (/ALTER TABLE users\s+MODIFY role/i.test(source)) {
         const role = metadata.columns.find((candidate) => (
           candidate.table_name === 'users' && candidate.column_name === 'role'
@@ -328,7 +350,7 @@ test('managed chat migration converts superadmin before narrowing users.role', a
   ));
   role.column_type =
     "enum('business_owner','investor','relationship_manager','admin','superadmin')";
-  role.column_default = 'business_owner';
+  role.column_default = null;
   const { database, queries } = createMigrationDatabase(metadata, [
     'business_owner',
     'investor',
@@ -343,14 +365,87 @@ test('managed chat migration converts superadmin before narrowing users.role', a
     /UPDATE users SET role='admin' WHERE role='superadmin'/.test(sql)
   ));
   const alter = queries.findIndex((sql) => /ALTER TABLE users\s+MODIFY role/.test(sql));
+  const lock = queries.findIndex((sql) => /^\s*LOCK TABLES users WRITE\s*$/i.test(sql));
+  const unlock = queries.findIndex((sql) => /^\s*UNLOCK TABLES\s*$/i.test(sql));
+  const superadminCount = queries.findIndex((sql) => (
+    /SELECT COUNT\(\*\) AS count FROM users WHERE role='superadmin'/i
+      .test(sql.replace(/\s+/g, ' ').trim())
+  ));
+  const roleReads = queries
+    .map((sql, index) => ({ sql, index }))
+    .filter(({ sql }) => /SELECT DISTINCT role FROM users/i.test(sql));
+  const chatDeletion = queries.findIndex((sql) => /DELETE FROM notifications/i.test(sql));
+
+  assert.ok(lock >= 0, 'users WRITE lock must be acquired');
+  assert.ok(superadminCount > lock, 'superadmin rows must be counted under the lock');
   assert.ok(conversion >= 0, 'superadmin conversion must run');
   assert.ok(alter >= 0, 'role-narrowing ALTER must run');
+  assert.equal(roleReads.length, 2, 'stored roles must be checked before and after conversion');
+  assert.ok(
+    roleReads[1].index > conversion,
+    'stored roles must be re-queried after conversion',
+  );
+  assert.ok(
+    roleReads[1].index < alter,
+    'post-conversion stored roles must be checked before role narrowing',
+  );
   assert.ok(conversion < alter, 'superadmin conversion must precede role narrowing');
+  assert.ok(unlock > alter, 'table lock cleanup must follow role narrowing');
+  assert.ok(chatDeletion > unlock, 'chat deletion must wait for the complete role gate');
   assert.equal(
     role.column_type,
     "enum('business_owner','investor','relationship_manager','admin')",
   );
   assert.equal(role.column_default, null);
+});
+
+test('managed chat migration stops cleanly when legacy role conversion count mismatches', async () => {
+  const migration = require(migrationPath);
+  const metadata = cloneProductionSchemaMetadata();
+  const role = metadata.columns.find((candidate) => (
+    candidate.table_name === 'users' && candidate.column_name === 'role'
+  ));
+  role.column_type =
+    "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+  role.column_default = null;
+  const { database, queries } = createMigrationDatabase(
+    metadata,
+    ['business_owner', 'investor', 'relationship_manager', 'admin', 'superadmin'],
+    {
+      superadminCount: 1,
+      conversionAffectedRows: 0,
+    },
+  );
+
+  await assert.rejects(
+    migration.migrateManagedChat(database, migrationEnvironment(migration)),
+    /legacy role conversion mismatch.*expected 1.*affected 0/i,
+  );
+
+  assert.equal(
+    queries.some((sql) => /^\s*LOCK TABLES users WRITE\s*$/i.test(sql)),
+    true,
+  );
+  assert.equal(
+    queries.some((sql) => /^\s*UNLOCK TABLES\s*$/i.test(sql)),
+    true,
+  );
+  assert.equal(
+    queries.some((sql) => /DELETE FROM notifications/i.test(sql)),
+    false,
+  );
+  assert.equal(
+    queries.some((sql) => /\bDROP TABLE\b/i.test(sql)),
+    false,
+  );
+  assert.equal(
+    queries.some((sql) => /ALTER TABLE users\s+MODIFY role/i.test(sql)),
+    false,
+  );
+  assert.equal(
+    queries.some((sql) => /ALTER TABLE notifications/i.test(sql)),
+    false,
+  );
 });
 
 test('managed chat migration rejects unknown stored roles before mutation', async () => {

@@ -6,6 +6,13 @@ const {
 const CHAT_RESET_CONFIRMATION = 'RESET_LUMILABS_CHAT_ONLY_20260722';
 const BACKUP_CONFIRMATION = 'BACKUP_AND_RESTORE_COMMAND_VERIFIED';
 
+const FINAL_USER_ROLES = [
+  'business_owner',
+  'investor',
+  'relationship_manager',
+  'admin',
+];
+
 const NOTIFICATION_TYPES = [
   'new_message',
   'new_interest',
@@ -245,10 +252,7 @@ async function migrateManagedChat(database, environment = process.env) {
 
   const roleRows = await rows(database, 'SELECT DISTINCT role FROM users');
   const allowedRoles = new Set([
-    'business_owner',
-    'investor',
-    'relationship_manager',
-    'admin',
+    ...FINAL_USER_ROLES,
     'superadmin',
   ]);
   const unexpectedRoles = roleRows
@@ -297,10 +301,6 @@ async function migrateManagedChat(database, environment = process.env) {
     database,
     notificationColumnsBefore,
   );
-  const chatCondition = chatNotificationCondition(notificationColumnsBefore, 'notifications');
-  const [deletedNotifications] = await database.query(
-    `DELETE FROM notifications WHERE ${chatCondition}`,
-  );
 
   const notificationForeignKeys = await rows(
     database,
@@ -310,6 +310,53 @@ async function migrateManagedChat(database, environment = process.env) {
         AND table_name='notifications'
         AND referenced_table_name IN ('messages','conversations')`,
   );
+
+  await database.query('LOCK TABLES users WRITE');
+  try {
+    const expectedConversions = await count(
+      database,
+      "SELECT COUNT(*) AS count FROM users WHERE role='superadmin'",
+    );
+    const [conversionResult] = await database.query(
+      "UPDATE users SET role='admin' WHERE role='superadmin'",
+    );
+    const affectedConversions = Number(conversionResult?.affectedRows);
+    if (
+      !Number.isInteger(affectedConversions)
+      || affectedConversions !== expectedConversions
+    ) {
+      throw new Error(
+        'Legacy role conversion mismatch: '
+        + `expected ${expectedConversions} row(s), affected ${affectedConversions}`,
+      );
+    }
+
+    const finalRoleRows = await rows(database, 'SELECT DISTINCT role FROM users');
+    const finalRoles = new Set(FINAL_USER_ROLES);
+    const unexpectedFinalRoles = finalRoleRows
+      .map((row) => row.role)
+      .filter((role) => !finalRoles.has(role));
+    if (unexpectedFinalRoles.length) {
+      throw new Error(
+        'Legacy role conversion left unsupported user roles: '
+        + unexpectedFinalRoles.map((role) => String(role)).join(', '),
+      );
+    }
+
+    await database.query(
+      `ALTER TABLE users
+         MODIFY role ENUM('business_owner','investor','relationship_manager','admin')
+         NOT NULL`,
+    );
+  } finally {
+    await database.query('UNLOCK TABLES');
+  }
+
+  const chatCondition = chatNotificationCondition(notificationColumnsBefore, 'notifications');
+  const [deletedNotifications] = await database.query(
+    `DELETE FROM notifications WHERE ${chatCondition}`,
+  );
+
   for (const foreignKey of notificationForeignKeys) {
     const name = foreignKey.constraint_name || foreignKey.CONSTRAINT_NAME;
     await database.query(
@@ -321,12 +368,6 @@ async function migrateManagedChat(database, environment = process.env) {
   await database.query('DROP TABLE IF EXISTS conversation_members');
   await database.query('DROP TABLE IF EXISTS conversations');
 
-  await database.query("UPDATE users SET role='admin' WHERE role='superadmin'");
-  await database.query(
-    `ALTER TABLE users
-       MODIFY role ENUM('business_owner','investor','relationship_manager','admin')
-       NOT NULL`,
-  );
   await database.query(CREATE_CONVERSATIONS);
   await database.query(CREATE_MEMBERS);
   await database.query(CREATE_MESSAGES);

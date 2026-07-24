@@ -124,6 +124,40 @@ test('registration accepts exact name boundary and keeps public roles closed', {
   assert.equal(calls.length, 1);
 });
 
+test('successful public registration explicitly inserts the submitted approved role', {
+  concurrency: false,
+}, async (t) => {
+  const calls = stubQueries(t, async (sql) => {
+    if (/^\s*SELECT id FROM users WHERE email = \?/i.test(sql)) return [[], []];
+    if (/^\s*INSERT INTO users/i.test(sql)) return [{ insertId: 42 }, []];
+    throw new Error(`Unexpected registration query: ${sql}`);
+  });
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  const result = await request(
+    server,
+    '/api/auth/register',
+    registration({
+      name: 'Explicit Investor',
+      email: 'explicit-investor@example.test',
+      role: 'investor',
+    }),
+  );
+
+  assert.equal(result.response.status, 201);
+  assert.equal(calls.length, 2);
+  const insert = calls[1];
+  assert.match(
+    String(insert.sql).replace(/\s+/g, ' ').trim(),
+    /^INSERT INTO users \(email, password_hash, name, role\) VALUES \(\?, \?, \?, \?\)$/i,
+  );
+  assert.equal(insert.params.length, 4);
+  assert.equal(insert.params[0], 'explicit-investor@example.test');
+  assert.equal(insert.params[2], 'Explicit Investor');
+  assert.equal(insert.params[3], 'investor');
+});
+
 test('login rejects email overflow before a database call', {
   concurrency: false,
 }, async (t) => {
