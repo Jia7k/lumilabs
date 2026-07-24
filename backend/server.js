@@ -111,6 +111,22 @@ function createApp(options = {}) {
 
   const app = express();
   app.disable('x-powered-by');
+
+  // Allow cross-origin requests from the local Python dev server (port 5501).
+  // In production the Apache proxy makes requests same-origin so this is a no-op.
+  app.use((req, res, next) => {
+    const allowed = ['http://127.0.0.1:5501', 'http://localhost:5501'];
+    const origin = req.headers.origin;
+    if (allowed.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+      res.setHeader('Vary', 'Origin');
+    }
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
   app.use(express.json({ limit: DB_LIMITS.JSON_LIMIT }));
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
