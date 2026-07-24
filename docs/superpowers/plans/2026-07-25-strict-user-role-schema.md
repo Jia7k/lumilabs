@@ -390,8 +390,11 @@ NOT NULL
 no explicit default
 ```
 
-Expected starting data: zero `superadmin` rows and at least one existing
-`admin` row. Stop if either the metadata or role set differs.
+Expected starting data: zero or more `superadmin` rows and at least one
+existing `admin` row. The final pre-migration preflight observed one
+`superadmin` row, which the user explicitly authorized converting to
+`admin`. Stop only if the metadata differs or a stored role falls outside
+the four approved roles plus `superadmin`.
 
 - [ ] **Step 3: Stage and checksum the runtime contract**
 

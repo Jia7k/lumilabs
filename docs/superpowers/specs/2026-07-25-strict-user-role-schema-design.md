@@ -34,8 +34,10 @@ The approved product rule is:
 - every user-creation path must explicitly supply a role; and
 - the database must not silently assign a role when one is omitted.
 
-The production audit found no current `superadmin` rows. Existing supported
-accounts include administrators and must remain unchanged.
+An earlier production audit found no `superadmin` rows, but the final
+pre-migration preflight found one. The user explicitly authorized converting
+every stored `superadmin` value to `admin`. Existing supported accounts,
+including administrators, must otherwise remain unchanged.
 
 ## Goals
 
@@ -119,10 +121,10 @@ ALTER TABLE users
 The migration must abort before `ALTER TABLE` if an unexpected role value is
 found. Existing rows with the four supported roles are not rewritten.
 
-The rollback definition is the captured pre-change DDL. Because the audited
-database currently has zero `superadmin` rows, the expected live data change
-is zero rows; if that count changes before execution, converted IDs and the
-row count will be recorded without exposing credentials.
+The rollback definition is the captured pre-change DDL. The expected live
+data change is the exact preflight `superadmin` count, currently one row.
+Only the aggregate converted-row count is recorded; account identities and
+credentials are not exposed.
 
 ## Error Handling and Safety
 
