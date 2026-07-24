@@ -1,7 +1,7 @@
 # Strict User Role Schema Design
 
 **Date:** 2026-07-25
-**Status:** Awaiting written review
+**Status:** Approved
 **Scope:** Align the repository and production `users.role` column with the
 approved four-role policy
 
