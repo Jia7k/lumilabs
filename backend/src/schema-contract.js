@@ -27,7 +27,7 @@ const COLUMN_CONTRACT = {
       'role',
       "enum('business_owner','investor','relationship_manager','admin')",
       'NO',
-      'business_owner',
+      null,
     ],
     ['created_at', 'timestamp', 'YES', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
     [
@@ -581,6 +581,7 @@ function appendColumnIssues(
   {
     checkOrdinal = () => true,
     allowedTypes = new Map(),
+    allowedDefaults = new Map(),
   } = {},
 ) {
   const columns = new Map(columnRows.map((actual) => [
@@ -618,10 +619,17 @@ function appendColumnIssues(
       if (String(property(actual, 'is_nullable')).toUpperCase() !== expected.nullable) {
         issues.push(columnIssueLabel(field, 'nullable', expected.nullable));
       }
-      if (
-        normalizeDefault(property(actual, 'column_default'))
-        !== normalizeDefault(expected.defaultValue)
-      ) {
+      const actualDefault = normalizeDefault(
+        property(actual, 'column_default'),
+      );
+      const acceptedDefaults = allowedDefaults.get(field);
+      if (acceptedDefaults) {
+        if (!acceptedDefaults.some((
+          defaultValue,
+        ) => actualDefault === normalizeDefault(defaultValue))) {
+          issues.push(`${field} must use an allowed migration default`);
+        }
+      } else if (actualDefault !== normalizeDefault(expected.defaultValue)) {
         issues.push(columnIssueLabel(
           field,
           'default',
@@ -779,6 +787,9 @@ async function verifyPreservedCoreSchema(database) {
     allowedTypes: new Map([
       ['users.role', ALLOWED_MIGRATION_ROLE_TYPES],
       ['notifications.type', ALLOWED_MIGRATION_NOTIFICATION_TYPES],
+    ]),
+    allowedDefaults: new Map([
+      ['users.role', [null, 'business_owner']],
     ]),
   });
 

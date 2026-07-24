@@ -15,7 +15,7 @@
     { "table_name": "users", "column_name": "email", "ordinal_position": 2, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "password_hash", "ordinal_position": 3, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "name", "ordinal_position": 4, "column_type": "varchar(100)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
-    { "table_name": "users", "column_name": "role", "ordinal_position": 5, "column_type": "enum('business_owner','investor','relationship_manager','admin')", "is_nullable": "NO", "column_default": "business_owner", "extra": "", "generation_expression": "" },
+    { "table_name": "users", "column_name": "role", "ordinal_position": 5, "column_type": "enum('business_owner','investor','relationship_manager','admin')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "created_at", "ordinal_position": 6, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" },
     { "table_name": "users", "column_name": "updated_at", "ordinal_position": 7, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP", "generation_expression": "" },
 

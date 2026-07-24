@@ -141,6 +141,10 @@ test('rejects wrong column type, nullability, default, and physical order', asyn
   }, /notifications\.created_at default must be CURRENT_TIMESTAMP/);
 
   await expectInvariant((metadata) => {
+    row(metadata, 'users', 'role').column_default = 'business_owner';
+  }, /users\.role default must be NULL/);
+
+  await expectInvariant((metadata) => {
     row(metadata, 'portfolios', 'readiness_score').ordinal_position = 11;
   }, /portfolios\.readiness_score ordinal position must be 12/);
 });
@@ -398,6 +402,7 @@ function legacyManagedChatMetadata() {
 
   row(metadata, 'users', 'role').column_type =
     "enum('business_owner','investor','admin')";
+  row(metadata, 'users', 'role').column_default = 'business_owner';
   row(metadata, 'notifications', 'type').column_type =
     "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted')";
   metadata.columns
@@ -409,7 +414,7 @@ function legacyManagedChatMetadata() {
   return metadata;
 }
 
-test('preserved-core verifier accepts exact legacy and target enum shapes', async () => {
+test('preserved-core verifier accepts exact legacy and target role metadata', async () => {
   assert.equal(
     await verifyPreservedMetadata(legacyManagedChatMetadata()),
     true,
@@ -417,6 +422,16 @@ test('preserved-core verifier accepts exact legacy and target enum shapes', asyn
   assert.equal(
     await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
     true,
+  );
+});
+
+test('preserved-core verifier rejects an unknown role default', async () => {
+  const metadata = legacyManagedChatMetadata();
+  row(metadata, 'users', 'role').column_default = 'investor';
+
+  await assert.rejects(
+    verifyPreservedMetadata(metadata),
+    /users\.role must use an allowed migration default/,
   );
 });
 
