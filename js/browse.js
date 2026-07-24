@@ -7,7 +7,7 @@ function escapeHtml(v) {
     .replace(/'/g, "&#039;");
 }
 
-function managedChatAction(portfolio, hasExpressedInterest) {
+function managedChatAction(portfolio) {
   const conversationId = Number(portfolio.conversation_id);
   if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
     return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
@@ -15,8 +15,7 @@ function managedChatAction(portfolio, hasExpressedInterest) {
   if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
     return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  if (!hasExpressedInterest) return "";
-  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  return "";
 }
 
 function formatFunding(n) {
@@ -279,7 +278,8 @@ function renderGrid(portfolios) {
             <i class="ti ${liked ? "ti-heart-filled" : "ti-heart"}"></i>
             ${liked ? "Interested" : "Express Interest"}
           </button>
-          ${managedChatAction(p, liked)}
+          ${liked ? `<button class="btn-remove-interest" onclick="toggleInterest(${p.id})"${interestDisabled}><i class="ti ti-heart-x"></i> Remove Interest</button>` : ""}
+          ${managedChatAction(p)}
         </div>
       </div>
     `;

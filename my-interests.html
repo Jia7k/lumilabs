@@ -51,11 +51,16 @@
   .sector-tag { background: var(--blue-bg); color: var(--blue-text); padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
   .score-tag { background: rgba(82,164,117,0.1); color: var(--primary-green); padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
   .interest-date { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-  .interest-actions { display: flex; gap: 8px; flex: 0 0 auto; }
-  .btn-action { padding: 8px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+  .interest-actions { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; align-items: stretch; min-width: 160px; }
+  .btn-action { padding: 8px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
   .btn-action:hover { background: var(--bg-page); }
   .btn-remove { color: var(--pink-text); border-color: var(--pink-text); background: var(--pink-bg); }
   .btn-remove:hover { background: #f7d5e0; }
+  .btn-chat { background: var(--purple-light); color: var(--purple-text); border-color: #c4b5fd; }
+  .btn-chat:hover { background: #ede9ff; }
+  .btn-chat-archived { background: var(--bg-page); color: var(--text-secondary); border-color: var(--border); }
+  .btn-chat-archived:hover { background: #f3f4f6; }
+  .chat-awaiting { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-muted); background: var(--bg-page); border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 8px 14px; }
   .empty-state { text-align: center; padding: 80px 24px; color: var(--text-secondary); }
   .empty-state i { font-size: 56px; display: block; margin-bottom: 16px; color: var(--text-muted); }
   .empty-state h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }

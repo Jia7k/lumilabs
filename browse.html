@@ -73,7 +73,13 @@
   .meta-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
   .meta-value { font-size: 13px; font-weight: 600; color: var(--text-primary); }
   .score-value { color: var(--primary-green); }
-  .card-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .card-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .btn-remove-interest { background: none; border: none; cursor: pointer; color: #EF4444; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; padding: 0; }
+  .btn-remove-interest:hover { text-decoration: underline; }
+  .btn-remove-interest:disabled { opacity: 0.5; cursor: not-allowed; }
+  .managed-chat-action { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #6366F1; text-decoration: none; font-weight: 500; }
+  .managed-chat-action:hover { text-decoration: underline; }
+  .managed-chat-archived { color: #9CA3AF; }
   .btn-interest { flex: 1; padding: 9px; border-radius: var(--radius-md); font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s; }
   .btn-interest.interested { background: var(--pink-bg); color: var(--pink-text); border-color: var(--pink-text); }
   .btn-interest:hover:not(.interested) { background: var(--purple-light); border-color: var(--header-purple); color: var(--header-purple); }

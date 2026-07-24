@@ -10,12 +10,12 @@ function escapeHtml(v) {
 function managedChatAction(portfolio) {
   const conversationId = Number(portfolio.conversation_id);
   if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
-    return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+    return `<a class="btn-action btn-chat" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
   }
   if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
-    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+    return `<a class="btn-action btn-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  return `<span class="chat-awaiting"><i class="ti ti-clock"></i> Awaiting match</span>`;
 }
 
 function formatFunding(n) {
