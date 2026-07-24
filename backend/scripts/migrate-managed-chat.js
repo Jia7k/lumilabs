@@ -318,7 +318,7 @@ async function migrateManagedChat(database, environment = process.env) {
   await database.query(
     `ALTER TABLE users
        MODIFY role ENUM('business_owner','investor','relationship_manager','admin')
-       NOT NULL DEFAULT 'business_owner'`,
+       NOT NULL`,
   );
   await database.query(CREATE_CONVERSATIONS);
   await database.query(CREATE_MEMBERS);

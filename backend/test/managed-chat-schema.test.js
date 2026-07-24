@@ -49,6 +49,15 @@ test('schema source reproduces audited live column declarations and portfolio or
     users,
     /updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP/,
   );
+  assert.match(
+    users,
+    /role ENUM\('business_owner','investor','relationship_manager','admin'\) NOT NULL,/,
+  );
+  assert.doesNotMatch(
+    users,
+    /role ENUM\('business_owner','investor','relationship_manager','admin'\)[^,\n]*DEFAULT/,
+  );
+  assert.doesNotMatch(users, /superadmin/);
 
   const portfolios = tableStatement('portfolios');
   assert.match(
@@ -212,6 +221,19 @@ test('notifications preserve existing types and add managed-room references', ()
     notifications,
     /FOREIGN KEY \(related_message_id\)[\s\S]*?ON DELETE SET NULL/,
   );
+});
+
+test('managed chat migration leaves users with four explicit roles', () => {
+  const source = fs.readFileSync(migrationPath, 'utf8');
+  assert.match(
+    source,
+    /MODIFY role ENUM\('business_owner','investor','relationship_manager','admin'\)\s+NOT NULL/,
+  );
+  assert.doesNotMatch(
+    source,
+    /MODIFY role[\s\S]*?NOT NULL DEFAULT 'business_owner'/,
+  );
+  assert.doesNotMatch(source, /superadmin/);
 });
 
 test('managed chat migration requires both exact deployment guards', () => {
