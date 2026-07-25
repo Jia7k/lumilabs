@@ -103,7 +103,7 @@ function renderRecommendationResult(result) {
           <span class="rec-name">${escapeHtml(portfolio.name)}</span>
           ${portfolio.is_high_potential ? '<span class="badge-purple"><i class="ti ti-star"></i> High Potential</span>' : ""}
         </div><div class="rec-industry">${escapeHtml(portfolio.sector)}</div></div>
-        <div class="score-text">${portfolio.ai_score}</div>
+        <div class="score-circle" style="--score:${portfolio.ai_score}"><span>${portfolio.ai_score}</span></div>
         <i class="ti ti-arrow-right rec-arrow"></i>
       </div>`).join("")
     : '<p style="padding:20px;color:var(--text-muted);">No approved startups yet.</p>';

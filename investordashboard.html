@@ -82,7 +82,9 @@
   .rec-name { font-weight: 600; font-size: 15px; color: var(--text-primary); }
   .badge-purple { background: var(--purple-light); color: var(--purple-text); font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; display: flex; align-items: center; gap: 4px; }
   .rec-industry { font-size: 13px; color: var(--text-secondary); }
-  .score-text { font-weight: 600; color: var(--primary-green); font-size: 14px; margin-right: 8px; }
+  .score-circle { --score: 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; font-size: 12px; font-weight: 600; color: var(--primary-green); background: conic-gradient(var(--primary-green) calc(var(--score) * 1%), #D1E5B8 0); margin-right: 8px; flex-shrink: 0; }
+  .score-circle::before { content: ""; position: absolute; inset: 2px; background: white; border-radius: 50%; }
+  .score-circle span { position: relative; z-index: 1; }
   .rec-arrow { color: var(--text-muted); font-size: 18px; cursor: pointer; }
   .btn-full-width { display: block; width: calc(100% - 40px); margin: 0 20px 20px; text-align: center; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: none; font-weight: 500; cursor: pointer; }
 
