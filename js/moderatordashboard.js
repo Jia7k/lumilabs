@@ -536,19 +536,19 @@ function renderReviewDetails(full, p) {
       </div>
       <div>
         <div class="modal-field-label">Location</div>
-        <div class="modal-field-value ${full.location ? "" : "muted"}">${full.location ? escapeHtml(full.location) : "No location provided"}</div>
+        <div class="modal-field-value">${full.location ? escapeHtml(full.location) : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">Website</div>
-        <div class="modal-field-value ${full.website ? "" : "muted"}">${full.website ? escapeHtml(full.website) : "No website provided"}</div>
+        <div class="modal-field-value">${full.website ? escapeHtml(full.website) : "—"}</div>
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Description</div>
-        <div class="modal-field-value ${full.description ? "" : "muted"}">${full.description ? escapeHtml(full.description) : "No description provided"}</div>
+        <div class="modal-field-value">${full.description ? escapeHtml(full.description) : "—"}</div>
         </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Documents</div>
-        <div class="modal-field-value ${full.documents && full.documents.length > 0 ? "" : "muted"}">
+        <div class="modal-field-value">
           ${
             full.documents && full.documents.length > 0
               ? full.documents.map(d => `
@@ -557,7 +557,7 @@ function renderReviewDetails(full, p) {
                     <i class="ti ti-file"></i> ${escapeHtml(d.file_name)}
                   </a>
                 `).join("")
-              : `No documents uploaded`
+              : `—`
           }
         </div>
       </div>
@@ -567,7 +567,7 @@ function renderReviewDetails(full, p) {
     <div class="modal-fields-grid">
       <div>
         <div class="modal-field-label">Team Size</div>
-        <div class="modal-field-value ${hasTeamSize ? "" : "muted"}">${hasTeamSize ? escapeHtml(full.team_size) : "No team size provided"}</div>
+        <div class="modal-field-value">${hasTeamSize ? escapeHtml(full.team_size) : "—"}</div>
       </div>
       <div>
         <div class="modal-field-label">Founded Year</div>
@@ -806,4 +806,15 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+function initRoleMenu() {
+  const menu = document.getElementById("role-menu");
+  const button = document.getElementById("role-menu-button");
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.classList.toggle("open");
+  });
+  document.addEventListener("click", () => menu.classList.remove("open"));
+}
+
+initRoleMenu();
 initAdmin();

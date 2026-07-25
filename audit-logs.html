@@ -2,114 +2,122 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Audit Logs — Lumi5 Labs</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" />
-    <link rel="stylesheet" href="css/style.css?v=20260724.1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audit Logs — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css?v=20260724.1" />
 </head>
 
 <body class="audit protected-page">
 
-    <nav class="nav">
-        <a class="nav-logo" href="index.html">
-            <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
-        </a>
-        <div class="nav-links">
-            <button class="nav-btn" onclick="window.location.href='moderatordashboard.html'">
-                <i class="ti ti-shield"></i>
-                Moderation Dashboard
-            </button>
-            <button class="nav-btn active" onclick="window.location.href='audit-logs.html'">
-                <i class="ti ti-settings"></i>
-                Audit Logs
-            </button>
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <button class="nav-btn" onclick="window.location.href='moderatordashboard.html'">
+        <i class="ti ti-shield"></i>
+        Moderation Dashboard
+      </button>
+      <button class="nav-btn active" onclick="window.location.href='audit-logs.html'">
+        <i class="ti ti-settings"></i>
+        Audit Logs
+      </button>
+    </div>
+    <div class="nav-right">
+      <div class="role-menu" id="role-menu">
+        <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="user-avatar"></div>
+          <div class="user-info">
+            <div class="name" id="user-name"></div>
+            <div class="role" id="user-role"></div>
+          </div>
+          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+        </button>
+
+        <div class="role-dropdown" role="menu">
+          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+            <span class="role-option-avatar" style="background:#EF4444;">
+              <i class="ti ti-logout" style="font-size:14px;"></i>
+            </span>
+            <span class="role-option-name">Sign Out</span>
+          </button>
         </div>
+      </div>
+    </div>
+  </nav>
 
-        <div class="nav-right">
-            <div class="user-chip">
-                <div class="avatar" id="user-avatar"></div>
-                <div class="user-info">
-                    <div class="name" id="user-name"></div>
-                    <div class="role" id="user-role"></div>
-                </div>
-            </div>
-            <button class="btn btn-outline" type="button" onclick="signOut()" aria-label="Sign out">
-                <i class="ti ti-logout"></i> Sign out
-            </button>
+  <main class="main">
+    <div class="pf-header-left">
+      <button class="pf-back-btn" onclick="window.location.href='moderatordashboard.html'">
+        <i class="ti ti-arrow-left"></i> Back
+      </button>
+      <div>
+        <h1 class="welcome-heading">Audit Logs</h1>
+        <p class="welcome-sub">Latest 100 actions</p>
+      </div>
+    </div>
+    <div class="stats-grid">
+
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Actions in latest 100</div>
+          <div class="stat-value" id="stat-total">—</div>
         </div>
-    </nav>
-
-    <main class="main">
-        <div class="pf-header-left">
-            <button class="pf-back-btn" onclick="window.location.href='moderatordashboard.html'">
-                <i class="ti ti-arrow-left"></i> Back
-            </button>
-            <div>
-                <h1 class="welcome-heading">Audit Logs</h1>
-                <p class="welcome-sub">Latest 100 actions</p>
-            </div>
+        <div class="stat-icon icon-purple">
+          <i class="ti ti-shield"></i>
         </div>
-        <div class="stats-grid">
+      </div>
 
-            <div class="stat-card">
-                <div>
-                    <div class="stat-label">Actions in latest 100</div>
-                    <div class="stat-value" id="stat-total">—</div>
-                </div>
-                <div class="stat-icon icon-purple">
-                    <i class="ti ti-shield"></i>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div>
-                    <div class="stat-label">Approved in latest 100</div>
-                    <div class="stat-value" id="stat-approved">—</div>
-                </div>
-                <div class="stat-icon icon-green">
-                    <i class="ti ti-check"></i>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div>
-                    <div class="stat-label">Rejected in latest 100</div>
-                    <div class="stat-value" id="stat-rejected">—</div>
-                </div>
-                <div class="stat-icon icon-red">
-                    <i class="ti ti-x"></i>
-                </div>
-            </div>
-
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Approved in latest 100</div>
+          <div class="stat-value" id="stat-approved">—</div>
         </div>
-
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">
-                    Action History
-                </div>
-            </div>
-
-            <div class="table-scroll">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Admin</th>
-                            <th>Action</th>
-                            <th>Portfolio</th>
-                            <th>Reason</th>
-                        </tr>
-                    </thead>
-
-                    <tbody id="audit-tbody">
-                        <!-- Rows are rendered by audit-logs.js -->
-                    </tbody>
-                </table>
-            </div>
+        <div class="stat-icon icon-green">
+          <i class="ti ti-check"></i>
         </div>
-    </main>
+      </div>
+
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Rejected in latest 100</div>
+          <div class="stat-value" id="stat-rejected">—</div>
+        </div>
+        <div class="stat-icon icon-red">
+          <i class="ti ti-x"></i>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          Action History
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Admin</th>
+              <th>Action</th>
+              <th>Portfolio</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+
+          <tbody id="audit-tbody">
+            <!-- Rows are rendered by audit-logs.js -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
 
     <script src="js/api.js?v=20260724.1"></script>
     <script src="js/audit-logs.js?v=20260724.1"></script>
