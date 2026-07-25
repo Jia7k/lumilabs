@@ -10,6 +10,7 @@ const ROLE_MAP = {
   investor: { dashboard: 'investordashboard.html' },
   relationship_manager: { dashboard: 'relationshipmanagerdashboard.html' },
   admin: { dashboard: 'moderatordashboard.html' },
+  superadmin: { dashboard: 'superadmindashboard.html' },
 };
 
 async function apiPost(path, body, token) {

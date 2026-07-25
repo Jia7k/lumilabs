@@ -11,6 +11,7 @@ const FINAL_USER_ROLES = [
   'investor',
   'relationship_manager',
   'admin',
+  `superadmin`,
 ];
 
 const NOTIFICATION_TYPES = [
@@ -313,23 +314,23 @@ async function migrateManagedChat(database, environment = process.env) {
 
   await database.query('LOCK TABLES users WRITE');
   try {
-    const expectedConversions = await count(
-      database,
-      "SELECT COUNT(*) AS count FROM users WHERE role='superadmin'",
-    );
-    const [conversionResult] = await database.query(
-      "UPDATE users SET role='admin' WHERE role='superadmin'",
-    );
-    const affectedConversions = Number(conversionResult?.affectedRows);
-    if (
-      !Number.isInteger(affectedConversions)
-      || affectedConversions !== expectedConversions
-    ) {
-      throw new Error(
-        'Legacy role conversion mismatch: '
-        + `expected ${expectedConversions} row(s), affected ${affectedConversions}`,
-      );
-    }
+    // const expectedConversions = await count(
+    //   database,
+    //   "SELECT COUNT(*) AS count FROM users WHERE role='superadmin'",
+    // );
+    // const [conversionResult] = await database.query(
+    //   "UPDATE users SET role='admin' WHERE role='superadmin'",
+    // );
+    // const affectedConversions = Number(conversionResult?.affectedRows);
+    // if (
+    //   !Number.isInteger(affectedConversions)
+    //   || affectedConversions !== expectedConversions
+    // ) {
+    //   throw new Error(
+    //     'Legacy role conversion mismatch: '
+    //     + `expected ${expectedConversions} row(s), affected ${affectedConversions}`,
+    //   );
+    // }
 
     const finalRoleRows = await rows(database, 'SELECT DISTINCT role FROM users');
     const finalRoles = new Set(FINAL_USER_ROLES);
@@ -345,7 +346,7 @@ async function migrateManagedChat(database, environment = process.env) {
 
     await database.query(
       `ALTER TABLE users
-         MODIFY role ENUM('business_owner','investor','relationship_manager','admin')
+         MODIFY role ENUM('business_owner','investor','relationship_manager','admin', 'superadmin')
          NOT NULL`,
     );
   } finally {

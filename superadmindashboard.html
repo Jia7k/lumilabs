@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Superadmin Dashboard — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body class="dashboard">
+
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <div class="nav-btn-wrap">
+        <button class="nav-btn active"><i class="ti ti-crown"></i>Dashboard</button>
+      </div>
+      <div class="nav-btn-wrap">
+        <button class="nav-btn" onclick="window.location.href='assignments.html'">
+          <i class="ti ti-user-cog"></i> Portfolio Assignments
+        </button>
+      </div>
+    </div>
+    <div class="nav-right">
+      <div class="role-menu" id="role-menu">
+        <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="user-avatar"></div>
+          <div class="user-info">
+            <div class="name" id="user-name"></div>
+            <div class="role" id="user-role"></div>
+          </div>
+          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+        </button>
+
+        <div class="role-dropdown" role="menu">
+          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+            <span class="role-option-avatar" style="background:#EF4444;">
+              <i class="ti ti-logout" style="font-size:14px;"></i>
+            </span>
+            <span class="role-option-name">Sign Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <h1 class="welcome-heading" id="page-title"></h1>
+    <p class="welcome-sub" id="page-subtitle"></p>
+
+    <div class="stats-grid">
+      <div class="stat-card orange-card">
+        <div>
+          <div class="stat-label">Business Owners</div>
+          <div class="stat-value" id="stat-business-owners"></div>
+        </div>
+        <div class="stat-icon icon-white-tint"><i class="ti ti-briefcase"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Investors</div>
+          <div class="stat-value" id="stat-investors"></div>
+        </div>
+        <div class="stat-icon icon-green"><i class="ti ti-chart-pie"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Admins</div>
+          <div class="stat-value" id="stat-admins"></div>
+        </div>
+        <div class="stat-icon icon-purple"><i class="ti ti-shield-lock"></i></div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-label">Relationship Managers</div>
+          <div class="stat-value" id="stat-relationship-managers"></div>
+        </div>
+        <div class="stat-icon icon-red"><i class="ti ti-users"></i></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          Relationship Manager Workload
+        </div>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Relationship Manager</th>
+            <th>Email</th>
+            <th>Portfolios Assigned</th>
+          </tr>
+        </thead>
+        <tbody id="workload-list"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/superadmindashboard.js"></script>
+</body>
+
+</html>

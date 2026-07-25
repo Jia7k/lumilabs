@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio Assignments — Lumi5 Labs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body class="dashboard">
+
+  <nav class="nav">
+    <a class="nav-logo" href="index.html">
+      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+    </a>
+    <div class="nav-links">
+      <div class="nav-btn-wrap">
+        <button class="nav-btn" onclick="window.location.href='superadmindashboard.html'">
+          <i class="ti ti-crown"></i>Dashboard
+        </button>
+      </div>
+      <div class="nav-btn-wrap">
+        <button class="nav-btn active"><i class="ti ti-user-cog"></i> Portfolio Assignments</button>
+      </div>
+    </div>
+    <div class="nav-right">
+      <div class="role-menu" id="role-menu">
+        <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="user-avatar"></div>
+          <div class="user-info">
+            <div class="name" id="user-name"></div>
+            <div class="role" id="user-role"></div>
+          </div>
+          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+        </button>
+
+        <div class="role-dropdown" role="menu">
+          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
+            <span class="role-option-avatar" style="background:#EF4444;">
+              <i class="ti ti-logout" style="font-size:14px;"></i>
+            </span>
+            <span class="role-option-name">Sign Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <h1 class="welcome-heading" id="page-title"></h1>
+    <p class="welcome-sub" id="page-subtitle"></p>
+
+    <div class="card" style="margin-top: 24px;">
+      <div class="card-header">
+        <div class="card-title">
+          Approved Portfolios <span class="badge-green" id="assignments-badge"></span>
+        </div>
+        <select id="assignment-filter"
+          style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
+          <option value="all">All</option>
+          <option value="unassigned">Awaiting Assignment</option>
+          <option value="assigned">Assigned</option>
+        </select>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Portfolio</th>
+            <th>Business Owner</th>
+            <th>Assigned RM</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="assignments-list"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div class="reason-overlay" id="assign-overlay">
+    <div class="reason-card">
+      <h3 id="assign-modal-title">Assign Relationship Manager</h3>
+      <p id="assign-modal-subtitle">Choose a relationship manager for this portfolio.</p>
+      <select id="assign-rm-select"
+        style="width:100%; padding:14px 16px; border:1px solid var(--border); border-radius:8px; font-size:15px;"></select>
+      <div class="reason-footer">
+        <button class="btn-cancel-outline" id="assign-cancel-btn">Cancel</button>
+        <button class="btn-approve-solid" id="assign-confirm-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="reason-overlay" id="confirm-assign-overlay">
+    <div class="reason-card">
+      <h3>Confirm Assignment</h3>
+      <p id="confirm-assign-text"></p>
+      <div class="reason-footer"> <button class="btn-cancel-outline" id="confirm-assign-cancel-btn">Cancel</button>
+        <button class="btn-approve-solid" id="confirm-assign-confirm-btn">Confirm</button> </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/assignments.js"></script>
+</body>
+
+</html>

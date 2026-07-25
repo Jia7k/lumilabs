@@ -287,6 +287,7 @@ router.get('/my', authenticate, requireRole('business_owner'), async (req, res) 
       `SELECT p.*,
         (SELECT COUNT(*) FROM portfolio_documents WHERE portfolio_id = p.id) AS doc_count,
         (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count,
+        rm.name AS assigned_rm_name,
         CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
         CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
         CASE
@@ -295,6 +296,7 @@ router.get('/my', authenticate, requireRole('business_owner'), async (req, res) 
           ELSE 'archived'
         END AS chat_state
        FROM portfolios p
+       LEFT JOIN users rm ON rm.id = p.relationship_manager_id
        LEFT JOIN conversations c ON c.portfolio_id=p.id
        LEFT JOIN conversation_members owner_member
          ON owner_member.conversation_id=c.id
@@ -569,7 +571,7 @@ router.post(
     }
   }
 );
- 
+
 // DELETE /api/portfolios/:id/documents/:docId  — remove a supporting document
 router.delete(
   '/:id/documents/:docId',

@@ -44,10 +44,13 @@ function managedChatAction(portfolio) {
     return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
   if (portfolio.status !== "approved") return "";
-  if (Number(portfolio.interest_count) > 0) {
-    return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  if (Number(portfolio.interest_count) === 0) {
+    return `<span class="managed-chat-awaiting"><i class="ti ti-heart"></i> Waiting for investor interest</span>`;
   }
-  return `<span class="managed-chat-awaiting"><i class="ti ti-heart"></i> Waiting for investor interest</span>`;
+  if (portfolio.assigned_rm_name) {
+    return `<span class="managed-chat-awaiting"><i class="ti ti-user-check"></i> Awaiting Conversation Setup</span>`;
+  }
+  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
 }
 
 async function init() {

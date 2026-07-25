@@ -5,6 +5,7 @@ const ROLE_DASHBOARDS = Object.freeze({
   investor: "investordashboard.html",
   relationship_manager: "relationshipmanagerdashboard.html",
   admin: "moderatordashboard.html",
+  superadmin: "superadmindashboard.html",
 });
 
 let signInTransitionStarted = false;
@@ -214,6 +215,17 @@ const API = {
   },
   deleteDocument: (portfolioId, docId) =>
     apiFetch(`/portfolios/${portfolioId}/documents/${docId}`, { method: "DELETE" }),
+
+  // Super admin
+  getSuperAdminStats: () => apiFetch("/superadmin/stats"),
+  getPortfolioAssignments: () => apiFetch("/superadmin/portfolio-assignments"),
+  getAssignableRelationshipManagers: () => apiFetch("/superadmin/relationship-managers"),
+  assignPortfolioRM: (portfolioId, relationshipManagerId) =>
+    apiFetch(`/superadmin/portfolios/${portfolioId}/assign`, {
+      method: "PUT",
+      body: JSON.stringify({ relationship_manager_id: relationshipManagerId })
+    }),
+
   // Admin
   getQueue: () => apiFetch("/admin/queue"),
   approvePortfolio: (id) =>
