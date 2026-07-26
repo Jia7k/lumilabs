@@ -15,21 +15,42 @@ function formatFunding(n) {
   return "$" + n;
 }
 
+function positiveSafeInteger(value) {
+  if (typeof value === "string" && !/^[1-9]\d*$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 function browsePortfolioHref(id) {
-  const portfolioId = Number(id);
-  if (!Number.isSafeInteger(portfolioId) || portfolioId <= 0) return "browse.html";
+  const portfolioId = positiveSafeInteger(id);
+  if (!portfolioId) return "browse.html";
   return `browse.html?portfolioId=${portfolioId}`;
 }
 
 function managedChatAction(interest) {
-  const conversationId = Number(interest.conversation_id);
-  if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "open") {
-    return `<a class="managed-chat-action managed-chat-action--compact" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  const conversationId = positiveSafeInteger(interest.conversation_id);
+  if (conversationId && interest.chat_state === "open") {
+    return `<a class="managed-chat-action managed-chat-action--compact" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
   }
-  if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "archived") {
-    return `<a class="managed-chat-action managed-chat-action--compact managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  if (conversationId && interest.chat_state === "archived") {
+    return `<a class="managed-chat-action managed-chat-action--compact managed-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  const guidance = interest.relationship_manager_id
+    ? "Awaiting relationship manager to create group chat"
+    : "Awaiting relationship manager assignment";
+  return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> ${guidance}</span>`;
+}
+
+function notificationMarkup(notification) {
+  const title = escapeHtml(notification.title);
+  const body = escapeHtml(notification.body || "");
+  const conversationId = positiveSafeInteger(notification.related_conversation_id);
+  const canLink = conversationId
+    && notification.type !== "conversation_member_removed";
+  const link = canLink
+    ? `<a href="messages.html?conversation=${conversationId}">Open chat</a>`
+    : "";
+  return `<article class="notification-card"><h3>${title}</h3><p>${body}</p>${link}</article>`;
 }
 
 function retrySection(message) {
@@ -67,7 +88,11 @@ function renderDashboardResult(result) {
     return null;
   }
 
-  const { stats, recentInterests } = result.value;
+  const {
+    stats,
+    recentInterests = [],
+    notifications = [],
+  } = result.value;
   document.getElementById("stat-available").innerText = stats.available;
   document.getElementById("stat-interests").innerText = stats.interests;
   document.getElementById("stat-messages").innerText = stats.messages;
@@ -81,6 +106,9 @@ function renderDashboardResult(result) {
         ${managedChatAction(interest)}
       </div>`).join("")
     : '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">No interests yet.</p>';
+  document.getElementById("notifications-list").innerHTML = notifications.length
+    ? notifications.map(notificationMarkup).join("")
+    : '<p style="color:var(--text-muted);font-size:13px;">No notifications.</p>';
   return stats.interests;
 }
 
@@ -96,16 +124,19 @@ function renderRecommendationResult(result) {
 
   const top = result.value.slice(0, 5);
   document.getElementById("recommended-list").innerHTML = top.length
-    ? top.map((portfolio, index) => `
+    ? top.map((portfolio, index) => {
+      const aiScore = normalizeReadinessScore(portfolio.ai_score);
+      return `
       <div class="rec-item" style="cursor:pointer;" onclick="window.location.href='${browsePortfolioHref(portfolio.id)}'">
         <div class="rec-rank">#${index + 1}</div>
         <div class="rec-info"><div class="rec-name-row">
           <span class="rec-name">${escapeHtml(portfolio.name)}</span>
           ${portfolio.is_high_potential ? '<span class="badge-purple"><i class="ti ti-star"></i> High Potential</span>' : ""}
         </div><div class="rec-industry">${escapeHtml(portfolio.sector)}</div></div>
-        <div class="score-circle" style="--score:${portfolio.ai_score}"><span>${portfolio.ai_score}</span></div>
+        <div class="score-circle" style="--score:${aiScore}"><span>${aiScore}</span></div>
         <i class="ti ti-arrow-right rec-arrow"></i>
-      </div>`).join("")
+      </div>`;
+    }).join("")
     : '<p style="padding:20px;color:var(--text-muted);">No approved startups yet.</p>';
 
   const recent = [...result.value]
@@ -148,6 +179,7 @@ async function init() {
   const user = await requirePageRole("investor");
   if (!user) return;
 
+  document.getElementById("investor-nav").hidden = false;
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
   document.getElementById("user-role").innerText = "Investor";

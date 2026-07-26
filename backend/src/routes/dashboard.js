@@ -149,7 +149,7 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
     );
 
     const [recentInterests] = await db.query(
-      `SELECT p.id, p.name, p.sector,
+      `SELECT p.id, p.name, p.sector, p.relationship_manager_id,
               CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
               CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
               CASE
@@ -170,7 +170,8 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
     );
 
     const [notifications] = await db.query(
-      `SELECT n.id, n.type, n.title, n.body, n.read_at, n.created_at
+      `SELECT n.id, n.type, n.title, n.body, n.related_conversation_id,
+              n.read_at, n.created_at
        FROM notifications n
        WHERE n.user_id = ?
          AND (

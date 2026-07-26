@@ -7,15 +7,27 @@ function escapeHtml(v) {
     .replace(/'/g, "&#039;");
 }
 
+function positiveSafeInteger(value) {
+  if (typeof value === "string" && !/^[1-9]\d*$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 function managedChatAction(portfolio) {
-  const conversationId = Number(portfolio.conversation_id);
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
-    return `<a class="btn-action btn-chat" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  const conversationId = positiveSafeInteger(portfolio.conversation_id);
+  if (conversationId && portfolio.chat_state === "open") {
+    return `<a class="btn-action btn-chat" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
   }
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
-    return `<a class="btn-action btn-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  if (conversationId && portfolio.chat_state === "archived") {
+    return `<a class="btn-action btn-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  return `<span class="chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  if (["removed", "withdrawn"].includes(portfolio.chat_state)) {
+    return `<span class="chat-awaiting"><i class="ti ti-user-off"></i> Chat access is no longer available</span>`;
+  }
+  const guidance = portfolio.relationship_manager_id
+    ? "Awaiting relationship manager to create group chat"
+    : "Awaiting relationship manager assignment";
+  return `<span class="chat-awaiting"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 
 function formatFunding(n) {
@@ -53,9 +65,11 @@ function render() {
   }
 
   list.innerHTML = interests.map((p) => {
+    const portfolioId = positiveSafeInteger(p.id);
+    if (!portfolioId) return "";
     const readinessScore = normalizeReadinessScore(p.readiness_score);
     return `
-    <div class="interest-card" id="interest-${p.id}">
+    <div class="interest-card" id="interest-${portfolioId}">
       <div class="interest-icon"><i class="ti ti-briefcase"></i></div>
       <div class="interest-info">
         <div class="interest-name">${escapeHtml(p.name)}</div>
@@ -69,7 +83,7 @@ function render() {
       </div>
       <div class="interest-actions">
         ${managedChatAction(p)}
-        <button class="btn-action btn-remove" onclick="removeInterest(${p.id})" id="remove-${p.id}">
+        <button class="btn-action btn-remove" onclick="removeInterest(${portfolioId})" id="remove-${portfolioId}">
           <i class="ti ti-heart-off"></i> Remove
         </button>
       </div>
@@ -112,12 +126,14 @@ async function loadInterests() {
 }
 
 async function removeInterest(portfolioId) {
-  const btn = document.getElementById(`remove-${portfolioId}`);
+  const id = positiveSafeInteger(portfolioId);
+  if (!id) return false;
+  const btn = document.getElementById(`remove-${id}`);
   btn.disabled = true;
   btn.innerHTML = `<i class="ti ti-loader-2"></i> Removing...`;
   try {
-    await API.removeInterest(portfolioId);
-    interests = interests.filter(p => p.id !== portfolioId);
+    await API.removeInterest(id);
+    interests = interests.filter((portfolio) => positiveSafeInteger(portfolio.id) !== id);
     render();
   } catch (err) {
     alert("Could not remove interest: " + err.message);
@@ -141,6 +157,7 @@ async function init() {
   const user = await requirePageRole("investor");
   if (!user) return;
 
+  document.getElementById("investor-nav").hidden = false;
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
   initRoleMenu();

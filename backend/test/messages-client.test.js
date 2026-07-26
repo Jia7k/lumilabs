@@ -35,6 +35,7 @@ function thread(messages = []) {
 function fakeElement() {
   const listeners = new Map();
   return {
+    isConnected: true,
     innerHTML: '',
     textContent: '',
     value: '',
@@ -62,6 +63,7 @@ function clientHarness() {
   const hooks = {
     requests: [],
     toasts: [],
+    dashboardRoles: [],
     request: async () => { throw new Error('request hook missing'); },
   };
   const ids = [
@@ -99,6 +101,13 @@ function clientHarness() {
     encodeURIComponent,
     Intl,
     Date,
+    dashboardForRole(role) {
+      hooks.dashboardRoles.push(role);
+      return {
+        admin: 'moderatordashboard.html',
+        superadmin: 'superadmindashboard.html',
+      }[role] || 'index.html';
+    },
     testHooks: hooks,
   });
   vm.runInContext(source, context);
@@ -173,6 +182,50 @@ test('a sent message reloads from the selected conversation and leaves composer 
   ]);
 });
 
+test('sending twice keeps the connected composer and both messages survive a thread reload', async () => {
+  const client = clientHarness();
+  const stored = [];
+  client.hooks.request = async (requestPath, options = {}) => {
+    if (requestPath === '/messages/conversations/12/messages') {
+      const { content } = JSON.parse(options.body);
+      const saved = {
+        id: 60 + stored.length,
+        conversation_id: 12,
+        sender_id: 8,
+        sender_name: 'Rachel Manager',
+        sender_role: 'relationship_manager',
+        content,
+        created_at: `2026-07-22T10:0${stored.length}:00.000Z`,
+      };
+      stored.push(saved);
+      return saved;
+    }
+    if (requestPath === '/messages/conversations/12') return thread([...stored]);
+    if (requestPath === '/messages/conversations/12/read') return {};
+    if (requestPath === '/messages/conversations') {
+      return [{ ...summary, latest_message: stored.at(-1) || null }];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  client.run("els.messageInput.value = 'First'");
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+  client.run("els.messageInput.value = 'Second'");
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.equal(client.elements.get('message-form').isConnected, true);
+  assert.equal(
+    client.hooks.requests.filter(({ path: requestPath }) => (
+      requestPath === '/messages/conversations/12/messages'
+    )).length,
+    2,
+  );
+  await client.run("reloadActiveConversationFromDatabase('12')");
+  assert.match(client.run('els.messageList.innerHTML'), /First/);
+  assert.match(client.run('els.messageList.innerHTML'), /Second/);
+  assert.equal(client.run('els.messageInput.value'), '');
+});
+
 test('failed send preserves the exact draft and restores active composer', async () => {
   const client = clientHarness();
   client.run("els.messageInput.value = '  Keep my draft  '");
@@ -235,6 +288,57 @@ test('archived rooms cannot enable Send through draft input', () => {
     setComposeEnabled(false);
     updateComposerState();
   `);
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+});
+
+test('an archived 409 reloads readable history, preserves the failed draft, and disables send', async () => {
+  const client = clientHarness();
+  client.run("els.messageInput.value = 'Keep this draft'");
+  const historical = {
+    id: 44,
+    conversation_id: 12,
+    sender_id: 3,
+    sender_name: 'Beta',
+    sender_role: 'business_owner',
+    content: 'Historical update',
+    created_at: '2026-07-22T08:00:00.000Z',
+  };
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12/messages') {
+      throw Object.assign(new Error('Room archived'), { status: 409 });
+    }
+    if (requestPath === '/messages/conversations/12') {
+      return {
+        conversation: {
+          ...summary,
+          status: 'archived',
+          archived_reason: 'manual',
+          can_send: false,
+        },
+        participants: summary.participants,
+        messages: [historical],
+      };
+    }
+    if (requestPath === '/messages/conversations/12/read') return {};
+    if (requestPath === '/messages/conversations') {
+      return [{
+        ...summary,
+        status: 'archived',
+        archived_reason: 'manual',
+        can_send: false,
+        latest_message: historical,
+      }];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.equal(client.run('els.messageInput.value'), 'Keep this draft');
+  assert.equal(client.run('state.activeThread.conversation.status'), 'archived');
+  assert.match(client.run('els.messageList.innerHTML'), /Historical update/);
+  assert.match(client.run('els.archiveNotice.textContent'), /relationship manager archived/i);
   assert.equal(client.run('els.messageInput.disabled'), true);
   assert.equal(client.run('els.sendBtn.disabled'), true);
 });
@@ -379,7 +483,30 @@ test('an unavailable explicit starter ID never selects the first room', async ()
   assert.equal(client.hooks.requests.length, 0);
 });
 
-for (const search of ['', '?conversationId=abc', '?conversationId=0', '?conversationId=-2']) {
+test('canonical and legacy starter IDs accept only positive safe canonical integers', () => {
+  const client = clientHarness();
+  for (const [search, expected] of [
+    ['?conversation=42', '42'],
+    ['?conversation=9007199254740991', String(Number.MAX_SAFE_INTEGER)],
+    ['?conversationId=42', '42'],
+    ['', null],
+    ['?conversation=0', null],
+    ['?conversation=-2', null],
+    ['?conversation=01', null],
+    ['?conversation=2e1', null],
+    ['?conversation=%202', null],
+    ['?conversation=9007199254740992', null],
+  ]) {
+    client.context.candidateSearch = search;
+    assert.equal(
+      client.run('window.location.search = candidateSearch; getStarterConversationId()'),
+      expected,
+      search,
+    );
+  }
+});
+
+for (const search of ['', '?conversation=abc', '?conversation=0', '?conversation=-2']) {
   test(`starter ${search || 'without an ID'} selects the first room`, async () => {
     const client = clientHarness();
     client.run(`
@@ -491,6 +618,121 @@ test('a pending thread response cannot restore a room removed by refresh', async
   assert.doesNotMatch(client.run('els.messageList.innerHTML'), /stale message/);
 });
 
+test('removed-member thread 403 clears selection and refetches the accessible inbox once', async () => {
+  const client = clientHarness();
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12') {
+      throw Object.assign(new Error('Room access denied'), { status: 403 });
+    }
+    if (requestPath === '/messages/conversations') return [];
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  assert.equal(await client.run("selectConversation('12')"), false);
+
+  assert.deepEqual(
+    client.hooks.requests.map(({ path: requestPath }) => requestPath),
+    ['/messages/conversations/12', '/messages/conversations'],
+  );
+  assert.equal(client.run('state.activeConversationId'), null);
+  assert.equal(client.run('state.activeThread'), null);
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+  assert.equal(
+    client.run('els.threadSubtitle.textContent'),
+    'You no longer have access to that conversation',
+  );
+  assert.doesNotMatch(client.run('els.conversationList.innerHTML'), /X3/);
+});
+
+test('old-manager send 403 refetches the inbox once without clearing the session', async () => {
+  const client = clientHarness();
+  client.run("els.messageInput.value = 'Manager draft'");
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12/messages') {
+      throw Object.assign(new Error('Room access denied'), { status: 403 });
+    }
+    if (requestPath === '/messages/conversations') return [];
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.deepEqual(
+    client.hooks.requests.map(({ path: requestPath }) => requestPath),
+    ['/messages/conversations/12/messages', '/messages/conversations'],
+  );
+  assert.equal(client.run('state.activeConversationId'), null);
+  assert.equal(client.run('els.messageInput.value'), 'Manager draft');
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+  assert.equal(
+    client.run('els.threadSubtitle.textContent'),
+    'You no longer have access to that conversation',
+  );
+});
+
+test('a 403 while reloading a successful send reconciles access without restoring the draft', async () => {
+  const client = clientHarness();
+  const saved = {
+    id: 72,
+    conversation_id: 12,
+    sender_id: 8,
+    sender_name: 'Rachel Manager',
+    sender_role: 'relationship_manager',
+    content: 'Hello group',
+    created_at: '2026-07-22T11:00:00.000Z',
+  };
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12/messages') return saved;
+    if (requestPath === '/messages/conversations/12') {
+      throw Object.assign(new Error('Room access denied'), { status: 403 });
+    }
+    if (requestPath === '/messages/conversations') return [];
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.deepEqual(
+    client.hooks.requests.map(({ path: requestPath }) => requestPath),
+    [
+      '/messages/conversations/12/messages',
+      '/messages/conversations/12',
+      '/messages/conversations',
+    ],
+  );
+  assert.equal(client.run('els.messageInput.value'), '');
+  assert.equal(client.run('state.activeConversationId'), null);
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+  assert.equal(
+    client.run('els.threadSubtitle.textContent'),
+    'You no longer have access to that conversation',
+  );
+});
+
+test('a list 403 after thread load performs exactly one inbox reconciliation', async () => {
+  const client = clientHarness();
+  let inboxCalls = 0;
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12') return thread([]);
+    if (requestPath === '/messages/conversations') {
+      inboxCalls += 1;
+      if (inboxCalls === 1) {
+        throw Object.assign(new Error('Room access denied'), { status: 403 });
+      }
+      return [];
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  assert.equal(await client.run("selectConversation('12')"), false);
+
+  assert.equal(inboxCalls, 2);
+  assert.equal(client.run('state.activeConversationId'), null);
+  assert.equal(client.run('state.activeThread'), null);
+  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+});
+
 test('temporary identity failure preserves the page and renders data-only Retry', async () => {
   const client = clientHarness();
   client.run(`
@@ -564,26 +806,32 @@ test('overlapping workspace loads serialize identity and inbox requests', async 
   assert.equal(identityCalls, 1);
 });
 
-test('administrator identity returns to moderation before loading an inbox', async () => {
-  const client = clientHarness();
-  client.run(`
-    state.user = null;
-    window.location.href = 'messages.html';
-  `);
-  client.hooks.request = async (requestPath) => {
-    assert.equal(requestPath, '/messages/me');
-    return {
-      id: 1,
-      name: 'Victor',
-      role: 'admin',
+for (const [role, destination] of [
+  ['admin', 'moderatordashboard.html'],
+  ['superadmin', 'superadmindashboard.html'],
+]) {
+  test(`${role} identity redirects through the shared dashboard map before inbox load`, async () => {
+    const client = clientHarness();
+    client.run(`
+      state.user = null;
+      window.location.href = 'messages.html';
+    `);
+    client.hooks.request = async (requestPath) => {
+      assert.equal(requestPath, '/messages/me');
+      return {
+        id: 1,
+        name: 'Staff user',
+        role,
+      };
     };
-  };
 
-  assert.equal(await client.run('loadMessagesWorkspace()'), false);
-  assert.equal(client.run('window.location.href'), 'moderatordashboard.html');
-  assert.deepEqual(
-    client.hooks.requests.map(({ path: requestPath }) => requestPath),
-    ['/messages/me'],
-  );
-  assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
-});
+    assert.equal(await client.run('loadMessagesWorkspace()'), false);
+    assert.equal(client.run('window.location.href'), destination);
+    assert.deepEqual(client.hooks.dashboardRoles, [role]);
+    assert.deepEqual(
+      client.hooks.requests.map(({ path: requestPath }) => requestPath),
+      ['/messages/me'],
+    );
+    assert.equal(client.storage.get('lumilabsToken'), 'signed-test-token');
+  });
+}

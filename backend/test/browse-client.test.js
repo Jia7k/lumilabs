@@ -227,28 +227,40 @@ test('browse managed-chat guidance waits for the current investor to express int
   const client = browseHarness();
 
   const open = client.run(`managedChatAction({
+    relationship_manager_id: 8,
     conversation_id: 44,
     chat_state: 'open'
-  }, false)`);
-  assert.match(open, /href="messages\.html\?conversationId=44"/);
+  }, true)`);
+  assert.match(open, /href="messages\.html\?conversation=44"/);
   assert.match(open, /Open Managed Chat/);
 
   const archived = client.run(`managedChatAction({
+    relationship_manager_id: 8,
     conversation_id: 44,
     chat_state: 'archived'
-  }, false)`);
+  }, true)`);
   assert.match(archived, /View Archived Chat/);
 
-  const awaiting = client.run(`managedChatAction({
+  const assignment = client.run(`managedChatAction({
+    relationship_manager_id: null,
     conversation_id: null,
     chat_state: 'awaiting_manager'
   }, true)`);
-  assert.match(awaiting, /Awaiting Relationship Manager/);
+  assert.match(assignment, /Awaiting relationship manager assignment/);
+  assert.doesNotMatch(assignment, /href=/);
+
+  const awaiting = client.run(`managedChatAction({
+    relationship_manager_id: 8,
+    conversation_id: null,
+    chat_state: 'awaiting_manager'
+  }, true)`);
+  assert.match(awaiting, /Awaiting relationship manager to create group chat/);
   assert.doesNotMatch(awaiting, /href=/);
 
   assert.equal(client.run(`managedChatAction({
-    conversation_id: null,
-    chat_state: 'awaiting_manager'
+    relationship_manager_id: 8,
+    conversation_id: 44,
+    chat_state: 'removed'
   }, false)`), '');
 });
 
@@ -292,6 +304,7 @@ test('an interested Browse card has one explicit removal action', () => {
       readiness_score: 70,
       interest_count: 1,
       chat_state: "awaiting_manager",
+      relationship_manager_id: null,
       conversation_id: null
     }]);
   `);
@@ -300,7 +313,29 @@ test('an interested Browse card has one explicit removal action', () => {
   assert.equal((html.match(/onclick="toggleInterest\(1\)"/g) || []).length, 1);
   assert.match(html, /Remove Interest/);
   assert.match(html, /Interested/);
-  assert.match(html, /Awaiting Relationship Manager/);
+  assert.match(html, /Awaiting relationship manager assignment/);
+});
+
+test('Browse rejects unsafe chat links and stale access', () => {
+  const client = browseHarness();
+  for (const portfolio of [
+    {
+      relationship_manager_id: 8,
+      conversation_id: Number.MAX_SAFE_INTEGER + 1,
+      chat_state: 'open',
+    },
+    {
+      relationship_manager_id: 8,
+      conversation_id: 44,
+      chat_state: 'removed',
+    },
+  ]) {
+    client.context.portfolioFixture = portfolio;
+    assert.doesNotMatch(
+      client.run('managedChatAction(portfolioFixture, false)'),
+      /href=/,
+    );
+  }
 });
 
 test('sector filtering uses the exact database value instead of a substring', () => {
@@ -711,4 +746,23 @@ test('account menu binds before a deferred Browse workspace settles', async () =
     client.elements.get('role-menu-button')?.listeners.get('click')?.length,
     1,
   );
+});
+
+test('Browse navigation is hidden before auth and revealed after role resolution', async () => {
+  assert.match(browsePage, /<div[^>]*id="investor-nav"[^>]*hidden[^>]*>/);
+  assert.match(browsePage, /js\/browse\.js\?v=20260727\.1/);
+
+  const client = browseHarness({
+    captureFilters: false,
+    captureStatus: false,
+    captureRecommendationStatus: false,
+  });
+  client.run(`
+    requirePageRole = async () => ({ id: 9, name: 'Investor', role: 'investor' });
+    API.getAllPortfolios = async () => [];
+    API.getMyInterests = async () => [];
+    API.getRecommendations = async () => [];
+  `);
+  await client.run('init()');
+  assert.equal(client.elements.get('investor-nav').hidden, false);
 });

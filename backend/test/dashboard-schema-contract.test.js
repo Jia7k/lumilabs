@@ -91,6 +91,29 @@ test('portfolio lists expose managed chat state only to active owner or investor
   );
 });
 
+test('investor-facing workflow reads project assignment and safe notification links', () => {
+  assert.match(
+    portfoliosSource,
+    /SELECT p\.id,[\s\S]*?p\.relationship_manager_id,[\s\S]*?AS conversation_id/,
+  );
+  assert.match(
+    interestsSource,
+    /SELECT p\.id,[\s\S]*?p\.relationship_manager_id,[\s\S]*?AS conversation_id/,
+  );
+  assert.match(
+    source,
+    /SELECT p\.id,\s*p\.name,\s*p\.sector,\s*p\.relationship_manager_id,[\s\S]*?AS conversation_id/,
+  );
+  assert.match(
+    source,
+    /SELECT n\.id,\s*n\.type,\s*n\.title,\s*n\.body,\s*n\.related_conversation_id,/,
+  );
+  assert.match(
+    source,
+    /n\.related_conversation_id[\s\S]*?cm\.conversation_id\s*=\s*n\.related_conversation_id[\s\S]*?cm\.membership_status\s*=\s*'active'/,
+  );
+});
+
 test('all notification operations hide room notifications after membership removal', () => {
   assert.match(notificationsSource, /n\.related_conversation_id IS NULL/);
   assert.match(notificationsSource, /cm\.conversation_id=n\.related_conversation_id/);

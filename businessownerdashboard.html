@@ -15,7 +15,7 @@
     <a class="nav-logo" href="index.html">
       <div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs
     </a>
-    <div class="nav-links">
+    <div class="nav-links" id="business-owner-nav" hidden>
       <button class="nav-btn active" onclick="window.location.href='businessownerdashboard.html'">
         <i class="ti ti-layout-dashboard"></i> Dashboard
       </button>
@@ -149,14 +149,20 @@
     }
 
     function managedChatAction(interest) {
-      const conversationId = Number(interest.conversation_id);
-      if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "open") {
-        return `<a class="managed-chat-action managed-chat-action--icon" href="messages.html?conversationId=${conversationId}" aria-label="Open managed chat for ${escapeHtml(interest.portfolio)}" title="Open Managed Chat"><i class="ti ti-messages"></i></a>`;
+      const conversationId = positiveSafeInteger(interest.conversation_id);
+      if (conversationId && interest.chat_state === "open") {
+        return `<a class="managed-chat-action managed-chat-action--icon" href="messages.html?conversation=${conversationId}" aria-label="Open managed chat for ${escapeHtml(interest.portfolio)}" title="Open Managed Chat"><i class="ti ti-messages"></i></a>`;
       }
-      if (Number.isInteger(conversationId) && conversationId > 0 && interest.chat_state === "archived") {
-        return `<a class="managed-chat-action managed-chat-action--icon managed-chat-archived" href="messages.html?conversationId=${conversationId}" aria-label="View archived chat for ${escapeHtml(interest.portfolio)}" title="View Archived Chat"><i class="ti ti-archive"></i></a>`;
+      if (conversationId && interest.chat_state === "archived") {
+        return `<a class="managed-chat-action managed-chat-action--icon managed-chat-archived" href="messages.html?conversation=${conversationId}" aria-label="View archived chat for ${escapeHtml(interest.portfolio)}" title="View Archived Chat"><i class="ti ti-archive"></i></a>`;
       }
       return `<span class="managed-chat-awaiting managed-chat-awaiting--icon" title="Awaiting Relationship Manager" aria-label="Awaiting Relationship Manager"><i class="ti ti-clock"></i></span>`;
+    }
+
+    function positiveSafeInteger(value) {
+      if (typeof value === "string" && !/^[1-9]\d*$/.test(value)) return null;
+      const number = Number(value);
+      return Number.isSafeInteger(number) && number > 0 ? number : null;
     }
 
     function initRoleMenu() {
@@ -173,6 +179,7 @@
       const user = await requirePageRole("business_owner");
       if (!user) return;
 
+      document.getElementById("business-owner-nav").hidden = false;
       document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
       document.getElementById("user-name").innerText = user.name;
       document.getElementById("user-role").innerText = "Business Owner";
@@ -207,6 +214,7 @@
 
       document.getElementById("portfolio-list").innerHTML = data.recentPortfolios.length
         ? data.recentPortfolios.map(p => {
+          const portfolioId = positiveSafeInteger(p.id);
           const status = statusLabel[p.status] ? p.status : "draft";
           const readinessScore = normalizeReadinessScore(p.readiness_score);
           return `
@@ -215,7 +223,7 @@
                 <div class="portfolio-name">${escapeHtml(p.name)} <span class="badge ${escapeHtml(status)}">${escapeHtml(statusLabel[status])}</span></div>
                 <div class="portfolio-meta">${escapeHtml(p.sector)} · Readiness: ${readinessScore}/100</div>
               </div>
-              <button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${Number(p.id)}'" aria-label="Open ${escapeHtml(p.name)}"><i class="ti ti-eye"></i></button>
+              ${portfolioId ? `<button class="btn-ghost" onclick="window.location.href='createportfolio.html?id=${portfolioId}'" aria-label="Open ${escapeHtml(p.name)}"><i class="ti ti-eye"></i></button>` : ""}
             </div>`;
         }).join("")
         : `<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No portfolios yet. <a href="createportfolio.html">Create one</a>.</div>`;

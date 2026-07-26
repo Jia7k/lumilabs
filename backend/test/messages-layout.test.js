@@ -76,3 +76,20 @@ test('narrow message shell uses a shrinkable single column', () => {
     /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/,
   );
 });
+
+test('390-pixel layout keeps every message control inside the viewport', () => {
+  assert.match(
+    firstRule('.messaging-shell'),
+    /max-width:\s*100%\s*;/,
+  );
+  const narrow = html.match(
+    /@media\s*\(max-width:\s*390px\)([\s\S]*?)<\/style>/,
+  );
+  assert.ok(narrow, 'Expected an explicit 390-pixel containment breakpoint');
+  assert.match(narrow[1], /\.main\s*\{[^}]*padding:\s*12px/s);
+  assert.match(
+    narrow[1],
+    /\.compose-form\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s,
+  );
+  assert.match(narrow[1], /\.message-bubble\s*\{[^}]*max-width:\s*88%/s);
+});

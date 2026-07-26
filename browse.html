@@ -21,6 +21,7 @@
   .nav-logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text-primary); margin-right: 16px; text-decoration: none; }
   .logo-icon { width: 30px; height: 30px; border-radius: 8px; background: var(--logo-purple); display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; }
   .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
+  .nav-links[hidden] { display: none; }
   .nav-btn { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: none; color: var(--text-secondary); }
   .nav-btn.active { background: #111827; color: white; }
   .nav-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
@@ -122,7 +123,7 @@
 
 <nav class="nav">
   <a class="nav-logo" href="investordashboard.html"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
-  <div class="nav-links">
+  <div class="nav-links" id="investor-nav" hidden>
     <button class="nav-btn" onclick="window.location.href='investordashboard.html'"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
     <button class="nav-btn active" onclick="window.location.href='browse.html'"><i class="ti ti-search"></i> Browse Startups</button>
     <button class="nav-btn" onclick="window.location.href='my-interests.html'"><i class="ti ti-heart"></i> My Interests</button>

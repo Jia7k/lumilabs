@@ -35,28 +35,49 @@ function formatDate(iso) {
   });
 }
 
+function positiveSafeInteger(value) {
+  if (typeof value === "string" && !/^[1-9]\d*$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+function managedChatGuidance(portfolio) {
+  if (!portfolio.relationship_manager_id) return "Awaiting relationship manager assignment";
+  if (Number(portfolio.interest_count) === 0) return "Waiting for investor interest";
+  if (!portfolio.conversation_id) return "Awaiting relationship manager to create the group chat";
+  return ["active", "open"].includes(portfolio.chat_state)
+    ? "Open group chat"
+    : "View archived group chat";
+}
+
 function managedChatAction(portfolio) {
-  const conversationId = Number(portfolio.conversation_id);
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
-    return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  const conversationId = positiveSafeInteger(portfolio.conversation_id);
+  const chatState = portfolio.chat_state;
+  if (conversationId && ["active", "open"].includes(chatState)) {
+    return `<a class="managed-chat-action" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
   }
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
-    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  if (conversationId && chatState === "archived") {
+    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
   if (portfolio.status !== "approved") return "";
-  if (Number(portfolio.interest_count) === 0) {
-    return `<span class="managed-chat-awaiting"><i class="ti ti-heart"></i> Waiting for investor interest</span>`;
-  }
-  if (portfolio.assigned_rm_name) {
-    return `<span class="managed-chat-awaiting"><i class="ti ti-user-check"></i> Awaiting Conversation Setup</span>`;
-  }
-  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+
+  const guidance = managedChatGuidance({
+    ...portfolio,
+    conversation_id: conversationId,
+  });
+  const icon = !portfolio.relationship_manager_id
+    ? "ti-clock"
+    : Number(portfolio.interest_count) === 0
+      ? "ti-heart"
+      : "ti-user-check";
+  return `<span class="managed-chat-awaiting"><i class="ti ${icon}"></i> ${guidance}</span>`;
 }
 
 async function init() {
   const user = await requirePageRole("business_owner");
   if (!user) return;
 
+  document.getElementById("business-owner-nav").hidden = false;
   document.getElementById("user-avatar").innerText = user.name[0];
   document.getElementById("user-name").innerText = user.name;
   document.getElementById("user-role").innerText = user.role
@@ -88,6 +109,8 @@ async function render() {
   }
 
   const html = portfolios.map((p) => {
+    const portfolioId = positiveSafeInteger(p.id);
+    if (!portfolioId) return "";
     const readinessScore = normalizeReadinessScore(p.readiness_score);
     return `
     <div class="card" style="margin-bottom:16px;">
@@ -129,10 +152,10 @@ async function render() {
 
         <div class="biz-actions">
           ${managedChatAction(p)}
-          <button class="btn btn-outline" onclick="window.location.href='createportfolio.html?id=${p.id}'">
+          <button class="btn btn-outline" onclick="window.location.href='createportfolio.html?id=${portfolioId}'">
             <i class="ti ${p.status === "pending" ? "ti-eye" : "ti-edit"}"></i> ${p.status === "pending" ? "View" : "Edit"}
           </button>
-          ${["draft", "rejected"].includes(p.status) ? `<button class="btn-text-danger" onclick="deletePortfolio(${p.id})">
+          ${["draft", "rejected"].includes(p.status) ? `<button class="btn-text-danger" onclick="deletePortfolio(${portfolioId})">
             <i class="ti ti-trash"></i> Delete
           </button>` : ""}
         </div>
@@ -145,9 +168,11 @@ async function render() {
 }
 
 async function deletePortfolio(id) {
+  const portfolioId = positiveSafeInteger(id);
+  if (!portfolioId) return;
   if (!confirm("Are you sure you want to delete this portfolio? This action cannot be undone.")) return;
   try {
-    await API.deletePortfolio(id);
+    await API.deletePortfolio(portfolioId);
     await render();
   } catch (err) {
     alert("Couldn't delete portfolio: " + err.message);

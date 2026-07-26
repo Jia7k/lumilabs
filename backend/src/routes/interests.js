@@ -76,6 +76,7 @@ router.get('/my', authenticate, requireRole('investor'), async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT p.id, p.owner_id, p.name, p.sector, p.readiness_score, p.funding_goal,
+        p.relationship_manager_id,
         u.name AS owner_name, ii.created_at AS interested_at,
         CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
         CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,

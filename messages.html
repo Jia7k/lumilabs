@@ -214,6 +214,7 @@
   .btn.icon-only { width: 38px; height: 38px; justify-content: center; padding: 0; }
 
   .messaging-shell {
+    max-width: 100%;
     height: min(720px, calc(100vh - 154px));
     min-height: 540px;
     display: grid;
@@ -446,7 +447,7 @@
     display: flex;
     margin-bottom: 12px;
   }
-  .message-row.mine { justify-content: flex-end; }
+  .message-row.message-own { justify-content: flex-end; }
   .message-bubble {
     max-width: min(520px, 76%);
     border: 1px solid var(--border);
@@ -457,7 +458,7 @@
     word-wrap: break-word;
     overflow-wrap: anywhere;
   }
-  .message-row.mine .message-bubble {
+  .message-row.message-own .message-bubble {
     background: var(--primary);
     border-color: var(--primary);
     color: white;
@@ -467,7 +468,7 @@
     color: var(--text-muted);
     margin-top: 6px;
   }
-  .message-row.mine .message-meta { color: rgba(255,255,255,0.72); }
+  .message-row.message-own .message-meta { color: rgba(255,255,255,0.72); }
 
   .composer-zone {
     min-width: 0;
@@ -560,13 +561,29 @@
       min-height: 0;
     }
   }
+
+  @media (max-width: 390px) {
+    .main { padding: 12px; }
+    .thread-header {
+      align-items: flex-start;
+      flex-wrap: wrap;
+      padding: 12px;
+    }
+    .message-list { padding: 16px 12px; }
+    .message-bubble { max-width: 88%; }
+    .compose-form {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 12px;
+    }
+    .compose-form .btn { width: 100%; justify-content: center; }
+  }
 </style>
 </head>
-<body class="role-business-owner">
+<body>
   <nav class="nav">
     <a class="nav-logo" href="index.html"><div class="logo-icon"><i class="ti ti-trending-up"></i></div> Lumi5 Labs</a>
 
-    <div class="nav-links" id="business-nav">
+    <div class="nav-links" id="business-nav" hidden>
       <button class="nav-btn" onclick="window.location.href='businessownerdashboard.html'"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
       <button class="nav-btn" onclick="window.location.href='mybusinesses.html'"><i class="ti ti-building-store"></i> My Businesses</button>
       <div class="nav-btn-wrap">
@@ -655,7 +672,7 @@
         <div class="composer-zone">
           <div id="archive-notice" aria-live="polite" hidden></div>
           <form class="compose-form" id="message-form">
-            <textarea class="compose-input" id="message-input" rows="1" maxlength="2000" placeholder="Write a message..." disabled></textarea>
+            <textarea class="compose-input" id="message-input" rows="1" maxlength="2000" placeholder="Write a message..." aria-label="Message" disabled></textarea>
             <button class="btn primary" id="send-btn" type="submit" disabled><i class="ti ti-send"></i> Send</button>
           </form>
         </div>

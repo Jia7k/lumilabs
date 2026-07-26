@@ -94,17 +94,13 @@ async function loadMessagesWorkspace() {
     if (apiClientLoad) await apiClientLoad;
     const user = await apiFetch('/messages/me');
     if (!MESSAGE_ROLES.has(user.role)) {
-      const fallbackDashboards = {
-        admin: 'moderatordashboard.html',
-        superadmin: 'superadmindashboard.html',
-      };
-      window.location.href = typeof dashboardForRole === 'function'
-        ? dashboardForRole(user.role)
-        : fallbackDashboards[user.role] || 'index.html';
+      window.location.href = dashboardForRole(user.role);
       return false;
     }
+    const userId = positiveSafeInteger(user.id);
+    if (!userId) throw new Error('Authenticated user ID is invalid');
     state.user = {
-      id: String(user.id),
+      id: String(userId),
       name: user.name || 'Lumi5 Labs user',
       role: user.role,
       roleLabel: roleLabel(user.role),
@@ -259,7 +255,9 @@ async function loadConversations(expectedSelectionVersion = null) {
       expectedSelectionVersion !== null
       && expectedSelectionVersion !== state.selectionVersion
     ) return { status: 'superseded' };
-    state.conversations = rows.map(normalizeConversation);
+    state.conversations = rows
+      .map(normalizeConversation)
+      .filter((conversation) => conversation.id);
     return { status: 'success' };
   } catch (error) {
     console.error(error);
@@ -270,8 +268,9 @@ async function loadConversations(expectedSelectionVersion = null) {
 }
 
 function normalizeParticipant(row = {}) {
+  const id = positiveSafeInteger(row.id);
   return {
-    id: String(row.id ?? ''),
+    id: id ? String(id) : '',
     name: row.name || 'Unknown user',
     role: row.role || '',
   };
@@ -279,9 +278,12 @@ function normalizeParticipant(row = {}) {
 
 function normalizeLatestMessage(row) {
   if (!row) return null;
+  const id = positiveSafeInteger(row.id);
+  const senderId = positiveSafeInteger(row.sender_id);
+  if (!id || !senderId) return null;
   return {
-    id: Number(row.id),
-    sender_id: String(row.sender_id ?? ''),
+    id,
+    sender_id: String(senderId),
     sender_name: row.sender_name || 'Unknown user',
     content: row.content || '',
     created_at: row.created_at || '',
@@ -290,26 +292,34 @@ function normalizeLatestMessage(row) {
 
 function normalizeConversation(row = {}) {
   const status = row.status || 'archived';
+  const id = positiveSafeInteger(row.id);
+  const normalizedPortfolioId = positiveSafeInteger(row.portfolio_id);
   return {
-    id: String(row.id ?? ''),
-    portfolio_id: row.portfolio_id == null ? null : String(row.portfolio_id),
+    id: id ? String(id) : '',
+    portfolio_id: normalizedPortfolioId ? String(normalizedPortfolioId) : null,
     title: row.title || 'Managed conversation',
     status,
     archived_reason: row.archived_reason || null,
     can_send: row.can_send == null ? status === 'active' : Boolean(row.can_send),
     unread_count: Number(row.unread_count) || 0,
     participants: Array.isArray(row.participants)
-      ? row.participants.map(normalizeParticipant)
+      ? row.participants
+        .filter(isActiveParticipant)
+        .map(normalizeParticipant)
+        .filter((participant) => participant.id)
       : [],
     latest_message: normalizeLatestMessage(row.latest_message),
   };
 }
 
 function normalizeMessage(row = {}) {
+  const id = positiveSafeInteger(row.id);
+  const conversationId = positiveSafeInteger(row.conversation_id);
+  const senderId = positiveSafeInteger(row.sender_id);
   return {
-    id: Number(row.id),
-    conversation_id: String(row.conversation_id ?? ''),
-    sender_id: String(row.sender_id ?? ''),
+    id: id || null,
+    conversation_id: conversationId ? String(conversationId) : '',
+    sender_id: senderId ? String(senderId) : '',
     sender_name: row.sender_name || 'Unknown user',
     sender_role: row.sender_role || '',
     content: row.content || '',
@@ -319,7 +329,10 @@ function normalizeMessage(row = {}) {
 
 function normalizeThread(payload = {}) {
   const participants = Array.isArray(payload.participants)
-    ? payload.participants.map(normalizeParticipant)
+    ? payload.participants
+      .filter(isActiveParticipant)
+      .map(normalizeParticipant)
+      .filter((participant) => participant.id)
     : [];
   const conversation = normalizeConversation({
     ...(payload.conversation || {}),
@@ -329,14 +342,20 @@ function normalizeThread(payload = {}) {
   return {
     conversation,
     participants,
-    messages: Array.isArray(payload.messages) ? payload.messages.map(normalizeMessage) : [],
+    messages: Array.isArray(payload.messages)
+      ? payload.messages.map(normalizeMessage).filter((message) => message.id)
+      : [],
   };
 }
 
 function getStarterConversationId() {
   const params = new URLSearchParams(window.location.search);
-  const requested = Number(params.get('conversationId'));
-  return Number.isInteger(requested) && requested > 0 ? String(requested) : null;
+  const canonical = params.get('conversation');
+  const legacy = canonical === null ? params.get('conversationId') : null;
+  const raw = canonical ?? legacy;
+  if (!raw || !/^[1-9]\d*$/.test(raw)) return null;
+  const requested = positiveSafeInteger(raw);
+  return requested ? String(requested) : null;
 }
 
 async function selectInitialConversation() {
@@ -476,7 +495,12 @@ function updateUnreadIndicators(unreadTotal) {
 
 async function selectConversation(conversationId) {
   if (state.sending) return false;
-  const id = String(conversationId);
+  const normalizedId = positiveSafeInteger(conversationId);
+  if (!normalizedId) {
+    showConversationUnavailable();
+    return false;
+  }
+  const id = String(normalizedId);
   const summary = state.conversations.find((conversation) => sameId(conversation.id, id));
   if (!summary) {
     showConversationUnavailable();
@@ -521,6 +545,10 @@ async function selectConversation(conversationId) {
     if (!selectionIsCurrent(selectionVersion, id)) return false;
     const listResult = await loadConversations(selectionVersion);
     if (!selectionIsCurrent(selectionVersion, id)) return false;
+    if (listResult.status === 'failed' && listResult.error?.status === 403) {
+      await reconcileRevokedConversation();
+      return false;
+    }
     if (listResult.status === 'success') {
       if (!syncActiveConversationSummary()) return false;
       renderConversations();
@@ -529,6 +557,10 @@ async function selectConversation(conversationId) {
     return true;
   } catch (error) {
     if (!selectionIsCurrent(selectionVersion, id)) return false;
+    if (error?.status === 403) {
+      await reconcileRevokedConversation();
+      return false;
+    }
     console.error(error);
     showToast(error.message || 'Could not open this conversation');
     state.activeThread = null;
@@ -573,6 +605,35 @@ function showConversationUnavailable() {
   els.threadParticipants.innerHTML = '';
   els.threadStatus.textContent = 'Unavailable';
   renderThreadError();
+}
+
+async function reconcileRevokedConversation() {
+  state.selectionVersion += 1;
+  state.activeConversationId = null;
+  state.activeThread = null;
+  hideArchiveNotice();
+  setComposeEnabled(false);
+
+  const reconciliationVersion = state.selectionVersion;
+  const listResult = await loadConversations(reconciliationVersion);
+  if (listResult.status === 'success') renderConversations();
+  showConversationRevoked();
+  return listResult.status === 'success';
+}
+
+function showConversationRevoked() {
+  els.threadAvatar.textContent = '!';
+  els.threadTitle.textContent = 'Conversation access changed';
+  els.threadSubtitle.textContent = 'You no longer have access to that conversation';
+  els.threadParticipants.innerHTML = '';
+  els.threadStatus.textContent = 'Access removed';
+  els.messageList.innerHTML = `
+    <div class="empty-state" role="status">
+      <i class="ti ti-user-off"></i>
+      <div class="empty-title">Conversation access removed</div>
+      <div>You no longer have access to that conversation.</div>
+    </div>
+  `;
 }
 
 function renderActiveHeader() {
@@ -620,13 +681,19 @@ function renderThread() {
   }
 
   els.messageList.innerHTML = messages.map((message) => {
-    const mine = sameId(message.sender_id, state.user.id);
+    const senderId = Number(message.sender_id);
+    const currentUserId = Number(state.user.id);
+    const isOwn = Number.isSafeInteger(senderId)
+      && senderId > 0
+      && Number.isSafeInteger(currentUserId)
+      && currentUserId > 0
+      && senderId === currentUserId;
     return `
-      <div class="message-row${mine ? ' mine' : ''}">
+      <div class="message-row ${isOwn ? 'message-own' : 'message-other'}">
         <div class="message-bubble">
           <div>${escapeHtml(message.content)}</div>
           <div class="message-meta">
-            <span class="message-sender">${mine ? 'You' : escapeHtml(message.sender_name)}</span>
+            <span class="message-sender">${isOwn ? 'You' : escapeHtml(message.sender_name)}</span>
             <span>${escapeHtml(roleLabel(message.sender_role))}</span>
             <span aria-hidden="true">·</span>
             <time>${escapeHtml(formatLongTime(message.created_at))}</time>
@@ -698,7 +765,9 @@ function hideArchiveNotice() {
 }
 
 async function reloadActiveConversationFromDatabase(conversationId) {
-  const id = String(conversationId);
+  const normalizedId = positiveSafeInteger(conversationId);
+  if (!normalizedId) return false;
+  const id = String(normalizedId);
   const selectionVersion = state.selectionVersion;
   const payload = await apiFetch(`/messages/conversations/${encodeURIComponent(id)}`);
   if (!selectionIsCurrent(selectionVersion, id)) return false;
@@ -724,6 +793,10 @@ async function reloadActiveConversationFromDatabase(conversationId) {
   if (!selectionIsCurrent(selectionVersion, id)) return false;
   const listResult = await loadConversations(selectionVersion);
   if (!selectionIsCurrent(selectionVersion, id)) return false;
+  if (listResult.status === 'failed' && listResult.error?.status === 403) {
+    await reconcileRevokedConversation();
+    return false;
+  }
   if (listResult.status === 'success') {
     if (!syncActiveConversationSummary()) return false;
     renderConversations();
@@ -750,16 +823,36 @@ async function sendActiveMessage(event) {
     });
     els.messageInput.value = '';
     try {
-      await reloadActiveConversationFromDatabase(id);
-      showToast('Message sent');
+      const reloaded = await reloadActiveConversationFromDatabase(id);
+      showToast(reloaded
+        ? 'Message sent'
+        : 'Message saved, but your conversation access changed');
     } catch (error) {
       console.error(error);
-      showToast('Message saved, but the conversation could not be refreshed');
+      if (error?.status === 403) {
+        await reconcileRevokedConversation();
+        showToast('Message saved, but your conversation access changed');
+      } else {
+        showToast('Message saved, but the conversation could not be refreshed');
+      }
     }
   } catch (error) {
     console.error(error);
     els.messageInput.value = draft;
-    showToast(error.message || 'Message could not be sent');
+    if (error?.status === 403) {
+      await reconcileRevokedConversation();
+      showToast('You no longer have access to that conversation');
+    } else if (error?.status === 409) {
+      try {
+        await reloadActiveConversationFromDatabase(id);
+      } catch (reloadError) {
+        console.error(reloadError);
+        if (reloadError?.status === 403) await reconcileRevokedConversation();
+      }
+      showToast('This conversation is archived and is read-only');
+    } else {
+      showToast(error.message || 'Message could not be sent');
+    }
   } finally {
     setSending(false);
   }
@@ -814,6 +907,20 @@ function initials(name = '') {
 
 function sameId(a, b) {
   return String(a) === String(b);
+}
+
+function positiveSafeInteger(value) {
+  if (
+    typeof value === 'string'
+    && !/^[1-9]\d*$/.test(value)
+  ) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+function isActiveParticipant(participant = {}) {
+  return participant.membership_status == null
+    || participant.membership_status === 'active';
 }
 
 function formatShortTime(value) {

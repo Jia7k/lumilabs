@@ -6,6 +6,11 @@ const vm = require('node:vm');
 
 const root = path.join(__dirname, '..', '..');
 const source = fs.readFileSync(path.join(root, 'js', 'mybusinesses.js'), 'utf8');
+const dashboardPage = fs.readFileSync(
+  path.join(root, 'businessownerdashboard.html'),
+  'utf8',
+);
+const businessesPage = fs.readFileSync(path.join(root, 'mybusinesses.html'), 'utf8');
 
 function loadClient() {
   const elements = new Map();
@@ -61,46 +66,112 @@ test('My Businesses prioritizes accessible open and archived conversations', () 
 
   const open = render(client, {
     status: 'approved',
+    relationship_manager_id: 8,
     interest_count: 1,
     conversation_id: 12,
     chat_state: 'open',
   });
-  assert.match(open, /href="messages\.html\?conversationId=12"/);
+  assert.match(open, /href="messages\.html\?conversation=12"/);
   assert.match(open, /Open Managed Chat/);
 
   const archived = render(client, {
     status: 'rejected',
+    relationship_manager_id: 8,
     interest_count: 0,
     conversation_id: 12,
     chat_state: 'archived',
   });
-  assert.match(archived, /href="messages\.html\?conversationId=12"/);
+  assert.match(archived, /href="messages\.html\?conversation=12"/);
   assert.match(archived, /View Archived Chat/);
 });
 
-test('My Businesses distinguishes manager handoff from waiting for investor interest', () => {
+test('My Businesses uses assignment before interest and manager chat handoff', () => {
   const client = loadClient();
+
+  const unassigned = render(client, {
+    status: 'approved',
+    relationship_manager_id: null,
+    interest_count: 0,
+    conversation_id: null,
+    chat_state: 'awaiting_manager',
+  });
+  assert.match(unassigned, /Awaiting relationship manager assignment/);
 
   for (const interestCount of [2, '2']) {
     const awaiting = render(client, {
       status: 'approved',
+      relationship_manager_id: 8,
       interest_count: interestCount,
       conversation_id: null,
       chat_state: 'awaiting_manager',
     });
-    assert.match(awaiting, /Awaiting Relationship Manager/);
+    assert.match(awaiting, /Awaiting relationship manager to create the group chat/);
     assert.doesNotMatch(awaiting, /href=/);
   }
 
   const waiting = render(client, {
     status: 'approved',
+    relationship_manager_id: 8,
     interest_count: 0,
     conversation_id: null,
     chat_state: 'awaiting_manager',
   });
   assert.match(waiting, /Waiting for investor interest/);
-  assert.doesNotMatch(waiting, /Awaiting Relationship Manager/);
+  assert.doesNotMatch(waiting, /Awaiting relationship manager assignment/);
   assert.doesNotMatch(waiting, /href=/);
+});
+
+test('managedChatGuidance returns the exact assignment workflow states', () => {
+  const client = loadClient();
+  for (const [portfolio, expected] of [
+    [
+      { relationship_manager_id: null, interest_count: 3 },
+      'Awaiting relationship manager assignment',
+    ],
+    [
+      { relationship_manager_id: 8, interest_count: 0 },
+      'Waiting for investor interest',
+    ],
+    [
+      { relationship_manager_id: 8, interest_count: 2, conversation_id: null },
+      'Awaiting relationship manager to create the group chat',
+    ],
+    [
+      {
+        relationship_manager_id: 8,
+        interest_count: 2,
+        conversation_id: 12,
+        chat_state: 'active',
+      },
+      'Open group chat',
+    ],
+    [
+      {
+        relationship_manager_id: 8,
+        interest_count: 2,
+        conversation_id: 12,
+        chat_state: 'archived',
+      },
+      'View archived group chat',
+    ],
+  ]) {
+    assert.equal(
+      client.run(`managedChatGuidance(${JSON.stringify(portfolio)})`),
+      expected,
+    );
+  }
+});
+
+test('My Businesses rejects unsafe conversation links', () => {
+  const client = loadClient();
+  const unsafe = render(client, {
+    status: 'approved',
+    relationship_manager_id: 8,
+    interest_count: 1,
+    conversation_id: Number.MAX_SAFE_INTEGER + 1,
+    chat_state: 'open',
+  });
+  assert.doesNotMatch(unsafe, /href=/);
 });
 
 test('My Businesses shows no managed-chat guidance for ineligible portfolio states', () => {
@@ -135,4 +206,19 @@ test('My Businesses renders malformed readiness as numeric zero', async () => {
   const html = client.elements.get('biz-list').innerHTML;
   assert.match(html, />0\/100</);
   assert.doesNotMatch(html, />88\/100</);
+});
+
+test('owner navigation is hidden before auth and revealed only after role resolution', async () => {
+  for (const page of [dashboardPage, businessesPage]) {
+    assert.match(page, /<div[^>]*id="business-owner-nav"[^>]*hidden[^>]*>/);
+    assert.match(page, /(?:css\/style|js\/api)\.[a-z]+\?v=20260727\.1/);
+  }
+
+  const client = loadClient();
+  client.run(`
+    requirePageRole = async () => ({ id: 3, name: 'Owner', role: 'business_owner' });
+    API.getMyPortfolios = async () => [];
+  `);
+  await client.run('init()');
+  assert.equal(client.elements.get('business-owner-nav').hidden, false);
 });

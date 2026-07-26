@@ -125,15 +125,26 @@ test('messages page supports relationship-manager navigation and permanent archi
   assert.match(html, /body\.role-relationship-manager/);
 });
 
+test('every role navigation stays hidden until authenticated role resolution', () => {
+  for (const id of ['business-nav', 'investor-nav', 'relationship-manager-nav']) {
+    assert.match(
+      html,
+      new RegExp(`<div[^>]*id="${id}"[^>]*hidden[^>]*>`),
+      id,
+    );
+  }
+  assert.match(source, /window\.location\.href = dashboardForRole\(user\.role\);/);
+});
+
 test('client state and URL starter are conversation-ID-only', () => {
   assert.match(source, /activeConversationId:\s*null/);
   assert.match(source, /activeThread:\s*null/);
-  assert.match(source, /params\.get\(['"]conversationId['"]\)/);
+  assert.match(source, /params\.get\(['"]conversation['"]\)/);
   assert.match(source, /data-conversation-id/);
   assert.doesNotMatch(source, /partnerId|receiver_id|receiverName|portfolioId/);
 });
 
-test('current user is right aligned and every other sender is left aligned with identity', () => {
+test('own messages stay right and every other sender stays left with escaped identity', () => {
   const sandbox = {
     window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
     document: { addEventListener() {} },
@@ -149,7 +160,7 @@ test('current user is right aligned and every other sender is left aligned with 
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);
   vm.runInContext(`
-    state.user = { id: '8', name: 'Rachel Manager', role: 'relationship_manager' };
+    state.user = { id: '08', name: 'Rachel Manager', role: 'relationship_manager' };
     state.activeConversationId = '12';
     state.activeThread = normalizeThread({
       conversation: { id: 12, title: 'X3', status: 'active', can_send: true },
@@ -157,16 +168,56 @@ test('current user is right aligned and every other sender is left aligned with 
       messages: [
         { id: 1, conversation_id: 12, sender_id: 8, sender_name: 'Rachel Manager', sender_role: 'relationship_manager', content: 'Mine', created_at: '2026-07-22T09:00:00Z' },
         { id: 2, conversation_id: 12, sender_id: 3, sender_name: 'Beta', sender_role: 'business_owner', content: 'Owner', created_at: '2026-07-22T09:01:00Z' },
-        { id: 3, conversation_id: 12, sender_id: 6, sender_name: 'testing1', sender_role: 'investor', content: 'Investor', created_at: '2026-07-22T09:02:00Z' }
+        { id: 3, conversation_id: 12, sender_id: 6, sender_name: '<Investor & Co>', sender_role: 'investor', content: 'Investor', created_at: '2026-07-22T09:02:00Z' }
       ]
     });
     els.messageList = { innerHTML: '', scrollTop: 0, scrollHeight: 100 };
     renderThread();
   `, sandbox);
   const rendered = vm.runInContext('els.messageList.innerHTML', sandbox);
-  assert.match(rendered, /message-row mine[\s\S]*You[\s\S]*Relationship Manager/);
-  assert.match(rendered, /message-row(?! mine)[\s\S]*Beta[\s\S]*Business Owner/);
-  assert.match(rendered, /message-row(?! mine)[\s\S]*testing1[\s\S]*Investor/);
+  assert.match(rendered, /message-row message-own[\s\S]*You[\s\S]*Relationship Manager/);
+  assert.match(rendered, /message-row message-other[\s\S]*Beta[\s\S]*Business Owner/);
+  assert.match(rendered, /message-row message-other[\s\S]*&lt;Investor &amp; Co&gt;[\s\S]*Investor/);
+  assert.doesNotMatch(rendered, /<Investor & Co>/);
+});
+
+test('participant rail renders only active members and escapes their identity', () => {
+  const sandbox = {
+    window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
+    document: { addEventListener() {} },
+    localStorage: { getItem() { return ''; }, removeItem() {} },
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    encodeURIComponent,
+    Intl,
+    Date,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  vm.runInContext(`
+    state.activeThread = normalizeThread({
+      conversation: { id: 12, title: 'Room', status: 'active', can_send: true },
+      participants: [
+        { id: 7, name: '<Current Owner>', role: 'business_owner', membership_status: 'active' },
+        { id: 8, name: 'Removed Manager', role: 'relationship_manager', membership_status: 'removed' },
+        { id: 9, name: 'Active Investor', role: 'investor' }
+      ],
+      messages: []
+    });
+    els.threadAvatar = { textContent: '' };
+    els.threadTitle = { textContent: '' };
+    els.threadSubtitle = { textContent: '' };
+    els.threadParticipants = { innerHTML: '' };
+    els.threadStatus = { textContent: '' };
+    renderActiveHeader();
+  `, sandbox);
+
+  const rendered = vm.runInContext('els.threadParticipants.innerHTML', sandbox);
+  assert.match(rendered, /&lt;Current Owner&gt;/);
+  assert.match(rendered, /Active Investor/);
+  assert.doesNotMatch(rendered, /Removed Manager/);
 });
 
 test('archived rooms stay readable while composer is disabled with explanation', () => {

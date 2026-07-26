@@ -5,6 +5,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..', '..');
+const investorDashboardPage = fs.readFileSync(
+  path.join(root, 'investordashboard.html'),
+  'utf8',
+);
+const interestsPage = fs.readFileSync(path.join(root, 'my-interests.html'), 'utf8');
 
 function elementMap() {
   const elements = new Map();
@@ -223,14 +228,16 @@ test('My Interests distinguishes open, archived, and awaiting managed chat state
   const client = loadClient('js/my-interests.js');
 
   const open = client.run(`managedChatAction({
+    relationship_manager_id: 8,
     conversation_id: 42,
     chat_state: 'open'
   })`);
   assert.match(open, /class="btn-action btn-chat"/);
-  assert.match(open, /messages\.html\?conversationId=42/);
+  assert.match(open, /messages\.html\?conversation=42/);
   assert.match(open, /Open Managed Chat/);
 
   const archived = client.run(`managedChatAction({
+    relationship_manager_id: 8,
     conversation_id: 42,
     chat_state: 'archived'
   })`);
@@ -238,12 +245,28 @@ test('My Interests distinguishes open, archived, and awaiting managed chat state
   assert.match(archived, /View Archived Chat/);
 
   const awaiting = client.run(`managedChatAction({
+    relationship_manager_id: 8,
     conversation_id: null,
     chat_state: 'awaiting_manager'
   })`);
   assert.match(awaiting, /class="chat-awaiting"/);
-  assert.match(awaiting, /Awaiting Relationship Manager/);
+  assert.match(awaiting, /Awaiting relationship manager to create group chat/);
   assert.doesNotMatch(awaiting, /href=/);
+
+  const assignment = client.run(`managedChatAction({
+    relationship_manager_id: null,
+    conversation_id: null,
+    chat_state: 'awaiting_manager'
+  })`);
+  assert.match(assignment, /Awaiting relationship manager assignment/);
+  assert.doesNotMatch(assignment, /href=/);
+
+  const removed = client.run(`managedChatAction({
+    relationship_manager_id: 8,
+    conversation_id: 42,
+    chat_state: 'removed'
+  })`);
+  assert.doesNotMatch(removed, /href=/);
 });
 
 test('recommended and recently added cards preserve their selected portfolio ID', () => {
@@ -271,4 +294,87 @@ test('recommended and recently added cards preserve their selected portfolio ID'
     client.elements.get('recently-added-grid').innerHTML,
     /browse\.html\?portfolioId=42/,
   );
+});
+
+test('investor notifications escape database text and link only accessible safe conversations', () => {
+  const client = loadClient('js/investordashboard.js');
+
+  const linked = client.run(`notificationMarkup({
+    type: 'conversation_message',
+    title: '<New & message>',
+    body: '<script>unsafe()</script>',
+    related_conversation_id: 42
+  })`);
+  assert.match(linked, /&lt;New &amp; message&gt;/);
+  assert.match(linked, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
+  assert.match(linked, /messages\.html\?conversation=42/);
+  assert.doesNotMatch(linked, /<script>/);
+
+  for (const notification of [
+    {
+      type: 'conversation_member_removed',
+      title: 'Removed',
+      related_conversation_id: 42,
+    },
+    {
+      type: 'conversation_message',
+      title: 'Unsafe',
+      related_conversation_id: Number.MAX_SAFE_INTEGER + 1,
+    },
+    {
+      type: 'conversation_message',
+      title: 'No access',
+      related_conversation_id: null,
+    },
+  ]) {
+    client.context.notificationFixture = notification;
+    assert.doesNotMatch(
+      client.run('notificationMarkup(notificationFixture)'),
+      /href=/,
+    );
+  }
+
+  client.run(`renderDashboardResult({
+    status: 'fulfilled',
+    value: {
+      stats: { available: 1, interests: 1, messages: 1, highPotential: 1 },
+      recentInterests: [],
+      notifications: [{
+        type: 'conversation_message',
+        title: 'Dashboard message',
+        body: 'Ready',
+        related_conversation_id: 42
+      }]
+    }
+  })`);
+  assert.match(client.elements.get('notifications-list').innerHTML, /Dashboard message/);
+});
+
+test('investor navigation is hidden in markup, revealed after auth, and keeps the score circle', async () => {
+  for (const page of [investorDashboardPage, interestsPage]) {
+    assert.match(page, /<div[^>]*id="investor-nav"[^>]*hidden[^>]*>/);
+    assert.match(page, /js\/api\.js\?v=20260727\.1/);
+  }
+  assert.match(investorDashboardPage, /\.score-circle\s*\{/);
+
+  const dashboard = loadClient('js/investordashboard.js');
+  dashboard.run(`
+    requirePageRole = async () => ({ id: 6, name: 'Investor', role: 'investor' });
+    API.getInvestorDashboard = async () => ({
+      stats: { available: 0, interests: 0, messages: 0, highPotential: 0 },
+      recentInterests: [],
+      notifications: []
+    });
+    API.getRecommendations = async () => [];
+  `);
+  await dashboard.run('init()');
+  assert.equal(dashboard.elements.get('investor-nav').hidden, false);
+
+  const interests = loadClient('js/my-interests.js');
+  interests.run(`
+    requirePageRole = async () => ({ id: 6, name: 'Investor', role: 'investor' });
+    API.getMyInterests = async () => [];
+  `);
+  await interests.run('init()');
+  assert.equal(interests.elements.get('investor-nav').hidden, false);
 });

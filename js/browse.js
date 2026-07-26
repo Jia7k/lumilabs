@@ -7,16 +7,26 @@ function escapeHtml(v) {
     .replace(/'/g, "&#039;");
 }
 
+function positiveSafeInteger(value) {
+  if (typeof value === "string" && !/^[1-9]\d*$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 function managedChatAction(portfolio, hasExpressedInterest) {
-  const conversationId = Number(portfolio.conversation_id);
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "open") {
-    return `<a class="managed-chat-action" href="messages.html?conversationId=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
-  }
-  if (Number.isInteger(conversationId) && conversationId > 0 && portfolio.chat_state === "archived") {
-    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversationId=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
-  }
   if (!hasExpressedInterest) return "";
-  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> Awaiting Relationship Manager</span>`;
+  const conversationId = positiveSafeInteger(portfolio.conversation_id);
+  if (conversationId && portfolio.chat_state === "open") {
+    return `<a class="managed-chat-action" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
+  }
+  if (conversationId && portfolio.chat_state === "archived") {
+    return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
+  }
+  if (["removed", "withdrawn"].includes(portfolio.chat_state)) return "";
+  const guidance = portfolio.relationship_manager_id
+    ? "Awaiting relationship manager to create group chat"
+    : "Awaiting relationship manager assignment";
+  return `<span class="managed-chat-awaiting" title="Awaiting Relationship Manager"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 
 function formatFunding(n) {
@@ -240,13 +250,15 @@ function renderGrid(portfolios) {
   }
 
   grid.innerHTML = portfolios.map(p => {
-    const liked = interestedIds.has(p.id);
+    const portfolioId = positiveSafeInteger(p.id);
+    if (!portfolioId) return "";
+    const liked = interestedIds.has(portfolioId);
     const readinessScore = normalizeReadinessScore(p.readiness_score);
     const aiReady = recommendationState === "ready";
     const score = rankingScore(p);
     const isHighPotential = readinessScore >= 75;
     return `
-      <div class="startup-card" id="card-${p.id}">
+      <div class="startup-card" id="card-${portfolioId}">
         <div class="card-top">
           <div class="card-icon"><i class="ti ti-briefcase"></i></div>
           <span class="sector-badge">${escapeHtml(p.sector)}</span>
@@ -271,18 +283,18 @@ function renderGrid(portfolios) {
           </div>
           <div class="meta-box">
             <div class="meta-label">Interested</div>
-            <div class="meta-value">${p.interest_count ?? 0}</div>
+            <div class="meta-value">${Number(p.interest_count) || 0}</div>
           </div>
         </div>
         <div class="card-actions">
           ${liked
-            ? `<button class="btn-interest interested" id="btn-interest-${p.id}" type="button" disabled aria-disabled="true">
+            ? `<button class="btn-interest interested" id="btn-interest-${portfolioId}" type="button" disabled aria-disabled="true">
                 <i class="ti ti-heart-filled"></i> Interested
               </button>
-              <button class="btn-remove-interest" type="button" onclick="toggleInterest(${p.id})"${interestDisabled}>
+              <button class="btn-remove-interest" type="button" onclick="toggleInterest(${portfolioId})"${interestDisabled}>
                 <i class="ti ti-heart-x"></i> Remove Interest
               </button>`
-            : `<button class="btn-interest" id="btn-interest-${p.id}" type="button" onclick="toggleInterest(${p.id})"${interestDisabled}>
+            : `<button class="btn-interest" id="btn-interest-${portfolioId}" type="button" onclick="toggleInterest(${portfolioId})"${interestDisabled}>
                 <i class="ti ti-heart"></i> Express Interest
               </button>`}
           ${managedChatAction(p, liked)}
@@ -294,13 +306,15 @@ function renderGrid(portfolios) {
 }
 
 async function toggleInterest(portfolioId) {
+  const id = positiveSafeInteger(portfolioId);
+  if (!id) return false;
   if (interestMutationInFlight || interestDataStale) return;
   interestMutationInFlight = true;
   applyFilters();
   let mutationSaved = false;
   try {
-    if (interestedIds.has(portfolioId)) await API.removeInterest(portfolioId);
-    else await API.expressInterest(portfolioId);
+    if (interestedIds.has(id)) await API.removeInterest(id);
+    else await API.expressInterest(id);
     mutationSaved = true;
 
     const snapshot = await fetchBrowseSnapshot();
@@ -339,6 +353,7 @@ async function init() {
   const user = await requirePageRole("investor");
   if (!user) return;
 
+  document.getElementById("investor-nav").hidden = false;
   document.getElementById("user-avatar").innerText = user.name[0].toUpperCase();
   document.getElementById("user-name").innerText = user.name;
   initRoleMenu();
