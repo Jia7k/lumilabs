@@ -172,6 +172,16 @@ class FakeElement {
       .map((id) => this.ownerDocument.getElementById(id))
       .filter((element) => !element.disabled && !element.hidden);
   }
+
+  querySelector(selector) {
+    if (selector !== '[role="document"][tabindex="-1"]') return null;
+    const cardId = this.id === 'assignment-dialog'
+      ? 'assignment-dialog-card'
+      : this.id === 'unassign-dialog'
+        ? 'unassign-dialog-card'
+        : null;
+    return cardId ? this.ownerDocument.getElementById(cardId) : null;
+  }
 }
 
 function apiError(message, status) {
@@ -228,8 +238,13 @@ function assignmentsHarness(overrides = {}) {
     },
   };
   document.body = document.getElementById('body');
+  document.getElementById('protected-skip-link');
   document.getElementById('protected-nav');
   document.getElementById('assignments-main');
+  for (const id of ['assignment-dialog-card', 'unassign-dialog-card']) {
+    document.getElementById(id).setAttribute('role', 'document');
+    document.getElementById(id).setAttribute('tabindex', '-1');
+  }
 
   const defaultAssignments = [{
     id: 20,

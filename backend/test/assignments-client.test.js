@@ -337,6 +337,50 @@ test('open dialog makes only the background inert and traps Tab focus', async ()
   assert.equal(page.document.activeElement, invoker);
 });
 
+test('pending mutation contains focus in the dialog and isolates the skip link', async () => {
+  const mutation = deferred();
+  const page = assignmentsHarness({
+    assignPortfolioManager: () => mutation.promise,
+  });
+  await page.initialize();
+  const invoker = page.document.querySelector(
+    '[data-assignment-action="assign"][data-portfolio-id="20"]',
+  );
+  page.document.activeElement = invoker;
+  page.openAssignment(20);
+
+  const skipLink = page.element('protected-skip-link');
+  assert.equal(skipLink.inert, true);
+  assert.equal(skipLink.getAttribute('aria-hidden'), 'true');
+
+  page.document.activeElement = page.element('assignment-submit');
+  const pending = page.submitManager(7);
+  await flush();
+
+  const dialogCard = page.element('assignment-dialog-card');
+  assert.equal(dialogCard.getAttribute('role'), 'document');
+  assert.equal(dialogCard.getAttribute('tabindex'), '-1');
+  assert.equal(page.document.activeElement, dialogCard);
+
+  let prevented = false;
+  await page.document.dispatch('keydown', {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(prevented, true);
+  assert.equal(page.document.activeElement, dialogCard);
+
+  mutation.resolve({});
+  await pending;
+  assert.equal(skipLink.inert, false);
+  assert.equal(skipLink.getAttribute('aria-hidden'), null);
+  assert.equal(page.document.activeElement?.isConnected, true);
+  assert.equal(page.document.activeElement?.dataset.portfolioId, '20');
+});
+
 test('unassign requires a separate explicit confirmation before DELETE', async () => {
   const page = assignmentsHarness({
     getPortfolioAssignments: [assignedPortfolio()],

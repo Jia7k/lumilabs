@@ -227,7 +227,11 @@ function syncModalBackground() {
   const modalOpen =
     !document.getElementById("assignment-dialog").hidden
     || !document.getElementById("unassign-dialog").hidden;
-  for (const id of ["protected-nav", "assignments-main"]) {
+  for (const id of [
+    "protected-skip-link",
+    "protected-nav",
+    "assignments-main",
+  ]) {
     const element = document.getElementById(id);
     element.inert = modalOpen;
     if (modalOpen) element.setAttribute("aria-hidden", "true");
@@ -427,6 +431,10 @@ function closeAssignmentDialog({ restoreAfterLoad = false } = {}) {
   restoreActionFocus(invoker);
 }
 
+function dialogFocusContainer(dialog) {
+  return dialog?.querySelector('[role="document"][tabindex="-1"]') || null;
+}
+
 function setMutationState(portfolioId, active) {
   assignmentState.mutatingPortfolioId = active ? portfolioId : null;
   document.getElementById("assignment-submit").disabled = active;
@@ -434,6 +442,16 @@ function setMutationState(portfolioId, active) {
   document.getElementById("unassign-submit").disabled = active;
   document.getElementById("unassign-cancel").disabled = active;
   document.getElementById("assignment-manager").disabled = active;
+  if (active) {
+    const assignmentDialog = document.getElementById("assignment-dialog");
+    const unassignDialog = document.getElementById("unassign-dialog");
+    const openDialog = !unassignDialog.hidden
+      ? unassignDialog
+      : !assignmentDialog.hidden
+        ? assignmentDialog
+        : null;
+    dialogFocusContainer(openDialog)?.focus();
+  }
   renderAssignmentRows();
 }
 
@@ -606,7 +624,11 @@ function trapDialogFocus(event, dialog) {
     "button:not([disabled]), select:not([disabled]), "
     + "input:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
   )).filter(element => !element.hidden);
-  if (!focusable.length) return;
+  if (!focusable.length) {
+    event.preventDefault();
+    dialogFocusContainer(dialog)?.focus();
+    return;
+  }
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   const activeIndex = focusable.indexOf(document.activeElement);
