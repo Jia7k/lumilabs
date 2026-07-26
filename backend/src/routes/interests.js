@@ -1,27 +1,46 @@
 const express = require('express');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { expressInterest } = require('../services/workflow');
-const {
-  withdrawInvestorInterest,
-} = require('../services/managed-conversation-workflow');
+const workflow = require('../services/workflow');
+const managedConversationWorkflow = require('../services/managed-conversation-workflow');
 
 const router = express.Router();
 
 function sendWorkflowError(res, error) {
-  if (error && Number.isInteger(error.status)) {
-    return res.status(error.status).json({ error: error.message });
+  if (
+    (
+      error instanceof workflow.WorkflowError
+      || error instanceof managedConversationWorkflow.ManagedConversationError
+    )
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status < 500
+  ) {
+    return res.status(error.status).json({
+      error: error.message,
+      ...(error.code ? { code: error.code } : {}),
+    });
   }
-  console.error(error);
+  console.error('Interest workflow failed');
   return res.status(500).json({ error: 'Server error' });
+}
+
+function positivePortfolioId(req, res) {
+  const portfolioId = Number(req.params.portfolioId);
+  if (!Number.isSafeInteger(portfolioId) || portfolioId <= 0) {
+    res.status(400).json({ error: 'A positive portfolio ID is required' });
+    return null;
+  }
+  return portfolioId;
 }
 
 // POST /api/interests/:portfolioId  — investor expresses interest
 router.post('/:portfolioId', authenticate, requireRole('investor'), async (req, res) => {
-  const portfolioId = req.params.portfolioId;
+  const portfolioId = positivePortfolioId(req, res);
+  if (portfolioId == null) return;
 
   try {
-    const result = await expressInterest({
+    const result = await workflow.expressInterest({
       portfolioId,
       investorId: req.user.id,
       investorName: req.user.name,
@@ -37,11 +56,14 @@ router.post('/:portfolioId', authenticate, requireRole('investor'), async (req, 
 
 // DELETE /api/interests/:portfolioId  — investor removes interest
 router.delete('/:portfolioId', authenticate, requireRole('investor'), async (req, res) => {
+  const portfolioId = positivePortfolioId(req, res);
+  if (portfolioId == null) return;
+
   try {
-    await withdrawInvestorInterest({
+    await managedConversationWorkflow.withdrawInvestorInterest({
       database: db,
       investorId: req.user.id,
-      portfolioId: req.params.portfolioId,
+      portfolioId,
     });
     res.json({ message: 'Interest removed' });
   } catch (err) {
@@ -77,7 +99,7 @@ router.get('/my', authenticate, requireRole('investor'), async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('Investor interest list failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -110,7 +132,7 @@ router.get('/received', authenticate, requireRole('business_owner'), async (req,
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('Owner interest list failed');
     res.status(500).json({ error: 'Server error' });
   }
 });

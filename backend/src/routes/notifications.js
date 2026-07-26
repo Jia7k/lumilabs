@@ -15,6 +15,15 @@ const VISIBLE_NOTIFICATION_PREDICATE = `(
   )
 )`;
 
+function positiveNotificationId(req, res) {
+  const notificationId = Number(req.params.id);
+  if (!Number.isSafeInteger(notificationId) || notificationId <= 0) {
+    res.status(400).json({ error: 'A positive notification ID is required' });
+    return null;
+  }
+  return notificationId;
+}
+
 // GET /api/notifications  — current user's notifications
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -31,7 +40,7 @@ router.get('/', authenticate, async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('Notification list failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -49,24 +58,27 @@ router.get('/unread-count', authenticate, async (req, res) => {
     );
     res.json({ count });
   } catch (err) {
-    console.error(err);
+    console.error('Notification count failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // PUT /api/notifications/:id/read
 router.put('/:id/read', authenticate, async (req, res) => {
+  const notificationId = positiveNotificationId(req, res);
+  if (notificationId == null) return;
+
   try {
     await db.query(
       `UPDATE notifications n
           SET n.read_at = NOW()
         WHERE n.id = ? AND n.user_id = ?
           AND ${VISIBLE_NOTIFICATION_PREDICATE}`,
-      [req.params.id, req.user.id]
+      [notificationId, req.user.id]
     );
     res.json({ message: 'Notification marked as read' });
   } catch (err) {
-    console.error(err);
+    console.error('Notification update failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -83,7 +95,7 @@ router.put('/read-all', authenticate, async (req, res) => {
     );
     res.json({ message: 'All notifications marked as read' });
   } catch (err) {
-    console.error(err);
+    console.error('Notification bulk update failed');
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -1,27 +1,62 @@
 const db = require('../config/db');
 const {
   archiveConversationForPortfolio,
+  reconcileConversationAfterApproval,
 } = require('./managed-conversation-workflow');
 
 class WorkflowError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code) {
     super(message);
+    this.name = 'WorkflowError';
     this.status = status;
+    this.code = code;
   }
+}
+
+function positiveId(value, label) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new WorkflowError(400, `A positive ${label} is required`, 'INVALID_ID');
+  }
+  return id;
 }
 
 async function inTransaction(work) {
   const connection = await db.getConnection();
-  await connection.beginTransaction();
+  let transactionOpen = false;
+  let releaseConnection = true;
   try {
+    await connection.beginTransaction();
+    transactionOpen = true;
     const result = await work(connection);
     await connection.commit();
+    transactionOpen = false;
     return result;
   } catch (error) {
-    await connection.rollback();
+    if (transactionOpen) {
+      try {
+        await connection.rollback();
+      } catch {
+        console.error('Workflow transaction rollback failed');
+        releaseConnection = false;
+        if (typeof connection.destroy === 'function') {
+          try {
+            await connection.destroy();
+          } catch {
+            // Keep the original workflow error as the public failure.
+          }
+        }
+      }
+    }
     throw error;
   } finally {
-    connection.release();
+    if (releaseConnection) {
+      try {
+        connection.release();
+      } catch {
+        console.error('Workflow connection release failed');
+      }
+    }
   }
 }
 
@@ -69,38 +104,74 @@ async function submitPortfolio({ portfolioId, ownerId, ownerName }) {
 }
 
 async function moderatePortfolio({ portfolioId, adminId, action, reason }) {
-  if (!['approved', 'rejected'].includes(action)) {
-    throw new WorkflowError(400, 'Invalid moderation action');
+  const normalizedAction = {
+    approve: 'approved',
+    approved: 'approved',
+    reject: 'rejected',
+    rejected: 'rejected',
+  }[action];
+  if (!normalizedAction) {
+    throw new WorkflowError(400, 'Invalid moderation action', 'INVALID_ACTION');
   }
+  const canonicalPortfolioId = positiveId(portfolioId, 'portfolio ID');
+  const canonicalAdminId = positiveId(adminId, 'admin ID');
 
   return inTransaction(async (connection) => {
     const [rows] = await connection.query(
-      "SELECT id,owner_id,name,status FROM portfolios WHERE id=? AND status='pending' FOR UPDATE",
-      [portfolioId],
+      `SELECT id,owner_id,name,status,relationship_manager_id
+         FROM portfolios
+        WHERE id=? AND status='pending'
+        FOR UPDATE`,
+      [canonicalPortfolioId],
     );
-    if (!rows.length) throw new WorkflowError(404, 'Pending portfolio not found');
+    if (!rows.length) {
+      throw new WorkflowError(
+        404,
+        'Pending portfolio not found',
+        'PENDING_PORTFOLIO_NOT_FOUND',
+      );
+    }
 
-    const rejected = action === 'rejected';
+    const rejected = normalizedAction === 'rejected';
     const [update] = await connection.query(
       "UPDATE portfolios SET status=?, rejection_reason=? WHERE id=? AND status='pending'",
-      [action, rejected ? reason : null, portfolioId],
+      [
+        normalizedAction,
+        rejected ? reason : null,
+        canonicalPortfolioId,
+      ],
     );
     if (update.affectedRows !== 1) {
-      throw new WorkflowError(409, 'Portfolio has already been moderated');
+      throw new WorkflowError(
+        409,
+        'Portfolio has already been moderated',
+        'MODERATION_CONFLICT',
+      );
     }
 
     if (rejected) {
       await archiveConversationForPortfolio(
         connection,
-        portfolioId,
+        canonicalPortfolioId,
         'portfolio_unapproved',
-        adminId,
+        canonicalAdminId,
+      );
+    } else {
+      await reconcileConversationAfterApproval(
+        connection,
+        canonicalPortfolioId,
+        canonicalAdminId,
       );
     }
 
     await connection.query(
       'INSERT INTO audit_logs (admin_id,action,portfolio_id,reason) VALUES (?,?,?,?)',
-      [adminId, action, portfolioId, rejected ? reason : null],
+      [
+        canonicalAdminId,
+        normalizedAction,
+        canonicalPortfolioId,
+        rejected ? reason : null,
+      ],
     );
     await connection.query(
       'INSERT INTO notifications (user_id,type,title,body,related_portfolio_id,related_user_id) VALUES (?,?,?,?,?,?)',
@@ -111,8 +182,8 @@ async function moderatePortfolio({ portfolioId, adminId, action, reason }) {
         rejected
           ? `Your portfolio "${rows[0].name}" was rejected: ${reason}`
           : `Your portfolio "${rows[0].name}" has been approved and is now visible to investors`,
-        portfolioId,
-        adminId,
+        canonicalPortfolioId,
+        canonicalAdminId,
       ],
     );
     return { message: rejected ? 'Portfolio rejected' : 'Portfolio approved' };
@@ -120,29 +191,55 @@ async function moderatePortfolio({ portfolioId, adminId, action, reason }) {
 }
 
 async function expressInterest({ portfolioId, investorId, investorName }) {
+  const canonicalPortfolioId = positiveId(portfolioId, 'portfolio ID');
+  const canonicalInvestorId = positiveId(investorId, 'investor ID');
   return inTransaction(async (connection) => {
     const [rows] = await connection.query(
-      "SELECT id,owner_id,name FROM portfolios WHERE id=? AND status='approved' FOR UPDATE",
-      [portfolioId],
+      `SELECT p.id,p.name,p.owner_id,p.status,p.relationship_manager_id,
+              owner.name AS owner_name
+         FROM portfolios p
+         JOIN users owner ON owner.id=p.owner_id
+        WHERE p.id=?
+        FOR UPDATE`,
+      [canonicalPortfolioId],
     );
-    if (!rows.length) throw new WorkflowError(404, 'Approved portfolio not found');
+    if (!rows.length) {
+      throw new WorkflowError(404, 'Portfolio not found', 'PORTFOLIO_NOT_FOUND');
+    }
+    const portfolio = rows[0];
+    if (portfolio.status !== 'approved') {
+      throw new WorkflowError(
+        409,
+        'Interest can only be expressed in an approved portfolio',
+        'PORTFOLIO_NOT_APPROVED',
+      );
+    }
 
     const [insert] = await connection.query(
       'INSERT IGNORE INTO investor_interests (investor_id,portfolio_id) VALUES (?,?)',
-      [investorId, portfolioId],
+      [canonicalInvestorId, canonicalPortfolioId],
     );
     if (!insert.affectedRows) return { created: false };
 
+    const recipientIds = [
+      Number(portfolio.owner_id),
+      portfolio.relationship_manager_id != null
+        ? Number(portfolio.relationship_manager_id)
+        : null,
+    ].filter((userId) => userId != null);
+    const values = [...new Set(recipientIds)].map((userId) => [
+      userId,
+      'new_interest',
+      'New Investor Interest!',
+      `${investorName} is interested in "${portfolio.name}"`,
+      canonicalPortfolioId,
+      canonicalInvestorId,
+    ]);
     await connection.query(
-      'INSERT INTO notifications (user_id,type,title,body,related_portfolio_id,related_user_id) VALUES (?,?,?,?,?,?)',
-      [
-        rows[0].owner_id,
-        'new_interest',
-        'New Investor Interest!',
-        `${investorName} is interested in "${rows[0].name}"`,
-        portfolioId,
-        investorId,
-      ],
+      `INSERT INTO notifications
+        (user_id,type,title,body,related_portfolio_id,related_user_id)
+       VALUES ?`,
+      [values],
     );
     return { created: true };
   });

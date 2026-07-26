@@ -902,9 +902,6 @@ async function reconcileConversationAfterApproval(
     conversation.id,
     portfolioId,
   );
-  const next = eligibleInvestorIds.length > 0
-    ? { status: 'active', archived_reason: null }
-    : { status: 'archived', archived_reason: 'no_active_investors' };
 
   if (conversation.archived_reason === 'portfolio_deleted') {
     return {
@@ -914,6 +911,25 @@ async function reconcileConversationAfterApproval(
       changed: false,
     };
   }
+
+  if (
+    eligibleInvestorIds.length > 0
+    && !(
+      conversation.status === 'archived'
+      && conversation.archived_reason === 'portfolio_unapproved'
+    )
+  ) {
+    return {
+      conversationId: Number(conversation.id),
+      status: conversation.status,
+      archived_reason: conversation.archived_reason || null,
+      changed: false,
+    };
+  }
+
+  const next = eligibleInvestorIds.length > 0
+    ? { status: 'active', archived_reason: null }
+    : { status: 'archived', archived_reason: 'no_active_investors' };
 
   if (
     conversation.status === next.status

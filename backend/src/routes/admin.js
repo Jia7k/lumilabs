@@ -2,16 +2,33 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { moderatePortfolio } = require('../services/workflow');
+const workflow = require('../services/workflow');
 
 const router = express.Router();
 
 function sendWorkflowError(res, error) {
-  if (error && Number.isInteger(error.status)) {
-    return res.status(error.status).json({ error: error.message });
+  if (
+    error instanceof workflow.WorkflowError
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status < 500
+  ) {
+    return res.status(error.status).json({
+      error: error.message,
+      ...(error.code ? { code: error.code } : {}),
+    });
   }
-  console.error(error);
+  console.error('Admin moderation workflow failed');
   return res.status(500).json({ error: 'Server error' });
+}
+
+function positivePortfolioId(req, res) {
+  const portfolioId = Number(req.params.id);
+  if (!Number.isSafeInteger(portfolioId) || portfolioId <= 0) {
+    res.status(400).json({ error: 'A positive portfolio ID is required' });
+    return null;
+  }
+  return portfolioId;
 }
 
 // GET /api/admin/queue  — pending portfolios
@@ -27,16 +44,19 @@ router.get('/queue', authenticate, requireRole('admin'), async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('Admin moderation queue read failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // PUT /api/admin/portfolios/:id/approve
 router.put('/portfolios/:id/approve', authenticate, requireRole('admin'), async (req, res) => {
+  const portfolioId = positivePortfolioId(req, res);
+  if (portfolioId == null) return;
+
   try {
-    const result = await moderatePortfolio({
-      portfolioId: req.params.id,
+    const result = await workflow.moderatePortfolio({
+      portfolioId,
       adminId: req.user.id,
       action: 'approved',
       reason: null,
@@ -56,10 +76,12 @@ router.put(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const portfolioId = positivePortfolioId(req, res);
+    if (portfolioId == null) return;
 
     try {
-      const result = await moderatePortfolio({
-        portfolioId: req.params.id,
+      const result = await workflow.moderatePortfolio({
+        portfolioId,
         adminId: req.user.id,
         action: 'rejected',
         reason: req.body.reason,
@@ -85,7 +107,7 @@ router.get('/audit-logs', authenticate, requireRole('admin'), async (req, res) =
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error('Admin audit read failed');
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -101,7 +123,7 @@ router.get('/stats', authenticate, requireRole('admin'), async (req, res) => {
 
     res.json({ pending, approved, rejected, total_matches, total_users });
   } catch (err) {
-    console.error(err);
+    console.error('Admin statistics read failed');
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -85,6 +85,11 @@ test('withdrawal removes investor access and archives after the last investor', 
     notificationWrites.at(-1).params[0].map((row) => row[0]),
     [8, 3],
   );
+  assert.deepEqual(
+    notificationWrites.at(-1).params[0].map((row) => row[1]),
+    ['conversation_member_removed', 'conversation_member_removed'],
+  );
+  assert.equal(fake.calls.some(({ sql }) => /DELETE FROM messages/.test(sql)), false);
   assert.equal(fake.state.commits, 1);
   assert.equal(fake.state.rollbacks, 0);
   assert.equal(fake.state.releases, 1);
@@ -424,6 +429,46 @@ test('approval reconciliation never weakens or reactivates a deleted room', asyn
     );
     assert.equal(fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)), false);
     fake.assertConsumed();
+  }
+});
+
+test('approval reconciliation reactivates only portfolio-unapproved rooms', async (t) => {
+  for (const archivedReason of ['manual', 'no_active_investors']) {
+    await t.test(archivedReason, async () => {
+      const fake = scriptedConnection([
+        [{
+          id: 1,
+          owner_id: 3,
+          name: 'X3',
+          status: 'approved',
+          relationship_manager_id: 8,
+        }],
+        [{
+          id: 12,
+          portfolio_id: 1,
+          relationship_manager_id: 8,
+          title: 'X3',
+          status: 'archived',
+          archived_reason: archivedReason,
+        }],
+        [{ user_id: 6 }],
+      ]);
+
+      assert.deepEqual(
+        await reconcileConversationAfterApproval(fake.connection, 1, 4),
+        {
+          conversationId: 12,
+          status: 'archived',
+          archived_reason: archivedReason,
+          changed: false,
+        },
+      );
+      assert.equal(
+        fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)),
+        false,
+      );
+      fake.assertConsumed();
+    });
   }
 });
 
