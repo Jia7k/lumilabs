@@ -1,3 +1,4 @@
+assignments.html
 audit-logs.html
 browse.html
 businessownerdashboard.html
@@ -11,8 +12,10 @@ my-interests.html
 mybusinesses.html
 signin.html
 signup.html
+superadmindashboard.html
 css/style.css
 js/api.js
+js/assignments.js
 js/audit-logs.js
 js/browse.js
 js/createportfolio.js
@@ -23,10 +26,14 @@ js/my-interests.js
 js/mybusinesses.js
 js/relationshipmanagerdashboard.js
 js/script.js
+js/superadmindashboard.js
 backend/server.js
+backend/migrate.js
 backend/package.json
 backend/package-lock.json
-backend/scripts/live-four-role-smoke.js
+backend/scripts/migrate-five-role-workflow.js
+backend/scripts/seed-managed-chat.js
+backend/scripts/live-five-role-smoke.js
 backend/src/schema-contract.js
 backend/src/validation/database-boundaries.js
 backend/src/config/db.js
@@ -41,7 +48,12 @@ backend/src/routes/notifications.js
 backend/src/routes/portfolios.js
 backend/src/routes/recommendations.js
 backend/src/routes/relationship-manager.js
+backend/src/routes/superadmin.js
 backend/src/services/document-workflow.js
 backend/src/services/group-message-workflow.js
 backend/src/services/managed-conversation-workflow.js
+backend/src/services/relationship-manager-read-model.js
+backend/src/services/staff-provisioning-workflow.js
+backend/src/services/superadmin-assignment-workflow.js
+backend/src/services/superadmin-read-model.js
 backend/src/services/workflow.js

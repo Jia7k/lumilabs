@@ -101,6 +101,18 @@ function validateManager(managers) {
   return manager;
 }
 
+function validatePortfolioAssignment(portfolio, manager) {
+  if (
+    portfolio.manager_role !== 'relationship_manager'
+    || Number(portfolio.relationship_manager_id) !== Number(manager.id)
+  ) {
+    seedConflict(
+      'Seed portfolio must already be assigned to the selected relationship manager',
+      'UNAUDITED_PORTFOLIO_ASSIGNMENT',
+    );
+  }
+}
+
 function validateInvestor(investors) {
   const investor = investors[0];
   if (
@@ -174,9 +186,10 @@ async function seedManagedChat(database, config) {
 
     const portfolio = validatePortfolio(await rows(
       connection,
-      `SELECT p.id,p.name,p.owner_id,p.status,owner.name AS owner_name
+      `SELECT p.id,p.name,p.owner_id,p.status,p.relationship_manager_id,owner.name AS owner_name,u.role AS manager_role
          FROM portfolios p
          JOIN users owner ON owner.id=p.owner_id
+         LEFT JOIN users u ON u.id=p.relationship_manager_id
         WHERE p.id=?
         FOR UPDATE`,
       [config.portfolioId],
@@ -189,6 +202,7 @@ async function seedManagedChat(database, config) {
         : 'SELECT id,name,email,role FROM users WHERE email=? FOR UPDATE',
       [config.managerId || config.managerEmail],
     ));
+    validatePortfolioAssignment(portfolio, manager);
 
     const investor = validateInvestor(await rows(
       connection,

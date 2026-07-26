@@ -30,6 +30,11 @@ function scriptedDatabase(responses) {
     database: { async getConnection() { return connection; } },
     calls,
     state,
+    get writeCount() {
+      return calls.filter(({ sql }) => (
+        /^(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql)
+      )).length;
+    },
     assertConsumed() { assert.equal(responses.length, 0); },
   };
 }
@@ -51,6 +56,8 @@ const portfolio = {
   owner_id: 3,
   owner_name: 'Beta',
   status: 'approved',
+  relationship_manager_id: 8,
+  manager_role: 'relationship_manager',
 };
 const manager = {
   id: 8,
@@ -215,6 +222,64 @@ test('seed requires the exact approved X3 portfolio owned by Beta', async () => 
     );
     assert.equal(fake.state.rollbacks, 1);
   }
+});
+
+test('managed seed refuses an unaudited or mismatched assignment before writes', async () => {
+  const { seedManagedChat } = loadSeed();
+  for (const assignment of [
+    { relationship_manager_id: null },
+    { relationship_manager_id: 7 },
+    { manager_role: 'admin' },
+  ]) {
+    const fake = scriptedDatabase([
+      [{ ...portfolio, ...assignment }],
+      [manager],
+    ]);
+
+    await assert.rejects(
+      seedManagedChat(fake.database, config()),
+      (error) => (
+        error.code === 'UNAUDITED_PORTFOLIO_ASSIGNMENT'
+        && /must already be assigned/i.test(error.message)
+      ),
+    );
+    assert.equal(fake.writeCount, 0);
+    assert.equal(fake.state.commits, 0);
+    assert.equal(fake.state.rollbacks, 1);
+    fake.assertConsumed();
+  }
+});
+
+test('managed seed locks the approved portfolio assignment and never assigns it', async () => {
+  const { seedManagedChat, DEMO_MESSAGES } = loadSeed();
+  const seededMessages = DEMO_MESSAGES.map((message, index) => ({
+    id: 40 + index,
+    sender_id: [8, 3, 6][index],
+    content: message.body,
+  }));
+  const fake = scriptedDatabase([
+    [portfolio],
+    [manager],
+    [investor],
+    [room],
+    members,
+    seededMessages,
+  ]);
+
+  await seedManagedChat(fake.database, config());
+
+  assert.match(
+    fake.calls[0].sql,
+    /SELECT p\.id,p\.name,p\.owner_id,p\.status,p\.relationship_manager_id,owner\.name AS owner_name,u\.role AS manager_role/,
+  );
+  assert.match(fake.calls[0].sql, /LEFT JOIN users u ON u\.id=p\.relationship_manager_id/);
+  assert.match(fake.calls[0].sql, /FOR UPDATE$/);
+  assert.equal(
+    fake.calls.some(({ sql }) => (
+      /^UPDATE portfolios\b/i.test(sql) && /relationship_manager_id/i.test(sql)
+    )),
+    false,
+  );
 });
 
 test('existing room must match the explicit manager, owner, and testing1 investor', async () => {
