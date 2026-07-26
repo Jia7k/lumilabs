@@ -9,39 +9,40 @@
   <link rel="stylesheet" href="css/style.css?v=20260727.1" />
 </head>
 
-<body class="dashboard">
+<body class="dashboard protected-page">
+  <a class="skip-link" href="#superadmin-main">Skip to dashboard</a>
 
-  <nav class="nav">
+  <nav class="nav" aria-label="Superadmin navigation">
     <a class="nav-logo" href="index.html">
-      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+      <span class="logo-icon" aria-hidden="true"><i class="ti ti-trending-up"></i></span>
+      Lumi5 Labs
     </a>
     <div class="nav-links">
       <div class="nav-btn-wrap">
         <a class="nav-btn active" href="superadmindashboard.html" aria-current="page">
-          <i class="ti ti-crown"></i>Dashboard
+          <i class="ti ti-crown" aria-hidden="true"></i> Dashboard
         </a>
       </div>
       <div class="nav-btn-wrap">
         <a class="nav-btn" href="assignments.html">
-          <i class="ti ti-user-cog"></i> Portfolio Assignments
+          <i class="ti ti-user-cog" aria-hidden="true"></i> Portfolio Assignments
         </a>
       </div>
     </div>
     <div class="nav-right">
       <div class="role-menu" id="role-menu">
         <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
-          <div class="avatar" id="user-avatar"></div>
-          <div class="user-info">
-            <div class="name" id="user-name"></div>
-            <div class="role" id="user-role"></div>
-          </div>
-          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+          <span class="avatar" id="user-avatar" aria-hidden="true"></span>
+          <span class="user-info">
+            <span class="name" id="user-name"></span>
+            <span class="role" id="user-role"></span>
+          </span>
+          <i class="ti ti-chevron-down" aria-hidden="true"></i>
         </button>
-
         <div class="role-dropdown" role="menu">
-          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
-            <span class="role-option-avatar" style="background:#EF4444;">
-              <i class="ti ti-logout" style="font-size:14px;"></i>
+          <button class="role-option" id="signout-button" type="button" role="menuitem">
+            <span class="role-option-avatar signout-avatar">
+              <i class="ti ti-logout" aria-hidden="true"></i>
             </span>
             <span class="role-option-name">Sign Out</span>
           </button>
@@ -50,58 +51,215 @@
     </div>
   </nav>
 
-  <main class="main">
-    <h1 class="welcome-heading" id="page-title"></h1>
-    <p class="welcome-sub" id="page-subtitle"></p>
+  <main class="main superadmin-main" id="superadmin-main" hidden>
+    <header class="superadmin-hero">
+      <div>
+        <p class="superadmin-eyebrow">Platform operations</p>
+        <h1 class="welcome-heading" id="page-title">Superadmin Dashboard</h1>
+        <p class="welcome-sub" id="page-subtitle">
+          Assign approved portfolios, provision staff, and review accountability history.
+        </p>
+      </div>
+      <a class="superadmin-assignment-link" href="assignments.html">
+        <span>
+          <strong>Open assignment workspace</strong>
+          <small>Match approved portfolios with relationship managers</small>
+        </span>
+        <i class="ti ti-arrow-up-right" aria-hidden="true"></i>
+      </a>
+    </header>
 
-    <div class="stats-grid">
-      <div class="stat-card orange-card">
+    <section id="superadmin-stats" aria-labelledby="stats-heading" aria-live="polite">
+      <div class="section-heading-row">
         <div>
-          <div class="stat-label">Business Owners</div>
-          <div class="stat-value" id="stat-business-owners"></div>
+          <p class="section-kicker">At a glance</p>
+          <h2 id="stats-heading">Platform overview</h2>
         </div>
-        <div class="stat-icon icon-white-tint"><i class="ti ti-briefcase"></i></div>
-      </div>
-      <div class="stat-card">
-        <div>
-          <div class="stat-label">Investors</div>
-          <div class="stat-value" id="stat-investors"></div>
+        <div class="section-recovery">
+          <p class="section-status" id="stats-status" role="status"></p>
+          <button class="btn btn-outline section-retry" id="stats-retry" type="button" hidden>
+            <i class="ti ti-refresh" aria-hidden="true"></i> Retry overview
+          </button>
         </div>
-        <div class="stat-icon icon-green"><i class="ti ti-chart-pie"></i></div>
       </div>
-      <div class="stat-card">
-        <div>
-          <div class="stat-label">Admins</div>
-          <div class="stat-value" id="stat-admins"></div>
-        </div>
-        <div class="stat-icon icon-purple"><i class="ti ti-shield-lock"></i></div>
+      <div class="stats-grid superadmin-grid">
+        <article class="stat-card orange-card">
+          <div>
+            <div class="stat-label">Business owners</div>
+            <div class="stat-value" id="stat-business-owners">—</div>
+          </div>
+          <div class="stat-icon icon-white-tint"><i class="ti ti-briefcase" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+          <div>
+            <div class="stat-label">Investors</div>
+            <div class="stat-value" id="stat-investors">—</div>
+          </div>
+          <div class="stat-icon icon-green"><i class="ti ti-chart-pie" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+          <div>
+            <div class="stat-label">Admins</div>
+            <div class="stat-value" id="stat-admins">—</div>
+          </div>
+          <div class="stat-icon icon-purple"><i class="ti ti-shield-lock" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card">
+          <div>
+            <div class="stat-label">Relationship managers</div>
+            <div class="stat-value" id="stat-relationship-managers">—</div>
+          </div>
+          <div class="stat-icon icon-red"><i class="ti ti-users" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card superadmin-metric-card">
+          <div>
+            <div class="stat-label">Approved portfolios</div>
+            <div class="stat-value" id="stat-approved-portfolios">—</div>
+          </div>
+          <div class="stat-icon icon-green"><i class="ti ti-rosette-discount-check" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card superadmin-metric-card">
+          <div>
+            <div class="stat-label">Assigned</div>
+            <div class="stat-value" id="stat-assigned-portfolios">—</div>
+          </div>
+          <div class="stat-icon icon-purple"><i class="ti ti-link" aria-hidden="true"></i></div>
+        </article>
+        <article class="stat-card superadmin-metric-card">
+          <div>
+            <div class="stat-label">Awaiting assignment</div>
+            <div class="stat-value" id="stat-unassigned-portfolios">—</div>
+          </div>
+          <div class="stat-icon icon-red"><i class="ti ti-alert-circle" aria-hidden="true"></i></div>
+        </article>
       </div>
-      <div class="stat-card">
-        <div>
-          <div class="stat-label">Relationship Managers</div>
-          <div class="stat-value" id="stat-relationship-managers"></div>
-        </div>
-        <div class="stat-icon icon-red"><i class="ti ti-users"></i></div>
-      </div>
-    </div>
+    </section>
 
-    <div class="card">
+    <section class="card superadmin-section-card" id="manager-workload" aria-labelledby="workload-heading" aria-live="polite">
       <div class="card-header">
-        <div class="card-title">
-          Relationship Manager Workload
+        <div>
+          <p class="section-kicker">Capacity</p>
+          <h2 class="card-title" id="workload-heading">Relationship manager workload</h2>
         </div>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Relationship Manager</th>
-            <th>Email</th>
-            <th>Portfolios Assigned</th>
-          </tr>
-        </thead>
-        <tbody id="workload-list"></tbody>
-      </table>
-    </div>
+      <div class="table-scroll" tabindex="0" aria-label="Relationship manager workload">
+        <table class="table superadmin-table">
+          <thead>
+            <tr>
+              <th scope="col">Relationship manager</th>
+              <th scope="col">Email</th>
+              <th scope="col">Assigned portfolios</th>
+              <th scope="col">Active rooms</th>
+            </tr>
+          </thead>
+          <tbody id="manager-workload-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card superadmin-section-card" aria-labelledby="staff-heading">
+      <div class="card-header superadmin-panel-header">
+        <div>
+          <p class="section-kicker">Team access</p>
+          <h2 class="card-title" id="staff-heading">Create and review staff accounts</h2>
+          <p class="panel-description">
+            Staff accounts are private. Share temporary passwords through a secure channel.
+          </p>
+        </div>
+        <div class="section-recovery">
+          <p class="section-status" id="staff-status" role="status"></p>
+          <button class="btn btn-outline section-retry" id="staff-retry" type="button" hidden>
+            <i class="ti ti-refresh" aria-hidden="true"></i> Retry directory
+          </button>
+        </div>
+      </div>
+      <div class="staff-grid">
+        <form class="staff-form" id="staff-form" novalidate>
+          <div class="form-group">
+            <label for="staff-name">Name</label>
+            <input id="staff-name" name="name" type="text" maxlength="100" autocomplete="name" required />
+            <p class="field-error" id="staff-name-error" aria-live="polite"></p>
+          </div>
+          <div class="form-group">
+            <label for="staff-email">Email</label>
+            <input id="staff-email" name="email" type="email" maxlength="255" autocomplete="email" required />
+            <p class="field-error" id="staff-email-error" aria-live="polite"></p>
+          </div>
+          <div class="form-group">
+            <label for="staff-password">Temporary password</label>
+            <input id="staff-password" name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required />
+            <p class="field-help">Use 6–128 characters. The password is not shown again.</p>
+            <p class="field-error" id="staff-password-error" aria-live="polite"></p>
+          </div>
+          <div class="form-group">
+            <label for="staff-role">Role</label>
+            <select id="staff-role" name="role" required>
+              <option value="admin">Admin</option>
+              <option value="relationship_manager">Relationship manager</option>
+            </select>
+            <p class="field-error" id="staff-role-error" aria-live="polite"></p>
+          </div>
+          <p class="form-status" id="staff-form-status" role="status" aria-live="polite"></p>
+          <button class="btn btn-primary staff-submit" id="staff-submit" type="submit">
+            <i class="ti ti-user-plus" aria-hidden="true"></i>
+            <span>Create staff account</span>
+          </button>
+        </form>
+
+        <div class="staff-directory" id="staff-directory" aria-live="polite">
+          <div class="table-scroll" tabindex="0" aria-label="Staff account directory">
+            <table class="table superadmin-table">
+              <thead>
+                <tr>
+                  <th scope="col">Staff member</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Created</th>
+                </tr>
+              </thead>
+              <tbody id="staff-directory-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card superadmin-section-card" id="superadmin-audit" aria-labelledby="audit-heading" aria-live="polite">
+      <div class="card-header superadmin-panel-header">
+        <div>
+          <p class="section-kicker">Accountability</p>
+          <h2 class="card-title" id="audit-heading">Superadmin audit history</h2>
+        </div>
+        <div class="section-recovery">
+          <p class="section-status" id="audit-status" role="status"></p>
+          <button class="btn btn-outline section-retry" id="audit-retry" type="button" hidden>
+            <i class="ti ti-refresh" aria-hidden="true"></i> Retry history
+          </button>
+        </div>
+      </div>
+      <div class="table-scroll" tabindex="0" aria-label="Superadmin audit history">
+        <table class="table superadmin-table">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Action</th>
+              <th scope="col">Performed by</th>
+              <th scope="col">Subject</th>
+              <th scope="col">Reference</th>
+            </tr>
+          </thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
+      <div class="audit-pagination" aria-label="Audit pagination">
+        <button class="btn btn-outline" id="audit-previous" type="button">
+          <i class="ti ti-chevron-left" aria-hidden="true"></i> Previous
+        </button>
+        <span id="audit-page">Page 1 of 1</span>
+        <button class="btn btn-outline" id="audit-next" type="button">
+          Next <i class="ti ti-chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>
+    </section>
   </main>
 
   <script src="js/api.js?v=20260727.1"></script>

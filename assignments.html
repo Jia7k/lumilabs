@@ -9,39 +9,40 @@
   <link rel="stylesheet" href="css/style.css?v=20260727.1" />
 </head>
 
-<body class="dashboard">
+<body class="dashboard protected-page">
+  <a class="skip-link" href="#assignments-main">Skip to assignments</a>
 
-  <nav class="nav">
+  <nav class="nav" aria-label="Superadmin navigation">
     <a class="nav-logo" href="index.html">
-      <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
+      <span class="logo-icon" aria-hidden="true"><i class="ti ti-trending-up"></i></span>
+      Lumi5 Labs
     </a>
     <div class="nav-links">
       <div class="nav-btn-wrap">
         <a class="nav-btn" href="superadmindashboard.html">
-          <i class="ti ti-crown"></i>Dashboard
+          <i class="ti ti-crown" aria-hidden="true"></i> Dashboard
         </a>
       </div>
       <div class="nav-btn-wrap">
         <a class="nav-btn active" href="assignments.html" aria-current="page">
-          <i class="ti ti-user-cog"></i> Portfolio Assignments
+          <i class="ti ti-user-cog" aria-hidden="true"></i> Portfolio Assignments
         </a>
       </div>
     </div>
     <div class="nav-right">
       <div class="role-menu" id="role-menu">
         <button class="user-chip" id="role-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
-          <div class="avatar" id="user-avatar"></div>
-          <div class="user-info">
-            <div class="name" id="user-name"></div>
-            <div class="role" id="user-role"></div>
-          </div>
-          <i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-secondary)"></i>
+          <span class="avatar" id="user-avatar" aria-hidden="true"></span>
+          <span class="user-info">
+            <span class="name" id="user-name"></span>
+            <span class="role" id="user-role"></span>
+          </span>
+          <i class="ti ti-chevron-down" aria-hidden="true"></i>
         </button>
-
         <div class="role-dropdown" role="menu">
-          <button class="role-option" type="button" onclick="signOut()" role="menuitem">
-            <span class="role-option-avatar" style="background:#EF4444;">
-              <i class="ti ti-logout" style="font-size:14px;"></i>
+          <button class="role-option" id="signout-button" type="button" role="menuitem">
+            <span class="role-option-avatar signout-avatar">
+              <i class="ti ti-logout" aria-hidden="true"></i>
             </span>
             <span class="role-option-name">Sign Out</span>
           </button>
@@ -50,56 +51,110 @@
     </div>
   </nav>
 
-  <main class="main">
-    <h1 class="welcome-heading" id="page-title"></h1>
-    <p class="welcome-sub" id="page-subtitle"></p>
-
-    <div class="card" style="margin-top: 24px;">
-      <div class="card-header">
-        <div class="card-title">
-          Approved Portfolios <span class="badge-green" id="assignments-badge"></span>
-        </div>
-        <select id="assignment-filter"
-          style="padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
-          <option value="all">All</option>
-          <option value="unassigned">Awaiting Assignment</option>
-          <option value="assigned">Assigned</option>
-        </select>
+  <main class="main assignments-main" id="assignments-main" hidden>
+    <header class="superadmin-hero assignment-hero">
+      <div>
+        <p class="superadmin-eyebrow">Portfolio routing</p>
+        <h1 class="welcome-heading" id="page-title">Portfolio assignments</h1>
+        <p class="welcome-sub" id="page-subtitle">
+          Give relationship managers access to approved portfolios and their managed chats.
+        </p>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Portfolio</th>
-            <th>Business Owner</th>
-            <th>Assigned RM</th>
-            <th>Status</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="assignments-list"></tbody>
-      </table>
-    </div>
+      <div class="assignment-rule-note">
+        <i class="ti ti-shield-check" aria-hidden="true"></i>
+        <span><strong>One portfolio, one manager</strong><small>Existing chats must be reassigned, not unassigned.</small></span>
+      </div>
+    </header>
+
+    <section class="card assignment-card" aria-labelledby="assignment-table-heading">
+      <div class="card-header assignment-card-header">
+        <div>
+          <p class="section-kicker">Current routing</p>
+          <h2 class="card-title" id="assignment-table-heading">
+            Portfolios <span class="badge-green" id="assignments-badge">0</span>
+          </h2>
+        </div>
+        <label class="assignment-filter-label" for="assignment-filter">
+          Show
+          <select id="assignment-filter">
+            <option value="all">All available</option>
+            <option value="unassigned">Awaiting assignment</option>
+            <option value="assigned">Assigned</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="assignment-feedback">
+        <div id="assignment-status" role="status" aria-live="polite"></div>
+        <button class="btn btn-outline" id="assignment-retry" type="button" hidden>
+          <i class="ti ti-refresh" aria-hidden="true"></i> Refresh assignments
+        </button>
+      </div>
+
+      <div class="table-scroll" tabindex="0" aria-label="Portfolio assignments">
+        <table class="table assignment-table">
+          <thead>
+            <tr>
+              <th scope="col">Portfolio</th>
+              <th scope="col">Status</th>
+              <th scope="col">Owner</th>
+              <th scope="col">Relationship manager</th>
+              <th scope="col">Chat</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="assignment-rows"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
-  <div class="reason-overlay" id="assign-overlay">
-    <div class="reason-card">
-      <h3 id="assign-modal-title">Assign Relationship Manager</h3>
-      <p id="assign-modal-subtitle">Choose a relationship manager for this portfolio.</p>
-      <select id="assign-rm-select"
-        style="width:100%; padding:14px 16px; border:1px solid var(--border); border-radius:8px; font-size:15px;"></select>
-      <div class="reason-footer">
-        <button class="btn-cancel-outline" id="assign-cancel-btn">Cancel</button>
-        <button class="btn-approve-solid" id="assign-confirm-btn">Save</button>
+  <div id="assignment-dialog" role="dialog" aria-modal="true" aria-labelledby="assignment-dialog-title" hidden>
+    <div class="assignment-dialog-backdrop" data-dialog-dismiss="assignment"></div>
+    <div class="assignment-dialog-card" role="document" tabindex="-1" id="assignment-dialog-card">
+      <div class="assignment-dialog-heading">
+        <span class="assignment-dialog-icon" aria-hidden="true"><i class="ti ti-user-cog"></i></span>
+        <div>
+          <p class="section-kicker">Manager access</p>
+          <h2 id="assignment-dialog-title">Assign relationship manager</h2>
+        </div>
       </div>
+      <p id="assignment-dialog-description">
+        Select the relationship manager responsible for this portfolio.
+      </p>
+      <form id="assignment-form" novalidate>
+        <div class="form-group">
+          <label for="assignment-manager">Relationship manager</label>
+          <select id="assignment-manager" required></select>
+          <p class="field-error" id="assignment-manager-error" aria-live="polite"></p>
+        </div>
+        <p class="form-status" id="assignment-dialog-status" role="status" aria-live="polite"></p>
+        <div class="assignment-dialog-actions">
+          <button class="btn btn-outline" id="assignment-cancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="assignment-submit" type="submit">Save assignment</button>
+        </div>
+      </form>
     </div>
   </div>
 
-  <div class="reason-overlay" id="confirm-assign-overlay">
-    <div class="reason-card">
-      <h3>Confirm Assignment</h3>
-      <p id="confirm-assign-text"></p>
-      <div class="reason-footer"> <button class="btn-cancel-outline" id="confirm-assign-cancel-btn">Cancel</button>
-        <button class="btn-approve-solid" id="confirm-assign-confirm-btn">Confirm</button> </div>
+  <div id="unassign-dialog" role="dialog" aria-modal="true" aria-labelledby="unassign-dialog-title" hidden>
+    <div class="assignment-dialog-backdrop" data-dialog-dismiss="unassign"></div>
+    <div class="assignment-dialog-card assignment-dialog-card--warning" role="document" tabindex="-1" id="unassign-dialog-card">
+      <div class="assignment-dialog-heading">
+        <span class="assignment-dialog-icon warning" aria-hidden="true"><i class="ti ti-user-off"></i></span>
+        <div>
+          <p class="section-kicker">Remove access</p>
+          <h2 id="unassign-dialog-title">Unassign relationship manager?</h2>
+        </div>
+      </div>
+      <p id="unassign-dialog-description">
+        This is only allowed before a portfolio chat has been created.
+      </p>
+      <p class="form-status" id="unassign-dialog-status" role="status" aria-live="polite"></p>
+      <div class="assignment-dialog-actions">
+        <button class="btn btn-outline" id="unassign-cancel" type="button">Keep assignment</button>
+        <button class="btn btn-danger" id="unassign-submit" type="button">Confirm unassign</button>
+      </div>
     </div>
   </div>
 

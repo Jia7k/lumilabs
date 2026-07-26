@@ -2818,3 +2818,549 @@ body.audit .card {
     flex: 1;
   }
 }
+
+/* SUPERADMIN OPERATIONS */
+.superadmin-main,
+.assignments-main {
+  min-width: 0;
+}
+
+.superadmin-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 28px;
+  padding: 24px 26px;
+  overflow: hidden;
+  border: 1px solid #DDD8FA;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(112deg, rgba(107, 78, 230, 0.1), transparent 52%),
+    radial-gradient(circle at 95% 0%, rgba(222, 142, 66, 0.18), transparent 36%),
+    var(--bg-card);
+  box-shadow: 0 14px 34px rgba(58, 42, 123, 0.06);
+}
+
+.superadmin-eyebrow,
+.section-kicker {
+  margin: 0 0 5px;
+  color: var(--logo-purple);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.superadmin-assignment-link {
+  display: flex;
+  min-width: min(100%, 330px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(107, 78, 230, 0.18);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.superadmin-assignment-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(107, 78, 230, 0.4);
+  box-shadow: 0 10px 24px rgba(58, 42, 123, 0.1);
+}
+
+.superadmin-assignment-link span {
+  display: grid;
+  gap: 3px;
+}
+
+.superadmin-assignment-link small {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.superadmin-assignment-link > i {
+  color: var(--logo-purple);
+  font-size: 20px;
+}
+
+.section-heading-row,
+.superadmin-panel-header,
+.assignment-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.section-heading-row {
+  margin-bottom: 14px;
+}
+
+.section-heading-row h2,
+.superadmin-panel-header h2 {
+  font-size: 17px;
+}
+
+.section-recovery {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.section-status,
+.form-status,
+.assignment-feedback,
+#assignment-status {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.section-status.error,
+.form-status.error,
+#assignment-status.error {
+  color: var(--red-text);
+}
+
+.form-status.success {
+  color: var(--green-text);
+}
+
+.section-retry {
+  flex: 0 0 auto;
+}
+
+.superadmin-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.superadmin-metric-card {
+  border-top: 3px solid rgba(107, 78, 230, 0.34);
+}
+
+.superadmin-section-card {
+  min-width: 0;
+  margin-top: 24px;
+  overflow: hidden;
+}
+
+.superadmin-panel-header {
+  background:
+    linear-gradient(90deg, rgba(107, 78, 230, 0.05), transparent 45%),
+    var(--bg-card);
+}
+
+.panel-description {
+  max-width: 70ch;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.superadmin-table th,
+.superadmin-table td {
+  white-space: nowrap;
+}
+
+.table-secondary {
+  display: block;
+  max-width: 34ch;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.superadmin-empty-row td {
+  padding: 34px 18px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.staff-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.75fr) minmax(460px, 1.25fr);
+  min-width: 0;
+}
+
+.staff-form {
+  padding: 24px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.staff-form .form-group {
+  margin-bottom: 16px;
+}
+
+.staff-form input,
+.staff-form select,
+.assignment-filter-label select,
+#assignment-manager {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.staff-form input[aria-invalid="true"],
+.staff-form select[aria-invalid="true"] {
+  border-color: var(--red-text);
+}
+
+.field-help {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.field-error {
+  min-height: 18px;
+  margin-top: 5px;
+  color: var(--red-text);
+  font-size: 12px;
+}
+
+.staff-submit {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 4px;
+}
+
+.staff-directory {
+  min-width: 0;
+  padding: 24px;
+}
+
+.staff-role-badge,
+.audit-reference {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--purple-bg);
+  color: #5B3FC2;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.audit-reference {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.signout-avatar {
+  background: #EF4444;
+}
+
+/* SUPERADMIN ASSIGNMENTS */
+.assignment-rule-note {
+  display: flex;
+  max-width: 360px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(82, 164, 117, 0.22);
+  border-radius: var(--radius-lg);
+  background: rgba(234, 243, 222, 0.72);
+  color: var(--green-text);
+}
+
+.assignment-rule-note > i {
+  margin-top: 2px;
+  font-size: 20px;
+}
+
+.assignment-rule-note span {
+  display: grid;
+  gap: 3px;
+}
+
+.assignment-rule-note small {
+  color: #55713F;
+  line-height: 1.4;
+}
+
+.assignment-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.assignment-filter-label {
+  display: grid;
+  min-width: 190px;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.assignment-feedback {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 20px;
+  border-top: 1px solid var(--border);
+}
+
+.assignment-table {
+  min-width: 1040px;
+}
+
+.assignment-table th,
+.assignment-table td {
+  vertical-align: top;
+}
+
+.assignment-unassigned {
+  color: var(--amber-text);
+  font-weight: 700;
+}
+
+.assignment-chat-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assignment-chat-state.active {
+  color: var(--green-text);
+}
+
+.assignment-chat-state.archived {
+  color: var(--amber-text);
+}
+
+.assignment-chat-state.muted {
+  color: var(--text-muted);
+}
+
+.assignment-actions {
+  display: grid;
+  min-width: 180px;
+  gap: 10px;
+}
+
+.assignment-action-group {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.assignment-action {
+  min-height: 38px;
+}
+
+.action-disabled-reason {
+  max-width: 28ch;
+  color: var(--muted-text, var(--text-muted));
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.assignment-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+#assignment-dialog,
+#unassign-dialog {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.assignment-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.54);
+  backdrop-filter: blur(2px);
+}
+
+.assignment-dialog-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 520px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 26px;
+  border: 1px solid rgba(107, 78, 230, 0.2);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 24px 70px rgba(17, 24, 39, 0.28);
+}
+
+.assignment-dialog-card--warning {
+  border-color: rgba(222, 142, 66, 0.34);
+}
+
+.assignment-dialog-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 14px;
+}
+
+.assignment-dialog-heading h2 {
+  font-size: 18px;
+}
+
+.assignment-dialog-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--purple-bg);
+  color: var(--logo-purple);
+  font-size: 20px;
+}
+
+.assignment-dialog-icon.warning {
+  background: var(--amber-bg);
+  color: var(--amber-text);
+}
+
+#assignment-dialog-description,
+#unassign-dialog-description {
+  margin-bottom: 18px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.assignment-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.protected-page :is(
+  a,
+  button,
+  input,
+  select,
+  [tabindex="0"],
+  [tabindex="-1"]
+):focus-visible {
+  outline: 3px solid rgba(67, 97, 238, 0.34);
+  outline-offset: 3px;
+}
+
+@media (max-width: 1000px) {
+  .superadmin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .staff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staff-form {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 699px) {
+  .superadmin-hero,
+  .section-heading-row,
+  .superadmin-panel-header,
+  .assignment-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .superadmin-assignment-link,
+  .assignment-rule-note {
+    width: 100%;
+    max-width: none;
+  }
+
+  .section-recovery,
+  .assignment-feedback {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .assignment-feedback {
+    padding: 12px 16px;
+  }
+
+  .assignment-filter-label {
+    width: 100%;
+  }
+
+  .staff-form,
+  .staff-directory {
+    padding: 18px;
+  }
+}
+
+@media (max-width: 390px) {
+  .superadmin-grid,
+  .staff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .superadmin-hero {
+    padding: 20px 18px;
+  }
+
+  .assignment-dialog-card {
+    padding: 20px 18px;
+  }
+
+  .assignment-dialog-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .assignment-dialog-actions .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .superadmin-assignment-link {
+    transition: none;
+  }
+}
