@@ -69,10 +69,18 @@ function duplicateEmailError() {
   );
 }
 
+function unexpectedProvisioningError() {
+  return new StaffProvisioningError(
+    500,
+    'Staff account could not be created',
+    'STAFF_PROVISIONING_FAILED',
+  );
+}
+
 function translateError(error) {
   if (error instanceof StaffProvisioningError) return error;
   if (error && error.code === 'ER_DUP_ENTRY') return duplicateEmailError();
-  return error;
+  return unexpectedProvisioningError();
 }
 
 async function queryRows(connection, sql, params = []) {
@@ -102,7 +110,14 @@ async function createStaffAccount({
   const normalized = normalizeStaffInput({ name, email, password, role });
   const superadminId = requireSuperadminId(superadminIdValue);
   const passwordHash = await hashPassword(normalized.password);
-  const connection = await database.getConnection();
+  let connection;
+  try {
+    connection = await database.getConnection();
+  } catch (error) {
+    throw translateError(error);
+  }
+  let operationError = null;
+  let connectionReusable = true;
 
   try {
     await connection.beginTransaction();
@@ -128,7 +143,7 @@ async function createStaffAccount({
     );
     if (existing.length) throw duplicateEmailError();
 
-    const [insertResult] = await connection.query(
+    const [insertResult] = await connection.execute(
       'INSERT INTO users (email,password_hash,name,role) VALUES (?,?,?,?)',
       [
         normalized.email,
@@ -182,14 +197,26 @@ async function createStaffAccount({
     await connection.commit();
     return created;
   } catch (error) {
+    operationError = translateError(error);
     try {
       await connection.rollback();
-    } catch (rollbackError) {
-      console.error('Staff provisioning rollback failed', rollbackError);
+    } catch {
+      connectionReusable = false;
+      try {
+        await connection.destroy();
+      } catch {
+        // A failed rollback connection must never return to the pool.
+      }
     }
-    throw translateError(error);
+    throw operationError;
   } finally {
-    connection.release();
+    if (connectionReusable) {
+      try {
+        await connection.release();
+      } catch (error) {
+        if (!operationError) throw translateError(error);
+      }
+    }
   }
 }
 

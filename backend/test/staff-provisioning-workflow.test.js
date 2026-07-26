@@ -31,6 +31,29 @@ function staffHarness(options = {}) {
   let commits = 0;
   let rollbacks = 0;
   let releases = 0;
+  let destroys = 0;
+  let queryInserts = 0;
+  let executeInserts = 0;
+
+  async function insertUser(sqlValue, params = []) {
+    const sql = normalizedSql(sqlValue);
+    assert.equal(
+      sql,
+      'INSERT INTO users (email,password_hash,name,role) VALUES (?,?,?,?)',
+    );
+    if (options.insertError) throw options.insertError;
+    const [email, password_hash, name, role] = params;
+    const user = {
+      id: 15,
+      name,
+      email,
+      password_hash,
+      role,
+      created_at: '2026-07-27T00:00:00.000Z',
+    };
+    state.users.push(user);
+    return [{ insertId: user.id, affectedRows: 1 }, []];
+  }
 
   const connection = {
     async beginTransaction() {
@@ -58,18 +81,8 @@ function staffHarness(options = {}) {
       }
 
       if (sql === 'INSERT INTO users (email,password_hash,name,role) VALUES (?,?,?,?)') {
-        if (options.insertError) throw options.insertError;
-        const [email, password_hash, name, role] = params;
-        const user = {
-          id: 15,
-          name,
-          email,
-          password_hash,
-          role,
-          created_at: '2026-07-27T00:00:00.000Z',
-        };
-        state.users.push(user);
-        return [{ insertId: user.id, affectedRows: 1 }, []];
+        queryInserts += 1;
+        return insertUser(sqlValue, params);
       }
 
       if (sql === 'SELECT id,name,email,role,created_at FROM users WHERE id=?') {
@@ -111,17 +124,31 @@ function staffHarness(options = {}) {
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    async execute(sqlValue, params = []) {
+      executeInserts += 1;
+      calls.push({
+        sql: normalizedSql(sqlValue),
+        params: clone(params),
+        prepared: true,
+      });
+      return insertUser(sqlValue, params);
+    },
     async commit() {
       commits += 1;
       transactionSnapshot = null;
     },
     async rollback() {
       rollbacks += 1;
+      if (options.rollbackError) throw options.rollbackError;
       if (transactionSnapshot) state = clone(transactionSnapshot);
       transactionSnapshot = null;
     },
     release() {
       releases += 1;
+    },
+    destroy() {
+      destroys += 1;
+      if (options.destroyError) throw options.destroyError;
     },
   };
 
@@ -151,6 +178,15 @@ function staffHarness(options = {}) {
     get releases() {
       return releases;
     },
+    get destroys() {
+      return destroys;
+    },
+    get queryInserts() {
+      return queryInserts;
+    },
+    get executeInserts() {
+      return executeInserts;
+    },
   };
 }
 
@@ -172,6 +208,8 @@ test('creates an admin and its audit row in one transaction', async () => {
   assert.equal('password_hash' in staff, false);
   assert.deepEqual(database.auditActions(), ['admin_account_created']);
   assert.equal(database.commits, 1);
+  assert.equal(database.executeInserts, 1);
+  assert.equal(database.queryInserts, 0);
 });
 
 test('creates a relationship manager with exact immutable audit snapshots', async () => {
@@ -368,6 +406,48 @@ test('duplicate insert race maps to DUPLICATE_EMAIL and rolls back', async () =>
   assert.deepEqual(database.auditActions(), []);
 });
 
+test('unexpected insert errors cannot expose the password or hash', async () => {
+  const password = 'secure12';
+  const passwordHash = 'bcrypt-hash';
+  const insertError = new Error(`insert failed for ${passwordHash}`);
+  insertError.sql = `INSERT INTO users VALUES ('${passwordHash}')`;
+  insertError.sqlMessage = `invalid value ${passwordHash}`;
+  insertError.parameters = ['new@example.test', passwordHash];
+  insertError.cause = new Error(`driver retained ${password}`);
+  const database = staffHarness({ insertError });
+  let thrown;
+
+  try {
+    await createStaffAccount({
+      database,
+      superadminId: 1,
+      name: 'New Admin',
+      email: 'new@example.test',
+      password,
+      role: 'admin',
+      hashPassword: async () => passwordHash,
+    });
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof StaffProvisioningError);
+  assert.equal(thrown.status, 500);
+  assert.equal(thrown.code, 'STAFF_PROVISIONING_FAILED');
+  assert.equal(thrown.message, 'Staff account could not be created');
+  assert.equal(Object.hasOwn(thrown, 'cause'), false);
+  assert.equal(Object.hasOwn(thrown, 'sql'), false);
+  assert.equal(Object.hasOwn(thrown, 'sqlMessage'), false);
+  assert.equal(Object.hasOwn(thrown, 'parameters'), false);
+  const serialized = `${thrown.message} ${JSON.stringify(thrown)}`;
+  assert.doesNotMatch(serialized, new RegExp(password));
+  assert.doesNotMatch(serialized, new RegExp(passwordHash));
+  assert.equal(database.executeInserts, 1);
+  assert.equal(database.queryInserts, 0);
+  assert.equal(database.commits, 0);
+  assert.equal(database.rollbacks, 1);
+});
+
 test('audit failure rolls back the inserted staff account', async () => {
   const auditError = new Error('audit unavailable');
   const database = staffHarness({ auditError });
@@ -382,11 +462,57 @@ test('audit failure rolls back the inserted staff account', async () => {
       role: 'admin',
       hashPassword: async () => 'bcrypt-hash',
     }),
-    error => error === auditError,
+    error => (
+      error instanceof StaffProvisioningError
+      && error.status === 500
+      && error.code === 'STAFF_PROVISIONING_FAILED'
+    ),
   );
   assert.equal(database.commits, 0);
   assert.equal(database.rollbacks, 1);
   assert.equal(database.releases, 1);
   assert.deepEqual(database.createdUsers(), []);
   assert.deepEqual(database.auditActions(), []);
+});
+
+test('rollback failure destroys the connection and preserves a safe primary error', async () => {
+  const password = 'secure12';
+  const passwordHash = 'bcrypt-hash';
+  const auditError = new Error(`audit exposed ${passwordHash}`);
+  auditError.sql = `INSERT audit '${passwordHash}'`;
+  auditError.parameters = [passwordHash];
+  auditError.cause = new Error(password);
+  const rollbackError = new Error('rollback failed');
+  const destroyError = new Error('destroy failed');
+  const database = staffHarness({ auditError, rollbackError, destroyError });
+  let thrown;
+
+  try {
+    await createStaffAccount({
+      database,
+      superadminId: 1,
+      name: 'New Admin',
+      email: 'new@example.test',
+      password,
+      role: 'admin',
+      hashPassword: async () => passwordHash,
+    });
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof StaffProvisioningError);
+  assert.equal(thrown.status, 500);
+  assert.equal(thrown.code, 'STAFF_PROVISIONING_FAILED');
+  assert.equal(thrown.message, 'Staff account could not be created');
+  assert.equal(Object.hasOwn(thrown, 'cause'), false);
+  assert.equal(Object.hasOwn(thrown, 'sql'), false);
+  assert.equal(Object.hasOwn(thrown, 'parameters'), false);
+  const serialized = `${thrown.message} ${JSON.stringify(thrown)}`;
+  assert.doesNotMatch(serialized, new RegExp(password));
+  assert.doesNotMatch(serialized, new RegExp(passwordHash));
+  assert.equal(database.commits, 0);
+  assert.equal(database.rollbacks, 1);
+  assert.equal(database.destroys, 1);
+  assert.equal(database.releases, 0);
 });
