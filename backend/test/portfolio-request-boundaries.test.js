@@ -323,7 +323,7 @@ test('portfolio detail has explicit authorization for all five roles', {
       }
       if (
         normalized
-          === 'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC'
+          === 'SELECT id,portfolio_id,file_name,file_type,uploaded_at FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC,id DESC'
       ) {
         return [[{
           id: 51,
@@ -331,6 +331,8 @@ test('portfolio detail has explicit authorization for all five roles', {
           file_name: 'deck.pdf',
           file_url: '/uploads/portfolio-documents/deck.pdf',
           file_type: 'pitch_deck',
+          uploaded_at: '2026-07-27T00:00:00.000Z',
+          internal_scan_result: 'private',
         }], []];
       }
       throw new Error(`Unexpected query: ${normalized}`);
@@ -348,10 +350,14 @@ test('portfolio detail has explicit authorization for all five roles', {
     const result = await requestAs(server, 'GET', '/api/portfolios/20', { role, id });
     assert.equal(result.response.status, 200, `${role} should be allowed`);
     assert.equal(result.payload.id, 20);
-    assert.equal(
-      result.payload.documents[0].download_url,
-      '/api/portfolios/20/documents/51/download',
-    );
+    assert.deepEqual(result.payload.documents, [{
+      id: 51,
+      portfolio_id: 20,
+      file_name: 'deck.pdf',
+      file_type: 'pitch_deck',
+      uploaded_at: '2026-07-27T00:00:00.000Z',
+      download_url: '/api/portfolios/20/documents/51/download',
+    }], `${role} receives only public document metadata`);
   }
 
   for (const [role, id] of [
@@ -387,7 +393,7 @@ test('investors cannot read an unapproved portfolio while admin can moderate it'
       }
       if (
         normalized
-          === 'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC'
+          === 'SELECT id,portfolio_id,file_name,file_type,uploaded_at FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC,id DESC'
       ) {
         return [[], []];
       }

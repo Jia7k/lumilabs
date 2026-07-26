@@ -83,7 +83,11 @@ async function loadOwnedEditablePortfolio(req, res, next) {
 }
 
 const withDownloadUrl = (doc) => ({
-  ...doc,
+  id: Number(doc.id),
+  portfolio_id: Number(doc.portfolio_id),
+  file_name: doc.file_name,
+  file_type: doc.file_type,
+  uploaded_at: doc.uploaded_at,
   download_url: `/api/portfolios/${doc.portfolio_id}/documents/${doc.id}/download`,
 });
 
@@ -407,7 +411,10 @@ router.get(
       }
 
       const [docs] = await db.query(
-        'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC',
+        `SELECT id,portfolio_id,file_name,file_type,uploaded_at
+           FROM portfolio_documents
+          WHERE portfolio_id = ?
+          ORDER BY uploaded_at DESC,id DESC`,
         [req.params.id]
       );
 
