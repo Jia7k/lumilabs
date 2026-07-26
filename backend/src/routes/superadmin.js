@@ -36,13 +36,18 @@ function sendValidationErrors(req, res) {
 }
 
 function sendWorkflowError(error, res, ErrorClass) {
-  if (error instanceof ErrorClass) {
+  if (
+    error instanceof ErrorClass
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status < 500
+  ) {
     return res.status(error.status).json({
       error: error.message,
       code: error.code,
     });
   }
-  console.error(error);
+  console.error('Superadmin workflow failed');
   return res.status(500).json({ error: 'Server error' });
 }
 
@@ -171,6 +176,17 @@ function createSuperadminRouter({
       if (sendValidationErrors(req, res)) return;
       const page = req.query.page === undefined ? 1 : req.query.page;
       const limit = req.query.limit === undefined ? 50 : req.query.limit;
+      if (!Number.isSafeInteger((page - 1) * limit)) {
+        return res.status(400).json({
+          errors: [{
+            type: 'field',
+            value: req.query.page,
+            msg: 'Pagination offset exceeds safe integer range',
+            path: 'page',
+            location: 'query',
+          }],
+        });
+      }
       try {
         return res.json(await readModel.listSuperadminAuditLogs(
           database,

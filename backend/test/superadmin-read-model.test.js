@@ -261,7 +261,32 @@ test('audit history uses stable newest-first pagination and immutable snapshots'
     },
   });
   assert.equal(calls.length, 2);
-  assert.match(calls[1].sql, /ORDER BY created_at DESC,id DESC LIMIT \? OFFSET \?$/);
+  assert.match(calls[1].sql, /^SELECT CAST\(sal\.id AS CHAR\) AS id,/);
+  assert.match(calls[1].sql, /FROM superadmin_audit_logs sal/);
+  assert.match(
+    calls[1].sql,
+    /ORDER BY sal\.created_at DESC,sal\.id DESC LIMIT \? OFFSET \?$/,
+  );
   assert.deepEqual(calls[1].params, [25, 25]);
   assert.equal(result.items[0].id, '9007199254740993');
+});
+
+test('audit pagination rejects an unsafe combined offset before database access', async () => {
+  let calls = 0;
+  const database = {
+    async query() {
+      calls += 1;
+      throw new Error('Unsafe pagination must not access the database');
+    },
+  };
+
+  await assert.rejects(
+    () => listSuperadminAuditLogs(database, {
+      page: Number.MAX_SAFE_INTEGER,
+      limit: 100,
+    }),
+    (error) => error instanceof RangeError
+      && error.message === 'Pagination offset exceeds safe integer range',
+  );
+  assert.equal(calls, 0);
 });

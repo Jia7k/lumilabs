@@ -159,32 +159,35 @@ async function listStaff(database) {
 }
 
 async function listSuperadminAuditLogs(database, { page, limit }) {
+  const offset = (page - 1) * limit;
+  if (!Number.isSafeInteger(offset)) {
+    throw new RangeError('Pagination offset exceeds safe integer range');
+  }
   const [[countRow = {}]] = await database.query(
     'SELECT COUNT(*) AS total FROM superadmin_audit_logs',
   );
   const total = asNumber(countRow.total);
-  const offset = (page - 1) * limit;
   const [auditRows] = await database.query(
-    `SELECT id,
-            superadmin_id_snapshot,
-            superadmin_name_snapshot,
-            superadmin_email_snapshot,
-            action,
-            portfolio_id_snapshot,
-            portfolio_name_snapshot,
-            previous_relationship_manager_id_snapshot,
-            previous_relationship_manager_name_snapshot,
-            previous_relationship_manager_email_snapshot,
-            new_relationship_manager_id_snapshot,
-            new_relationship_manager_name_snapshot,
-            new_relationship_manager_email_snapshot,
-            created_user_id_snapshot,
-            created_user_name_snapshot,
-            created_user_email_snapshot,
-            created_user_role,
-            created_at
-       FROM superadmin_audit_logs
-      ORDER BY created_at DESC,id DESC
+    `SELECT CAST(sal.id AS CHAR) AS id,
+            sal.superadmin_id_snapshot,
+            sal.superadmin_name_snapshot,
+            sal.superadmin_email_snapshot,
+            sal.action,
+            sal.portfolio_id_snapshot,
+            sal.portfolio_name_snapshot,
+            sal.previous_relationship_manager_id_snapshot,
+            sal.previous_relationship_manager_name_snapshot,
+            sal.previous_relationship_manager_email_snapshot,
+            sal.new_relationship_manager_id_snapshot,
+            sal.new_relationship_manager_name_snapshot,
+            sal.new_relationship_manager_email_snapshot,
+            sal.created_user_id_snapshot,
+            sal.created_user_name_snapshot,
+            sal.created_user_email_snapshot,
+            sal.created_user_role,
+            sal.created_at
+       FROM superadmin_audit_logs sal
+      ORDER BY sal.created_at DESC,sal.id DESC
       LIMIT ? OFFSET ?`,
     [limit, offset],
   );

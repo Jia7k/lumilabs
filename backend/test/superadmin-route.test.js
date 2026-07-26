@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { inspect } = require('node:util');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 
@@ -235,6 +236,7 @@ test('malformed IDs and pagination stop before workflows or read models', async 
   const readModel = {
     async listSuperadminAuditLogs() {
       auditCalls += 1;
+      return { items: [], pagination: {} };
     },
   };
   const request = await requester(t, testApp({
@@ -268,6 +270,7 @@ test('malformed IDs and pagination stop before workflows or read models', async 
     '/api/superadmin/audit-logs?limit=0',
     '/api/superadmin/audit-logs?limit=101',
     '/api/superadmin/audit-logs?limit=2junk',
+    `/api/superadmin/audit-logs?page=${Number.MAX_SAFE_INTEGER}&limit=100`,
   ]) {
     const result = await request('GET', path);
     assert.equal(result.response.status, 400, path);
@@ -344,6 +347,88 @@ test('typed workflow failures preserve public status and code', async (t) => {
     error: 'Email already registered',
     code: 'DUPLICATE_EMAIL',
   });
+});
+
+test('workflow 5xx failures are generic and safely logged', {
+  concurrency: false,
+}, async (t) => {
+  const staffSecret = 'staff credential password=staff-secret';
+  const assignmentSecret = 'assignment credential password=assignment-secret';
+  const unknownSecret = 'driver credential password=driver-secret';
+  const staffError = new StaffProvisioningError(
+    500,
+    staffSecret,
+    'INTERNAL_STAFF_CODE',
+  );
+  staffError.cause = new Error(staffSecret);
+  const assignmentError = new SuperadminAssignmentError(
+    500,
+    assignmentSecret,
+    'INTERNAL_ASSIGNMENT_CODE',
+  );
+  assignmentError.cause = new Error(assignmentSecret);
+  const unknownError = new Error(unknownSecret);
+  unknownError.status = 503;
+  unknownError.code = 'INTERNAL_DRIVER_CODE';
+
+  const logged = [];
+  const originalError = console.error;
+  console.error = (...parts) => logged.push(parts);
+  t.after(() => {
+    console.error = originalError;
+  });
+
+  const request = await requester(t, testApp({
+    assignmentWorkflow: {
+      async assignPortfolio() {
+        throw assignmentError;
+      },
+      async unassignPortfolio() {
+        throw unknownError;
+      },
+    },
+    provisioningWorkflow: {
+      async createStaffAccount() {
+        throw staffError;
+      },
+    },
+  }));
+
+  const staff = await request('POST', '/api/superadmin/staff', {
+    body: {
+      name: 'Avery Admin',
+      email: 'avery@example.test',
+      password: 'secret1',
+      role: 'admin',
+    },
+  });
+  const assigned = await request(
+    'PUT',
+    '/api/superadmin/portfolios/20/assignment',
+    { body: { relationship_manager_id: 8 } },
+  );
+  const unassigned = await request(
+    'DELETE',
+    '/api/superadmin/portfolios/20/assignment',
+  );
+
+  for (const result of [staff, assigned, unassigned]) {
+    assert.equal(result.response.status, 500);
+    assert.deepEqual(result.payload, { error: 'Server error' });
+  }
+  const responseText = inspect([
+    staff.payload,
+    assigned.payload,
+    unassigned.payload,
+  ]);
+  assert.doesNotMatch(
+    responseText,
+    /staff credential|assignment credential|driver credential|INTERNAL_/,
+  );
+  assert.doesNotMatch(
+    inspect(logged, { depth: 8 }),
+    /staff-secret|assignment-secret|driver-secret/,
+  );
 });
 
 test('unexpected failures return a generic 500 without internal details', {
