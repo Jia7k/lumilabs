@@ -581,11 +581,38 @@ test('preserved-core verifier accepts only safe four-role and final five-role in
   );
 });
 
-test('preserved-core verifier rejects the historical three-role default-owner shape', async () => {
-  const metadata = legacyManagedChatMetadata();
+test('preserved-core verifier rejects the three-role enum without a default', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  row(metadata, 'users', 'role').column_type =
+    "enum('business_owner','investor','admin')";
+  row(metadata, 'users', 'role').column_default = null;
+  row(metadata, 'notifications', 'type').column_type =
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')";
   await assert.rejects(
     verifyPreservedMetadata(metadata),
-    /users\.role must use an allowed migration (?:enum shape|default)/,
+    /users\.role must use an allowed migration enum shape/,
+  );
+});
+
+test('preserved-core verifier rejects a default on the four-role enum', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  row(metadata, 'users', 'role').column_type =
+    "enum('business_owner','investor','relationship_manager','admin')";
+  row(metadata, 'users', 'role').column_default = 'business_owner';
+  row(metadata, 'notifications', 'type').column_type =
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')";
+  await assert.rejects(
+    verifyPreservedMetadata(metadata),
+    /users\.role must use an allowed migration default/,
+  );
+});
+
+test('preserved-core verifier rejects a default on the five-role enum', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  row(metadata, 'users', 'role').column_default = 'business_owner';
+  await assert.rejects(
+    verifyPreservedMetadata(metadata),
+    /users\.role must use an allowed migration default/,
   );
 });
 
