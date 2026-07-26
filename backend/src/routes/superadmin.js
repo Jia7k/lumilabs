@@ -52,7 +52,7 @@ function sendWorkflowError(error, res, ErrorClass) {
 }
 
 function sendReadError(error, res) {
-  console.error(error);
+  console.error('Superadmin read failed');
   return res.status(500).json({ error: 'Server error' });
 }
 

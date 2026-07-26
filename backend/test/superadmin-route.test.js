@@ -435,6 +435,9 @@ test('unexpected failures return a generic 500 without internal details', {
   concurrency: false,
 }, async (t) => {
   const secret = 'database password leaked in query error';
+  const readError = new Error(secret);
+  readError.sql = `SELECT * FROM users WHERE password='${secret}'`;
+  readError.cause = new Error(`database cause: ${secret}`);
   const errors = [];
   const originalError = console.error;
   console.error = (...parts) => errors.push(parts);
@@ -443,7 +446,7 @@ test('unexpected failures return a generic 500 without internal details', {
   });
   const readModel = {
     async loadSuperadminStats() {
-      throw new Error(secret);
+      throw readError;
     },
   };
   const request = await requester(t, testApp({ readModel }));
@@ -453,5 +456,6 @@ test('unexpected failures return a generic 500 without internal details', {
   assert.equal(result.response.status, 500);
   assert.deepEqual(result.payload, { error: 'Server error' });
   assert.doesNotMatch(JSON.stringify(result.payload), new RegExp(secret));
-  assert.equal(errors.length, 1);
+  assert.deepEqual(errors, [['Superadmin read failed']]);
+  assert.doesNotMatch(inspect(errors, { depth: 8 }), /password|SELECT|cause/i);
 });
