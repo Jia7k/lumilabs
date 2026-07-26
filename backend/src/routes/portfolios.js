@@ -90,17 +90,36 @@ const withDownloadUrl = (doc) => ({
 async function relationshipManagerCanAccessPortfolio(userId, portfolioId) {
   const [rows] = await db.query(
     `SELECT 1
-       FROM conversations c
-       JOIN conversation_members cm
-         ON cm.conversation_id=c.id
-        AND cm.user_id=?
-        AND cm.member_role='relationship_manager'
-        AND cm.membership_status='active'
-      WHERE c.portfolio_id=? AND c.relationship_manager_id=?
-      LIMIT 1`,
-    [userId, portfolioId, userId],
+       FROM portfolios
+      WHERE id=? AND relationship_manager_id=?`,
+    [portfolioId, userId],
   );
   return rows.length === 1;
+}
+
+async function portfolioReadAuthorization(user, portfolio) {
+  switch (user.role) {
+    case 'business_owner':
+      return {
+        allowed: Number(portfolio.owner_id) === Number(user.id),
+        error: 'Forbidden',
+      };
+    case 'investor':
+      return {
+        allowed: portfolio.status === 'approved',
+        error: 'Portfolio not available',
+      };
+    case 'admin':
+      return { allowed: true, error: null };
+    case 'relationship_manager':
+      return {
+        allowed: await relationshipManagerCanAccessPortfolio(user.id, portfolio.id),
+        error: 'Forbidden',
+      };
+    case 'superadmin':
+    default:
+      return { allowed: false, error: 'Forbidden' };
+  }
 }
 
 function requiredText(field, label, maxCharacters) {
@@ -382,18 +401,9 @@ router.get(
 
       const portfolio = rows[0];
 
-      // Business owners can only see their own; investors see only approved
-      if (req.user.role === 'business_owner' && portfolio.owner_id !== req.user.id) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-      if (req.user.role === 'investor' && portfolio.status !== 'approved') {
-        return res.status(403).json({ error: 'Portfolio not available' });
-      }
-      if (
-        req.user.role === 'relationship_manager'
-        && !(await relationshipManagerCanAccessPortfolio(req.user.id, portfolio.id))
-      ) {
-        return res.status(403).json({ error: 'Forbidden' });
+      const authorization = await portfolioReadAuthorization(req.user, portfolio);
+      if (!authorization.allowed) {
+        return res.status(403).json({ error: authorization.error });
       }
 
       const [docs] = await db.query(
@@ -428,13 +438,14 @@ router.get(
       if (!rows.length) return res.status(404).json({ error: 'Document not found' });
 
       const doc = rows[0];
-      let allowed = req.user.role === 'admin'
-        || Number(doc.owner_id) === Number(req.user.id)
-        || (req.user.role === 'investor' && doc.status === 'approved');
-      if (req.user.role === 'relationship_manager') {
-        allowed = await relationshipManagerCanAccessPortfolio(req.user.id, doc.portfolio_id);
+      const authorization = await portfolioReadAuthorization(req.user, {
+        id: doc.portfolio_id,
+        owner_id: doc.owner_id,
+        status: doc.status,
+      });
+      if (!authorization.allowed) {
+        return res.status(403).json({ error: 'Forbidden' });
       }
-      if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
       let absolute;
       try {

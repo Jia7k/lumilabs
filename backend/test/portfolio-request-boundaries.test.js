@@ -21,13 +21,17 @@ async function listen(app) {
 }
 
 function ownerHeaders() {
+  return roleHeaders('business_owner', 7);
+}
+
+function roleHeaders(role, id) {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${jwt.sign({
-      id: 7,
-      email: 'owner@example.test',
-      name: 'Owner',
-      role: 'business_owner',
+      id,
+      email: `${role}-${id}@example.test`,
+      name: `${role} ${id}`,
+      role,
     }, process.env.JWT_SECRET)}`,
   };
 }
@@ -37,6 +41,18 @@ async function request(server, method, path, body) {
     method,
     headers: ownerHeaders(),
     body: JSON.stringify(body),
+  });
+  return {
+    response,
+    payload: await response.json(),
+  };
+}
+
+async function requestAs(server, method, path, { role, id, body } = {}) {
+  const response = await fetch(`${server.origin}${path}`, {
+    method,
+    headers: roleHeaders(role, id),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   return {
     response,
@@ -282,4 +298,116 @@ test('malformed portfolio route IDs stop before data or transaction access', {
     assert.equal(result.response.status, 400, `${method} ${path}`);
     assert.deepEqual(calls, before, `${method} ${path} data access`);
   }
+});
+
+test('portfolio detail has explicit authorization for all five roles', {
+  concurrency: false,
+}, async (t) => {
+  const calls = installDatabaseSpies(t, {
+    query: async (sql, params = []) => {
+      const normalized = String(sql).replace(/\s+/g, ' ').trim();
+      if (normalized.includes('FROM portfolios p JOIN users u ON u.id = p.owner_id')) {
+        return [[{
+          id: 20,
+          owner_id: 9,
+          name: 'Assigned Co',
+          status: 'approved',
+          owner_name: 'Owner Nine',
+          owner_email: 'owner9@example.test',
+          doc_count: 1,
+          interest_count: 1,
+        }], []];
+      }
+      if (normalized === 'SELECT 1 FROM portfolios WHERE id=? AND relationship_manager_id=?') {
+        return [Number(params[1]) === 7 ? [{ 1: 1 }] : [], []];
+      }
+      if (
+        normalized
+          === 'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC'
+      ) {
+        return [[{
+          id: 51,
+          portfolio_id: 20,
+          file_name: 'deck.pdf',
+          file_url: '/uploads/portfolio-documents/deck.pdf',
+          file_type: 'pitch_deck',
+        }], []];
+      }
+      throw new Error(`Unexpected query: ${normalized}`);
+    },
+  });
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  for (const [role, id] of [
+    ['business_owner', 9],
+    ['investor', 11],
+    ['relationship_manager', 7],
+    ['admin', 2],
+  ]) {
+    const result = await requestAs(server, 'GET', '/api/portfolios/20', { role, id });
+    assert.equal(result.response.status, 200, `${role} should be allowed`);
+    assert.equal(result.payload.id, 20);
+    assert.equal(
+      result.payload.documents[0].download_url,
+      '/api/portfolios/20/documents/51/download',
+    );
+  }
+
+  for (const [role, id] of [
+    ['business_owner', 10],
+    ['relationship_manager', 8],
+    ['superadmin', 1],
+    ['auditor', 3],
+  ]) {
+    const result = await requestAs(server, 'GET', '/api/portfolios/20', { role, id });
+    assert.equal(result.response.status, 403, `${role} should be denied`);
+    assert.equal(result.payload.error, 'Forbidden');
+  }
+  assert.equal(calls.getConnection, 0);
+});
+
+test('investors cannot read an unapproved portfolio while admin can moderate it', {
+  concurrency: false,
+}, async (t) => {
+  installDatabaseSpies(t, {
+    query: async (sql) => {
+      const normalized = String(sql).replace(/\s+/g, ' ').trim();
+      if (normalized.includes('FROM portfolios p JOIN users u ON u.id = p.owner_id')) {
+        return [[{
+          id: 20,
+          owner_id: 9,
+          name: 'Pending Co',
+          status: 'pending',
+          owner_name: 'Owner Nine',
+          owner_email: 'owner9@example.test',
+          doc_count: 0,
+          interest_count: 0,
+        }], []];
+      }
+      if (
+        normalized
+          === 'SELECT * FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC'
+      ) {
+        return [[], []];
+      }
+      throw new Error(`Unexpected query: ${normalized}`);
+    },
+  });
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  const investor = await requestAs(server, 'GET', '/api/portfolios/20', {
+    role: 'investor',
+    id: 11,
+  });
+  assert.equal(investor.response.status, 403);
+  assert.equal(investor.payload.error, 'Portfolio not available');
+
+  const admin = await requestAs(server, 'GET', '/api/portfolios/20', {
+    role: 'admin',
+    id: 2,
+  });
+  assert.equal(admin.response.status, 200);
+  assert.equal(admin.payload.status, 'pending');
 });

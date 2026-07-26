@@ -37,13 +37,17 @@ async function listen(app) {
   };
 }
 
-function ownerToken() {
+function roleToken(role, id) {
   return jwt.sign({
-    id: 7,
-    email: 'owner@example.test',
-    name: 'Owner',
-    role: 'business_owner',
+    id,
+    email: `${role}-${id}@example.test`,
+    name: `${role} ${id}`,
+    role,
   }, process.env.JWT_SECRET);
+}
+
+function ownerToken() {
+  return roleToken('business_owner', 7);
 }
 
 test('an allowed MIME with an html extension is rejected', async () => {
@@ -153,15 +157,144 @@ test('the owned portfolio is checked before multer writes a file', () => {
 });
 
 test('draft documents are unavailable to unrelated investors', () => {
-  assert.match(route, /req\.user\.role === 'investor' && doc\.status === 'approved'/);
+  assert.match(route, /case 'investor':[\s\S]*portfolio\.status === 'approved'/);
   assert.match(route, /return res\.status\(403\)\.json\(\{ error: 'Forbidden' \}\)/);
 });
 
-test('relationship managers need assigned-room membership for portfolio documents', () => {
-  assert.match(route, /req\.user\.role === 'relationship_manager'/);
-  assert.match(route, /conversation_members/);
-  assert.match(route, /relationship_manager_id/);
+test('relationship-manager document access uses the canonical portfolio assignment', () => {
+  assert.match(route, /case 'relationship_manager':/);
+  assert.match(
+    route,
+    /FROM portfolios\s+WHERE id=\? AND relationship_manager_id=\?/,
+  );
+  assert.doesNotMatch(
+    route,
+    /relationshipManagerCanAccessPortfolio[\s\S]*FROM conversations c[\s\S]*conversation_members/,
+  );
   assert.doesNotMatch(route, /req\.user\.role === 'relationship_manager'\s*\|\|/);
+});
+
+test('assigned manager can download before chat and another manager cannot', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const filename = `task-7-assigned-download-${process.pid}.pdf`;
+  const absolute = path.join(uploadDirectory, filename);
+  fs.writeFileSync(absolute, 'assigned document');
+  t.after(() => {
+    db.query = originalQuery;
+    fs.rmSync(absolute, { force: true });
+  });
+
+  const calls = [];
+  db.query = async (sql, params = []) => {
+    const normalized = String(sql).replace(/\s+/g, ' ').trim();
+    calls.push({ sql: normalized, params });
+    if (normalized.startsWith('SELECT d.*, p.owner_id, p.status')) {
+      return [[{
+        id: 51,
+        portfolio_id: 20,
+        file_name: 'deck.pdf',
+        file_url: `/uploads/portfolio-documents/${filename}`,
+        owner_id: 9,
+        status: 'approved',
+      }], []];
+    }
+    if (
+      normalized
+        === 'SELECT 1 FROM portfolios WHERE id=? AND relationship_manager_id=?'
+    ) {
+      return [Number(params[0]) === 20 && Number(params[1]) === 7 ? [{ 1: 1 }] : [], []];
+    }
+    throw new Error(`Unexpected query: ${normalized}`);
+  };
+
+  const httpServer = await listen(createApp());
+  t.after(httpServer.close);
+  const downloadAsManager = (managerId) => fetch(
+    `${httpServer.origin}/api/portfolios/20/documents/51/download`,
+    {
+      headers: {
+        Authorization: `Bearer ${roleToken('relationship_manager', managerId)}`,
+      },
+    },
+  );
+
+  const assigned = await downloadAsManager(7);
+  assert.equal(assigned.status, 200);
+  assert.equal(await assigned.text(), 'assigned document');
+  const other = await downloadAsManager(8);
+  assert.equal(other.status, 403);
+  assert.deepEqual(await other.json(), { error: 'Forbidden' });
+  assert.equal(
+    calls.filter(({ sql }) => (
+      sql === 'SELECT 1 FROM portfolios WHERE id=? AND relationship_manager_id=?'
+    )).length,
+    2,
+  );
+});
+
+test('document downloads explicitly authorize each role and deny superadmin fallthrough', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const filename = `task-7-role-download-${process.pid}.pdf`;
+  const absolute = path.join(uploadDirectory, filename);
+  fs.writeFileSync(absolute, 'role document');
+  t.after(() => {
+    db.query = originalQuery;
+    fs.rmSync(absolute, { force: true });
+  });
+
+  db.query = async (sql, params = []) => {
+    const normalized = String(sql).replace(/\s+/g, ' ').trim();
+    if (normalized.startsWith('SELECT d.*, p.owner_id, p.status')) {
+      return [[{
+        id: 51,
+        portfolio_id: 20,
+        file_name: 'deck.pdf',
+        file_url: `/uploads/portfolio-documents/${filename}`,
+        owner_id: 9,
+        status: 'approved',
+      }], []];
+    }
+    if (normalized === 'SELECT 1 FROM portfolios WHERE id=? AND relationship_manager_id=?') {
+      return [Number(params[1]) === 7 ? [{ 1: 1 }] : [], []];
+    }
+    throw new Error(`Unexpected query: ${normalized}`);
+  };
+
+  const httpServer = await listen(createApp());
+  t.after(httpServer.close);
+  const downloadAs = (role, id) => fetch(
+    `${httpServer.origin}/api/portfolios/20/documents/51/download`,
+    {
+      headers: {
+        Authorization: `Bearer ${roleToken(role, id)}`,
+      },
+    },
+  );
+
+  for (const [role, id] of [
+    ['business_owner', 9],
+    ['investor', 11],
+    ['relationship_manager', 7],
+    ['admin', 2],
+  ]) {
+    const allowed = await downloadAs(role, id);
+    assert.equal(allowed.status, 200, `${role} should be allowed`);
+    assert.equal(await allowed.text(), 'role document');
+  }
+  for (const [role, id] of [
+    ['business_owner', 10],
+    ['relationship_manager', 8],
+    ['superadmin', 1],
+    ['auditor', 3],
+  ]) {
+    const denied = await downloadAs(role, id);
+    assert.equal(denied.status, 403, `${role} should be denied`);
+    assert.deepEqual(await denied.json(), { error: 'Forbidden' });
+  }
 });
 
 test('download responses use attachment disposition', () => {

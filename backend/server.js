@@ -107,7 +107,9 @@ function createApp(options = {}) {
   const notificationRoutes = require('./src/routes/notifications');
   const recommendationRoutes = require('./src/routes/recommendations');
   const dashboardRoutes = require('./src/routes/dashboard');
-  const relationshipManagerRoutes = require('./src/routes/relationship-manager');
+  const {
+    createRelationshipManagerRouter,
+  } = require('./src/routes/relationship-manager');
   const {
     createSuperadminRouter,
   } = require('./src/routes/superadmin');
@@ -136,7 +138,10 @@ function createApp(options = {}) {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/recommendations', recommendationRoutes);
   app.use('/api/dashboard', dashboardRoutes);
-  app.use('/api/relationship-manager', relationshipManagerRoutes);
+  app.use(
+    '/api/relationship-manager',
+    createRelationshipManagerRouter({ database }),
+  );
   app.use('/api/superadmin', createSuperadminRouter({ database }));
 
   app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
