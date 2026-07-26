@@ -616,6 +616,14 @@ test('preserved-core verifier rejects a default on the five-role enum', async ()
   );
 });
 
+test('preserved-core verifier rejects the unchanged historical three-role default-owner shape', async () => {
+  const metadata = legacyManagedChatMetadata();
+  await assert.rejects(
+    verifyPreservedMetadata(metadata),
+    /users\.role must use an allowed migration enum shape.*users\.role must use an allowed migration default/,
+  );
+});
+
 test('preserved-core verifier rejects an unknown role default', async () => {
   const metadata = legacyManagedChatMetadata();
   row(metadata, 'users', 'role').column_default = 'investor';
