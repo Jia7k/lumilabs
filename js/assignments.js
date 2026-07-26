@@ -14,7 +14,7 @@ let activeAssignId = null; // portfolio id currently being assigned/changed
 
 async function initAssignments() {
   try {
-    currentUser = await API.getCurrentUser();git
+    currentUser = await API.getCurrentUser();
   } catch (err) {
     alert("Your session has expired or is invalid. Please log in again.");
     return;
