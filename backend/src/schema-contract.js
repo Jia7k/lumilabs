@@ -17,6 +17,28 @@ function defineColumns(rows) {
   }));
 }
 
+const FINAL_ROLE_COLUMN_TYPE =
+  "enum('business_owner','investor','relationship_manager','admin','superadmin')";
+
+const FINAL_NOTIFICATION_COLUMN_TYPE =
+  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected',"
+  + "'portfolio_needs_changes','portfolio_submitted','conversation_created',"
+  + "'conversation_member_added','conversation_archived','portfolio_assigned',"
+  + "'portfolio_reassigned','portfolio_unassigned','conversation_member_removed')";
+
+const PRIOR_ROLE_COLUMN_TYPE =
+  "enum('business_owner','investor','relationship_manager','admin')";
+
+const PRIOR_NOTIFICATION_COLUMN_TYPE =
+  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected',"
+  + "'portfolio_needs_changes','portfolio_submitted','conversation_created',"
+  + "'conversation_member_added','conversation_archived')";
+
+const SUPPORTED_UPGRADE_ROLE_TYPES = new Set([
+  PRIOR_ROLE_COLUMN_TYPE,
+  FINAL_ROLE_COLUMN_TYPE,
+]);
+
 const COLUMN_CONTRACT = {
   users: defineColumns([
     ['id', 'int', 'NO', null, 'auto_increment'],
@@ -25,7 +47,7 @@ const COLUMN_CONTRACT = {
     ['name', 'varchar(100)', 'NO', null],
     [
       'role',
-      "enum('business_owner','investor','relationship_manager','admin')",
+      FINAL_ROLE_COLUMN_TYPE,
       'NO',
       null,
     ],
@@ -75,6 +97,7 @@ const COLUMN_CONTRACT = {
     ['advisor_names', 'varchar(500)', 'YES', null],
     ['burn_rate', 'decimal(15,2)', 'YES', null],
     ['runway_months', 'int', 'YES', null],
+    ['relationship_manager_id', 'int', 'YES', null],
   ]),
   portfolio_documents: defineColumns([
     ['id', 'int', 'NO', null, 'auto_increment'],
@@ -126,7 +149,7 @@ const COLUMN_CONTRACT = {
       'YES',
       null,
       'STORED GENERATED',
-      "(case when (`member_role` in (_utf8mb4'relationship_manager',_utf8mb4'business_owner')) then `member_role` else NULL end)",
+      "(case when ((`membership_status` = _utf8mb4'active') and (`member_role` in (_utf8mb4'relationship_manager',_utf8mb4'business_owner'))) then `member_role` else NULL end)",
     ],
     ['membership_status', "enum('active','removed')", 'NO', 'active'],
     ['joined_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
@@ -146,7 +169,7 @@ const COLUMN_CONTRACT = {
     ['user_id', 'int', 'NO', null],
     [
       'type',
-      "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')",
+      FINAL_NOTIFICATION_COLUMN_TYPE,
       'NO',
       null,
     ],
@@ -167,6 +190,41 @@ const COLUMN_CONTRACT = {
     ['reason', 'text', 'YES', null],
     ['created_at', 'timestamp', 'YES', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
   ]),
+  superadmin_audit_logs: defineColumns([
+    ['id', 'bigint unsigned', 'NO', null, 'auto_increment'],
+    ['superadmin_id', 'int', 'YES', null],
+    ['superadmin_id_snapshot', 'int', 'NO', null],
+    ['superadmin_name_snapshot', 'varchar(100)', 'NO', null],
+    ['superadmin_email_snapshot', 'varchar(255)', 'NO', null],
+    [
+      'action',
+      "enum('portfolio_assigned','portfolio_reassigned','portfolio_unassigned','admin_account_created','relationship_manager_account_created')",
+      'NO',
+      null,
+    ],
+    ['portfolio_id', 'int', 'YES', null],
+    ['portfolio_id_snapshot', 'int', 'YES', null],
+    ['portfolio_name_snapshot', 'varchar(255)', 'YES', null],
+    ['previous_relationship_manager_id', 'int', 'YES', null],
+    ['previous_relationship_manager_id_snapshot', 'int', 'YES', null],
+    ['previous_relationship_manager_name_snapshot', 'varchar(100)', 'YES', null],
+    ['previous_relationship_manager_email_snapshot', 'varchar(255)', 'YES', null],
+    ['new_relationship_manager_id', 'int', 'YES', null],
+    ['new_relationship_manager_id_snapshot', 'int', 'YES', null],
+    ['new_relationship_manager_name_snapshot', 'varchar(100)', 'YES', null],
+    ['new_relationship_manager_email_snapshot', 'varchar(255)', 'YES', null],
+    ['created_user_id', 'int', 'YES', null],
+    ['created_user_id_snapshot', 'int', 'YES', null],
+    ['created_user_name_snapshot', 'varchar(100)', 'YES', null],
+    ['created_user_email_snapshot', 'varchar(255)', 'YES', null],
+    [
+      'created_user_role',
+      "enum('admin','relationship_manager')",
+      'YES',
+      null,
+    ],
+    ['created_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
+  ]),
 };
 
 const PRIMARY_INDEX_CONTRACT = [
@@ -179,6 +237,7 @@ const PRIMARY_INDEX_CONTRACT = [
   ['messages', ['id']],
   ['notifications', ['id']],
   ['audit_logs', ['id']],
+  ['superadmin_audit_logs', ['id']],
 ];
 
 const UNIQUE_INDEX_CONTRACT = [
@@ -190,6 +249,7 @@ const UNIQUE_INDEX_CONTRACT = [
 
 const ACCESS_INDEX_CONTRACT = [
   ['portfolios', ['owner_id']],
+  ['portfolios', ['relationship_manager_id']],
   ['portfolio_documents', ['portfolio_id']],
   ['investor_interests', ['portfolio_id']],
   ['conversations', ['relationship_manager_id']],
@@ -203,10 +263,24 @@ const ACCESS_INDEX_CONTRACT = [
   ['notifications', ['related_user_id']],
   ['audit_logs', ['admin_id']],
   ['audit_logs', ['portfolio_id']],
+  ['superadmin_audit_logs', ['superadmin_id', 'created_at']],
+  ['superadmin_audit_logs', ['action', 'created_at']],
+  ['superadmin_audit_logs', ['portfolio_id', 'created_at']],
+  ['superadmin_audit_logs', ['previous_relationship_manager_id']],
+  ['superadmin_audit_logs', ['new_relationship_manager_id']],
+  ['superadmin_audit_logs', ['created_user_id']],
 ];
 
 const FOREIGN_KEY_CONTRACT = [
   ['portfolios', ['owner_id'], 'users', ['id'], 'CASCADE', 'NO ACTION'],
+  [
+    'portfolios',
+    ['relationship_manager_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
   [
     'portfolio_documents',
     ['portfolio_id'],
@@ -313,6 +387,46 @@ const FOREIGN_KEY_CONTRACT = [
     'CASCADE',
     'NO ACTION',
   ],
+  [
+    'superadmin_audit_logs',
+    ['superadmin_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'superadmin_audit_logs',
+    ['portfolio_id'],
+    'portfolios',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'superadmin_audit_logs',
+    ['previous_relationship_manager_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'superadmin_audit_logs',
+    ['new_relationship_manager_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
+  [
+    'superadmin_audit_logs',
+    ['created_user_id'],
+    'users',
+    ['id'],
+    'SET NULL',
+    'NO ACTION',
+  ],
 ];
 
 const PRESERVED_CORE_TABLES = new Set([
@@ -324,16 +438,13 @@ const PRESERVED_CORE_TABLES = new Set([
   'audit_logs',
 ]);
 
-const ALLOWED_MIGRATION_ROLE_TYPES = [
-  "enum('business_owner','investor','admin')",
-  "enum('business_owner','investor','relationship_manager','admin')",
-  "enum('business_owner','investor','relationship_manager','admin','superadmin')",
-];
-
-const ALLOWED_MIGRATION_NOTIFICATION_TYPES = [
-  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted')",
-  "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')",
-];
+const EXPECTED_SCHEMA = {
+  columns: COLUMN_CONTRACT,
+  primaryIndexes: PRIMARY_INDEX_CONTRACT,
+  uniqueIndexes: UNIQUE_INDEX_CONTRACT,
+  accessIndexes: ACCESS_INDEX_CONTRACT,
+  foreignKeys: FOREIGN_KEY_CONTRACT,
+};
 
 function property(row, lower, upper = lower.toUpperCase()) {
   return row?.[lower] ?? row?.[upper];
@@ -740,8 +851,12 @@ async function verifySchema(database) {
   } = await collectSchemaMetadata(database);
 
   const issues = [];
-  appendTableIssues(tableRows, Object.keys(COLUMN_CONTRACT), issues);
-  const columns = appendColumnIssues(columnRows, COLUMN_CONTRACT, issues);
+  appendTableIssues(tableRows, Object.keys(EXPECTED_SCHEMA.columns), issues);
+  const columns = appendColumnIssues(
+    columnRows,
+    EXPECTED_SCHEMA.columns,
+    issues,
+  );
 
   for (const retiredField of [
     'messages.receiver_id',
@@ -752,11 +867,15 @@ async function verifySchema(database) {
   }
 
   appendIndexIssues(indexRows, issues, {
-    primaryContract: PRIMARY_INDEX_CONTRACT,
-    uniqueContract: UNIQUE_INDEX_CONTRACT,
-    accessContract: ACCESS_INDEX_CONTRACT,
+    primaryContract: EXPECTED_SCHEMA.primaryIndexes,
+    uniqueContract: EXPECTED_SCHEMA.uniqueIndexes,
+    accessContract: EXPECTED_SCHEMA.accessIndexes,
   });
-  appendForeignKeyIssues(foreignKeyRows, FOREIGN_KEY_CONTRACT, issues);
+  appendForeignKeyIssues(
+    foreignKeyRows,
+    EXPECTED_SCHEMA.foreignKeys,
+    issues,
+  );
 
   if (issues.length) {
     throw new Error(`Missing schema invariants: ${issues.join(', ')}`);
@@ -775,22 +894,35 @@ async function verifyPreservedCoreSchema(database) {
   const tableNames = [...PRESERVED_CORE_TABLES];
   appendTableIssues(tableRows, tableNames, issues);
 
+  const roleColumn = columnRows.find((candidate) => (
+    property(candidate, 'table_name') === 'users'
+    && property(candidate, 'column_name') === 'role'
+  ));
+  const roleType = normalizeSqlText(property(roleColumn, 'column_type'));
+  const finalShape = roleType === normalizeSqlText(FINAL_ROLE_COLUMN_TYPE);
+
   const columnContract = Object.fromEntries(tableNames.map((tableName) => [
     tableName,
     COLUMN_CONTRACT[tableName].filter((definition) => (
-      tableName !== 'notifications'
-      || !['related_conversation_id', 'related_message_id']
-        .includes(definition.name)
+      finalShape
+      || tableName !== 'portfolios'
+      || definition.name !== 'relationship_manager_id'
     )),
   ]));
   appendColumnIssues(columnRows, columnContract, issues, {
-    checkOrdinal: (tableName) => tableName !== 'notifications',
     allowedTypes: new Map([
-      ['users.role', ALLOWED_MIGRATION_ROLE_TYPES],
-      ['notifications.type', ALLOWED_MIGRATION_NOTIFICATION_TYPES],
+      ['users.role', [...SUPPORTED_UPGRADE_ROLE_TYPES]],
+      [
+        'notifications.type',
+        [
+          finalShape
+            ? FINAL_NOTIFICATION_COLUMN_TYPE
+            : PRIOR_NOTIFICATION_COLUMN_TYPE,
+        ],
+      ],
     ]),
     allowedDefaults: new Map([
-      ['users.role', [null, 'business_owner']],
+      ['users.role', [null]],
     ]),
   });
 
@@ -803,8 +935,9 @@ async function verifyPreservedCoreSchema(database) {
   const preservedAccess = ACCESS_INDEX_CONTRACT.filter(([tableName, columns]) => (
     PRESERVED_CORE_TABLES.has(tableName)
     && !(
-      tableName === 'notifications'
-      && ['related_conversation_id', 'related_message_id'].includes(columns[0])
+      !finalShape
+      && tableName === 'portfolios'
+      && columns[0] === 'relationship_manager_id'
     )
   ));
   appendIndexIssues(indexRows, issues, {
@@ -818,8 +951,9 @@ async function verifyPreservedCoreSchema(database) {
   ) => (
     PRESERVED_CORE_TABLES.has(tableName)
     && !(
-      tableName === 'notifications'
-      && ['related_conversation_id', 'related_message_id'].includes(columns[0])
+      !finalShape
+      && tableName === 'portfolios'
+      && columns[0] === 'relationship_manager_id'
     )
   ));
   appendForeignKeyIssues(foreignKeyRows, preservedForeignKeys, issues);
@@ -831,6 +965,9 @@ async function verifyPreservedCoreSchema(database) {
 }
 
 module.exports = {
+  EXPECTED_SCHEMA,
+  FINAL_NOTIFICATION_COLUMN_TYPE,
+  FINAL_ROLE_COLUMN_TYPE,
   verifyPreservedCoreSchema,
   verifySchema,
 };

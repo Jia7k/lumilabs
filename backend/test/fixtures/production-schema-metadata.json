@@ -8,14 +8,15 @@
     { "table_name": "conversation_members", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" },
     { "table_name": "messages", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" },
     { "table_name": "notifications", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" },
-    { "table_name": "audit_logs", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" }
+    { "table_name": "audit_logs", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" },
+    { "table_name": "superadmin_audit_logs", "table_type": "BASE TABLE", "engine": "InnoDB", "table_collation": "utf8mb4_0900_ai_ci" }
   ],
   "columns": [
     { "table_name": "users", "column_name": "id", "ordinal_position": 1, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "auto_increment", "generation_expression": "" },
     { "table_name": "users", "column_name": "email", "ordinal_position": 2, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "password_hash", "ordinal_position": 3, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "name", "ordinal_position": 4, "column_type": "varchar(100)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
-    { "table_name": "users", "column_name": "role", "ordinal_position": 5, "column_type": "enum('business_owner','investor','relationship_manager','admin')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "users", "column_name": "role", "ordinal_position": 5, "column_type": "enum('business_owner','investor','relationship_manager','admin','superadmin')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "users", "column_name": "created_at", "ordinal_position": 6, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" },
     { "table_name": "users", "column_name": "updated_at", "ordinal_position": 7, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP", "generation_expression": "" },
 
@@ -44,6 +45,7 @@
     { "table_name": "portfolios", "column_name": "advisor_names", "ordinal_position": 23, "column_type": "varchar(500)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "portfolios", "column_name": "burn_rate", "ordinal_position": 24, "column_type": "decimal(15,2)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "portfolios", "column_name": "runway_months", "ordinal_position": 25, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "portfolios", "column_name": "relationship_manager_id", "ordinal_position": 26, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
 
     { "table_name": "portfolio_documents", "column_name": "id", "ordinal_position": 1, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "auto_increment", "generation_expression": "" },
     { "table_name": "portfolio_documents", "column_name": "portfolio_id", "ordinal_position": 2, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
@@ -69,7 +71,7 @@
     { "table_name": "conversation_members", "column_name": "conversation_id", "ordinal_position": 1, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "conversation_members", "column_name": "user_id", "ordinal_position": 2, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "conversation_members", "column_name": "member_role", "ordinal_position": 3, "column_type": "enum('relationship_manager','business_owner','investor')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
-    { "table_name": "conversation_members", "column_name": "singleton_role", "ordinal_position": 4, "column_type": "varchar(24)", "is_nullable": "YES", "column_default": null, "extra": "STORED GENERATED", "generation_expression": "(case when (`member_role` in (_utf8mb4\\'relationship_manager\\',_utf8mb4\\'business_owner\\')) then `member_role` else NULL end)" },
+    { "table_name": "conversation_members", "column_name": "singleton_role", "ordinal_position": 4, "column_type": "varchar(24)", "is_nullable": "YES", "column_default": null, "extra": "STORED GENERATED", "generation_expression": "(case when ((`membership_status` = _utf8mb4\\'active\\') and (`member_role` in (_utf8mb4\\'relationship_manager\\',_utf8mb4\\'business_owner\\'))) then `member_role` else NULL end)" },
     { "table_name": "conversation_members", "column_name": "membership_status", "ordinal_position": 5, "column_type": "enum('active','removed')", "is_nullable": "NO", "column_default": "active", "extra": "", "generation_expression": "" },
     { "table_name": "conversation_members", "column_name": "joined_at", "ordinal_position": 6, "column_type": "timestamp", "is_nullable": "NO", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" },
     { "table_name": "conversation_members", "column_name": "left_at", "ordinal_position": 7, "column_type": "timestamp", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
@@ -84,7 +86,7 @@
 
     { "table_name": "notifications", "column_name": "id", "ordinal_position": 1, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "auto_increment", "generation_expression": "" },
     { "table_name": "notifications", "column_name": "user_id", "ordinal_position": 2, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
-    { "table_name": "notifications", "column_name": "type", "ordinal_position": 3, "column_type": "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "notifications", "column_name": "type", "ordinal_position": 3, "column_type": "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived','portfolio_assigned','portfolio_reassigned','portfolio_unassigned','conversation_member_removed')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "notifications", "column_name": "title", "ordinal_position": 4, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "notifications", "column_name": "body", "ordinal_position": 5, "column_type": "text", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "notifications", "column_name": "related_portfolio_id", "ordinal_position": 6, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
@@ -99,13 +101,38 @@
     { "table_name": "audit_logs", "column_name": "action", "ordinal_position": 3, "column_type": "enum('approved','rejected')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "audit_logs", "column_name": "portfolio_id", "ordinal_position": 4, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
     { "table_name": "audit_logs", "column_name": "reason", "ordinal_position": 5, "column_type": "text", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
-    { "table_name": "audit_logs", "column_name": "created_at", "ordinal_position": 6, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" }
+    { "table_name": "audit_logs", "column_name": "created_at", "ordinal_position": 6, "column_type": "timestamp", "is_nullable": "YES", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" },
+
+    { "table_name": "superadmin_audit_logs", "column_name": "id", "ordinal_position": 1, "column_type": "bigint unsigned", "is_nullable": "NO", "column_default": null, "extra": "auto_increment", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "superadmin_id", "ordinal_position": 2, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "superadmin_id_snapshot", "ordinal_position": 3, "column_type": "int", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "superadmin_name_snapshot", "ordinal_position": 4, "column_type": "varchar(100)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "superadmin_email_snapshot", "ordinal_position": 5, "column_type": "varchar(255)", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "action", "ordinal_position": 6, "column_type": "enum('portfolio_assigned','portfolio_reassigned','portfolio_unassigned','admin_account_created','relationship_manager_account_created')", "is_nullable": "NO", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "portfolio_id", "ordinal_position": 7, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "portfolio_id_snapshot", "ordinal_position": 8, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "portfolio_name_snapshot", "ordinal_position": 9, "column_type": "varchar(255)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "previous_relationship_manager_id", "ordinal_position": 10, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "previous_relationship_manager_id_snapshot", "ordinal_position": 11, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "previous_relationship_manager_name_snapshot", "ordinal_position": 12, "column_type": "varchar(100)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "previous_relationship_manager_email_snapshot", "ordinal_position": 13, "column_type": "varchar(255)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "new_relationship_manager_id", "ordinal_position": 14, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "new_relationship_manager_id_snapshot", "ordinal_position": 15, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "new_relationship_manager_name_snapshot", "ordinal_position": 16, "column_type": "varchar(100)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "new_relationship_manager_email_snapshot", "ordinal_position": 17, "column_type": "varchar(255)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_user_id", "ordinal_position": 18, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_user_id_snapshot", "ordinal_position": 19, "column_type": "int", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_user_name_snapshot", "ordinal_position": 20, "column_type": "varchar(100)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_user_email_snapshot", "ordinal_position": 21, "column_type": "varchar(255)", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_user_role", "ordinal_position": 22, "column_type": "enum('admin','relationship_manager')", "is_nullable": "YES", "column_default": null, "extra": "", "generation_expression": "" },
+    { "table_name": "superadmin_audit_logs", "column_name": "created_at", "ordinal_position": 23, "column_type": "timestamp", "is_nullable": "NO", "column_default": "CURRENT_TIMESTAMP", "extra": "DEFAULT_GENERATED", "generation_expression": "" }
   ],
   "indexes": [
     { "table_name": "users", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "users", "index_name": "email", "non_unique": 0, "seq_in_index": 1, "column_name": "email", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "portfolios", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "portfolios", "index_name": "owner_id", "non_unique": 1, "seq_in_index": 1, "column_name": "owner_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "portfolios", "index_name": "fk_relationship_manager", "non_unique": 1, "seq_in_index": 1, "column_name": "relationship_manager_id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "portfolio_documents", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "portfolio_documents", "index_name": "portfolio_id", "non_unique": 1, "seq_in_index": 1, "column_name": "portfolio_id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "investor_interests", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
@@ -134,9 +161,20 @@
     { "table_name": "notifications", "index_name": "related_user_id", "non_unique": 1, "seq_in_index": 1, "column_name": "related_user_id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "audit_logs", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
     { "table_name": "audit_logs", "index_name": "admin_id", "non_unique": 1, "seq_in_index": 1, "column_name": "admin_id", "index_type": "BTREE", "is_visible": "YES" },
-    { "table_name": "audit_logs", "index_name": "portfolio_id", "non_unique": 1, "seq_in_index": 1, "column_name": "portfolio_id", "index_type": "BTREE", "is_visible": "YES" }
+    { "table_name": "audit_logs", "index_name": "portfolio_id", "non_unique": 1, "seq_in_index": 1, "column_name": "portfolio_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "PRIMARY", "non_unique": 0, "seq_in_index": 1, "column_name": "id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_actor", "non_unique": 1, "seq_in_index": 1, "column_name": "superadmin_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_actor", "non_unique": 1, "seq_in_index": 2, "column_name": "created_at", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_action", "non_unique": 1, "seq_in_index": 1, "column_name": "action", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_action", "non_unique": 1, "seq_in_index": 2, "column_name": "created_at", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_portfolio", "non_unique": 1, "seq_in_index": 1, "column_name": "portfolio_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_portfolio", "non_unique": 1, "seq_in_index": 2, "column_name": "created_at", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_previous_manager", "non_unique": 1, "seq_in_index": 1, "column_name": "previous_relationship_manager_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_new_manager", "non_unique": 1, "seq_in_index": 1, "column_name": "new_relationship_manager_id", "index_type": "BTREE", "is_visible": "YES" },
+    { "table_name": "superadmin_audit_logs", "index_name": "idx_superadmin_audit_created_user", "non_unique": 1, "seq_in_index": 1, "column_name": "created_user_id", "index_type": "BTREE", "is_visible": "YES" }
   ],
   "foreignKeys": [
+    { "table_name": "portfolios", "constraint_name": "fk_relationship_manager", "column_name": "relationship_manager_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
     { "table_name": "portfolios", "constraint_name": "portfolios_ibfk_1", "column_name": "owner_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" },
     { "table_name": "portfolio_documents", "constraint_name": "portfolio_documents_ibfk_1", "column_name": "portfolio_id", "referenced_table_name": "portfolios", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" },
     { "table_name": "investor_interests", "constraint_name": "investor_interests_ibfk_1", "column_name": "investor_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" },
@@ -153,6 +191,11 @@
     { "table_name": "notifications", "constraint_name": "fk_notifications_message", "column_name": "related_message_id", "referenced_table_name": "messages", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
     { "table_name": "notifications", "constraint_name": "notifications_ibfk_3", "column_name": "related_user_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
     { "table_name": "audit_logs", "constraint_name": "audit_logs_ibfk_1", "column_name": "admin_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" },
-    { "table_name": "audit_logs", "constraint_name": "audit_logs_ibfk_2", "column_name": "portfolio_id", "referenced_table_name": "portfolios", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" }
+    { "table_name": "audit_logs", "constraint_name": "audit_logs_ibfk_2", "column_name": "portfolio_id", "referenced_table_name": "portfolios", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "CASCADE" },
+    { "table_name": "superadmin_audit_logs", "constraint_name": "fk_superadmin_audit_actor", "column_name": "superadmin_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
+    { "table_name": "superadmin_audit_logs", "constraint_name": "fk_superadmin_audit_created_user", "column_name": "created_user_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
+    { "table_name": "superadmin_audit_logs", "constraint_name": "fk_superadmin_audit_new_manager", "column_name": "new_relationship_manager_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
+    { "table_name": "superadmin_audit_logs", "constraint_name": "fk_superadmin_audit_portfolio", "column_name": "portfolio_id", "referenced_table_name": "portfolios", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" },
+    { "table_name": "superadmin_audit_logs", "constraint_name": "fk_superadmin_audit_previous_manager", "column_name": "previous_relationship_manager_id", "referenced_table_name": "users", "referenced_column_name": "id", "ordinal_position": 1, "update_rule": "NO ACTION", "delete_rule": "SET NULL" }
   ]
 }

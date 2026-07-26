@@ -199,7 +199,7 @@ const FINAL_NOTIFICATION_TYPES = [
   'portfolio_needs_changes',
   'portfolio_submitted',
   'conversation_created',
-  'investor_added',
+  'conversation_member_added',
   'conversation_archived',
   'portfolio_assigned',
   'portfolio_reassigned',
@@ -255,7 +255,7 @@ CONSTRAINT fk_portfolios_relationship_manager
   FOREIGN KEY (relationship_manager_id) REFERENCES users(id)
   ON DELETE SET NULL,
 
-singleton_role VARCHAR(32)
+singleton_role VARCHAR(24)
   GENERATED ALWAYS AS (
     CASE
       WHEN membership_status = 'active'
@@ -281,7 +281,7 @@ const FINAL_ROLE_COLUMN_TYPE =
 const FINAL_NOTIFICATION_COLUMN_TYPE =
   "enum('new_message','new_interest','portfolio_approved','portfolio_rejected'," +
   "'portfolio_needs_changes','portfolio_submitted','conversation_created'," +
-  "'investor_added','conversation_archived','portfolio_assigned'," +
+  "'conversation_member_added','conversation_archived','portfolio_assigned'," +
   "'portfolio_reassigned','portfolio_unassigned','conversation_member_removed')";
 
 const SUPPORTED_UPGRADE_ROLE_TYPES = new Set([

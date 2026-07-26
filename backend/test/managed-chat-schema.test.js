@@ -154,13 +154,12 @@ test('schema source reproduces audited live column declarations and portfolio or
   );
   assert.match(
     users,
-    /role ENUM\('business_owner','investor','relationship_manager','admin'\) NOT NULL,/,
+    /role ENUM\('business_owner','investor','relationship_manager','admin','superadmin'\) NOT NULL,/,
   );
   assert.doesNotMatch(
     users,
-    /role ENUM\('business_owner','investor','relationship_manager','admin'\)[^,\n]*DEFAULT/,
+    /role ENUM\('business_owner','investor','relationship_manager','admin','superadmin'\)[^,\n]*DEFAULT/,
   );
-  assert.doesNotMatch(users, /superadmin/);
 
   const portfolios = tableStatement('portfolios');
   assert.match(
@@ -201,7 +200,12 @@ test('schema source reproduces audited live column declarations and portfolio or
     'advisor_names',
     'burn_rate',
     'runway_months',
+    'relationship_manager_id',
   ]);
+  assert.match(
+    portfolios,
+    /CONSTRAINT fk_relationship_manager FOREIGN KEY \(relationship_manager_id\)\s+REFERENCES users\(id\) ON DELETE SET NULL/,
+  );
 
   const notifications = tableStatement('notifications');
   assert.match(
@@ -221,6 +225,7 @@ test('every application table pins the live engine and collation', () => {
     'messages',
     'notifications',
     'audit_logs',
+    'superadmin_audit_logs',
   ]) {
     assert.match(
       tableStatement(name),
@@ -274,7 +279,7 @@ test('audit action and portfolio cascade reproduce accepted production behavior'
 test('authoritative schema defines managed rooms and removes direct-message columns', () => {
   assert.match(
     schema,
-    /role ENUM\('business_owner','investor','relationship_manager','admin'\)/,
+    /role ENUM\('business_owner','investor','relationship_manager','admin','superadmin'\)/,
   );
   assert.match(schema, /CREATE TABLE(?: IF NOT EXISTS)? conversations/);
   assert.match(schema, /UNIQUE KEY unique_conversation_portfolio \(portfolio_id\)/);
@@ -283,6 +288,10 @@ test('authoritative schema defines managed rooms and removes direct-message colu
   assert.match(
     schema,
     /UNIQUE KEY unique_conversation_singleton \(conversation_id, singleton_role\)/,
+  );
+  assert.match(
+    tableStatement('conversation_members'),
+    /singleton_role VARCHAR\(24\)[\s\S]*?membership_status = 'active'[\s\S]*?member_role IN \('relationship_manager','business_owner'\)/,
   );
   assert.match(
     schema,
@@ -311,6 +320,10 @@ test('notifications preserve existing types and add managed-room references', ()
     'conversation_created',
     'conversation_member_added',
     'conversation_archived',
+    'portfolio_assigned',
+    'portfolio_reassigned',
+    'portfolio_unassigned',
+    'conversation_member_removed',
   ]) {
     assert.match(notifications, new RegExp(`'${type}'`));
   }
@@ -324,6 +337,73 @@ test('notifications preserve existing types and add managed-room references', ()
     notifications,
     /FOREIGN KEY \(related_message_id\)[\s\S]*?ON DELETE SET NULL/,
   );
+});
+
+test('superadmin audit schema exactly preserves live snapshots, indexes, and nulling references', () => {
+  const audit = tableStatement('superadmin_audit_logs');
+  assert.match(audit, /id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT/);
+  assert.match(audit, /superadmin_id INT DEFAULT NULL/);
+  assert.match(
+    audit,
+    /created_user_role ENUM\('admin','relationship_manager'\) DEFAULT NULL/,
+  );
+  assert.match(
+    audit,
+    /created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP/,
+  );
+  assert.deepEqual(declaredColumns('superadmin_audit_logs'), [
+    'id',
+    'superadmin_id',
+    'superadmin_id_snapshot',
+    'superadmin_name_snapshot',
+    'superadmin_email_snapshot',
+    'action',
+    'portfolio_id',
+    'portfolio_id_snapshot',
+    'portfolio_name_snapshot',
+    'previous_relationship_manager_id',
+    'previous_relationship_manager_id_snapshot',
+    'previous_relationship_manager_name_snapshot',
+    'previous_relationship_manager_email_snapshot',
+    'new_relationship_manager_id',
+    'new_relationship_manager_id_snapshot',
+    'new_relationship_manager_name_snapshot',
+    'new_relationship_manager_email_snapshot',
+    'created_user_id',
+    'created_user_id_snapshot',
+    'created_user_name_snapshot',
+    'created_user_email_snapshot',
+    'created_user_role',
+    'created_at',
+  ]);
+  assert.match(
+    audit,
+    /action ENUM\('portfolio_assigned','portfolio_reassigned','portfolio_unassigned','admin_account_created','relationship_manager_account_created'\) NOT NULL/,
+  );
+  for (const index of [
+    'idx_superadmin_audit_actor',
+    'idx_superadmin_audit_action',
+    'idx_superadmin_audit_portfolio',
+    'idx_superadmin_audit_previous_manager',
+    'idx_superadmin_audit_new_manager',
+    'idx_superadmin_audit_created_user',
+  ]) {
+    assert.match(audit, new RegExp(`KEY ${index} \\(`));
+  }
+  for (const foreignKey of [
+    'fk_superadmin_audit_actor',
+    'fk_superadmin_audit_created_user',
+    'fk_superadmin_audit_new_manager',
+    'fk_superadmin_audit_portfolio',
+    'fk_superadmin_audit_previous_manager',
+  ]) {
+    assert.match(
+      audit,
+      new RegExp(
+        `CONSTRAINT ${foreignKey} FOREIGN KEY \\([^)]*\\)[\\s\\S]*?ON DELETE SET NULL`,
+      ),
+    );
+  }
 });
 
 test('managed chat migration leaves users with four explicit roles', () => {

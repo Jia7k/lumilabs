@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(100) NOT NULL,
-  role ENUM('business_owner','investor','relationship_manager','admin') NOT NULL,
+  role ENUM('business_owner','investor','relationship_manager','admin','superadmin') NOT NULL,
   created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS portfolios (
   advisor_names VARCHAR(500),
   burn_rate DECIMAL(15,2),
   runway_months INT,
+  relationship_manager_id INT NULL,
+  KEY fk_relationship_manager (relationship_manager_id),
+  CONSTRAINT fk_relationship_manager FOREIGN KEY (relationship_manager_id)
+    REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -92,8 +96,12 @@ CREATE TABLE IF NOT EXISTS conversation_members (
   member_role ENUM('relationship_manager','business_owner','investor') NOT NULL,
   singleton_role VARCHAR(24)
     GENERATED ALWAYS AS (
-      CASE WHEN member_role IN ('relationship_manager','business_owner')
-        THEN member_role ELSE NULL END
+      CASE
+        WHEN membership_status = 'active'
+         AND member_role IN ('relationship_manager','business_owner')
+        THEN member_role
+        ELSE NULL
+      END
     ) STORED,
   membership_status ENUM('active','removed') NOT NULL DEFAULT 'active',
   joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -125,7 +133,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS notifications (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
-  type ENUM('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived') NOT NULL,
+  type ENUM('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived','portfolio_assigned','portfolio_reassigned','portfolio_unassigned','conversation_member_removed') NOT NULL,
   title VARCHAR(255) NOT NULL,
   body TEXT,
   related_portfolio_id INT NULL,
@@ -162,4 +170,48 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Immutable snapshots of assignment and privileged account-management actions
+CREATE TABLE IF NOT EXISTS superadmin_audit_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  superadmin_id INT DEFAULT NULL,
+  superadmin_id_snapshot INT NOT NULL,
+  superadmin_name_snapshot VARCHAR(100) NOT NULL,
+  superadmin_email_snapshot VARCHAR(255) NOT NULL,
+  action ENUM('portfolio_assigned','portfolio_reassigned','portfolio_unassigned','admin_account_created','relationship_manager_account_created') NOT NULL,
+  portfolio_id INT DEFAULT NULL,
+  portfolio_id_snapshot INT DEFAULT NULL,
+  portfolio_name_snapshot VARCHAR(255) DEFAULT NULL,
+  previous_relationship_manager_id INT DEFAULT NULL,
+  previous_relationship_manager_id_snapshot INT DEFAULT NULL,
+  previous_relationship_manager_name_snapshot VARCHAR(100) DEFAULT NULL,
+  previous_relationship_manager_email_snapshot VARCHAR(255) DEFAULT NULL,
+  new_relationship_manager_id INT DEFAULT NULL,
+  new_relationship_manager_id_snapshot INT DEFAULT NULL,
+  new_relationship_manager_name_snapshot VARCHAR(100) DEFAULT NULL,
+  new_relationship_manager_email_snapshot VARCHAR(255) DEFAULT NULL,
+  created_user_id INT DEFAULT NULL,
+  created_user_id_snapshot INT DEFAULT NULL,
+  created_user_name_snapshot VARCHAR(100) DEFAULT NULL,
+  created_user_email_snapshot VARCHAR(255) DEFAULT NULL,
+  created_user_role ENUM('admin','relationship_manager') DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_superadmin_audit_actor (superadmin_id, created_at),
+  KEY idx_superadmin_audit_action (action, created_at),
+  KEY idx_superadmin_audit_portfolio (portfolio_id, created_at),
+  KEY idx_superadmin_audit_previous_manager (previous_relationship_manager_id),
+  KEY idx_superadmin_audit_new_manager (new_relationship_manager_id),
+  KEY idx_superadmin_audit_created_user (created_user_id),
+  CONSTRAINT fk_superadmin_audit_actor FOREIGN KEY (superadmin_id)
+    REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_superadmin_audit_created_user FOREIGN KEY (created_user_id)
+    REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_superadmin_audit_new_manager FOREIGN KEY (new_relationship_manager_id)
+    REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_superadmin_audit_portfolio FOREIGN KEY (portfolio_id)
+    REFERENCES portfolios(id) ON DELETE SET NULL,
+  CONSTRAINT fk_superadmin_audit_previous_manager FOREIGN KEY (previous_relationship_manager_id)
+    REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -6,7 +6,41 @@ const {
   createSchemaMetadataDatabase,
 } = require('./helpers/schema-metadata-harness');
 
-const { verifyPreservedCoreSchema, verifySchema } = schemaContract;
+const {
+  EXPECTED_SCHEMA,
+  FINAL_NOTIFICATION_COLUMN_TYPE,
+  FINAL_ROLE_COLUMN_TYPE,
+  verifyPreservedCoreSchema,
+  verifySchema,
+} = schemaContract;
+
+const FINAL_ROLES = [
+  'business_owner',
+  'investor',
+  'relationship_manager',
+  'admin',
+  'superadmin',
+];
+
+const FINAL_NOTIFICATION_TYPES = [
+  'new_message',
+  'new_interest',
+  'portfolio_approved',
+  'portfolio_rejected',
+  'portfolio_needs_changes',
+  'portfolio_submitted',
+  'conversation_created',
+  'conversation_member_added',
+  'conversation_archived',
+  'portfolio_assigned',
+  'portfolio_reassigned',
+  'portfolio_unassigned',
+  'conversation_member_removed',
+];
+
+function enumValues(columnType) {
+  return [...columnType.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+}
 
 function row(metadata, tableName, columnName) {
   const match = metadata.columns.find((candidate) => (
@@ -48,9 +82,91 @@ async function expectInvariant(mutator, pattern) {
 
 test('exports only the complete and preserved-core production verifiers', () => {
   assert.deepEqual(Object.keys(schemaContract).sort(), [
+    'EXPECTED_SCHEMA',
+    'FINAL_NOTIFICATION_COLUMN_TYPE',
+    'FINAL_ROLE_COLUMN_TYPE',
     'verifyPreservedCoreSchema',
     'verifySchema',
   ]);
+});
+
+test('canonical metadata has ten tables and the exact final five-role contract', () => {
+  const metadata = cloneProductionSchemaMetadata();
+  const tableNames = metadata.tables.map(({ table_name }) => table_name);
+  const role = row(metadata, 'users', 'role');
+  const notificationType = row(metadata, 'notifications', 'type');
+  const singletonRole = row(metadata, 'conversation_members', 'singleton_role');
+  const portfolioManager = row(metadata, 'portfolios', 'relationship_manager_id');
+
+  assert.deepEqual(tableNames, [
+    'users',
+    'portfolios',
+    'portfolio_documents',
+    'investor_interests',
+    'conversations',
+    'conversation_members',
+    'messages',
+    'notifications',
+    'audit_logs',
+    'superadmin_audit_logs',
+  ]);
+  assert.deepEqual(enumValues(role.column_type), FINAL_ROLES);
+  assert.equal(role.is_nullable, 'NO');
+  assert.equal(role.column_default, null);
+  assert.deepEqual(enumValues(notificationType.column_type), FINAL_NOTIFICATION_TYPES);
+  assert.equal(singletonRole.column_type, 'varchar(24)');
+  assert.match(
+    singletonRole.generation_expression,
+    /membership_status.*active.*relationship_manager.*business_owner/i,
+  );
+  assert.equal(portfolioManager.ordinal_position, 26);
+  assert.equal(
+    foreignKeyRows(
+      metadata,
+      'portfolios',
+      'fk_relationship_manager',
+    )[0].delete_rule,
+    'SET NULL',
+  );
+  assert.ok(tableNames.includes('superadmin_audit_logs'));
+  assert.equal(
+    metadata.columns.filter(({ table_name }) => (
+      table_name === 'superadmin_audit_logs'
+    )).length,
+    23,
+  );
+  assert.equal(
+    metadata.indexes.filter(({ table_name }) => (
+      table_name === 'superadmin_audit_logs'
+    )).length,
+    10,
+  );
+  assert.equal(
+    metadata.foreignKeys.filter(({ table_name }) => (
+      table_name === 'superadmin_audit_logs'
+    )).length,
+    5,
+  );
+});
+
+test('exports the exact final enum strings and expected schema', () => {
+  assert.equal(
+    FINAL_ROLE_COLUMN_TYPE,
+    "enum('business_owner','investor','relationship_manager','admin','superadmin')",
+  );
+  assert.equal(
+    FINAL_NOTIFICATION_COLUMN_TYPE,
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived','portfolio_assigned','portfolio_reassigned','portfolio_unassigned','conversation_member_removed')",
+  );
+  assert.deepEqual(
+    EXPECTED_SCHEMA.columns.users.find(({ name }) => name === 'role').type,
+    FINAL_ROLE_COLUMN_TYPE,
+  );
+  assert.deepEqual(
+    EXPECTED_SCHEMA.columns.notifications.find(({ name }) => name === 'type').type,
+    FINAL_NOTIFICATION_COLUMN_TYPE,
+  );
+  assert.equal(EXPECTED_SCHEMA.columns.superadmin_audit_logs.length, 23);
 });
 
 test('literal fixture is independent across clones', () => {
@@ -167,12 +283,12 @@ test('rejects enum value or order drift', async () => {
   await expectInvariant((metadata) => {
     row(metadata, 'users', 'role').column_type =
       "enum('business_owner','investor','admin','relationship_manager')";
-  }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin'\)/);
+  }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin','superadmin'\)/);
 
   await expectInvariant((metadata) => {
     row(metadata, 'users', 'role').column_type =
-      "enum('business_owner','investor','relationship_manager','admin','superadmin')";
-  }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin'\)/);
+      "enum('business_owner','investor','relationship_manager','admin')";
+  }, /users\.role type must be enum\('business_owner','investor','relationship_manager','admin','superadmin'\)/);
 
   await expectInvariant((metadata) => {
     row(metadata, 'portfolios', 'mvp_status').column_type =
@@ -201,7 +317,7 @@ test('accepts equivalent metadata representations', async () => {
   row(metadata, 'conversation_members', 'singleton_role').extra =
     'generated stored';
   row(metadata, 'conversation_members', 'singleton_role').generation_expression =
-    "(( CASE WHEN ( member_role IN ( _utf8mb4'relationship_manager' , _utf8mb4'business_owner' ) ) THEN member_role ELSE NULL END ))";
+    "(( CASE WHEN (( membership_status = _utf8mb4'active' ) AND ( member_role IN ( _utf8mb4'relationship_manager' , _utf8mb4'business_owner' ))) THEN member_role ELSE NULL END ))";
 
   assert.equal(await verifyMetadata(metadata), true);
 });
@@ -209,8 +325,9 @@ test('accepts equivalent metadata representations', async () => {
 test('accepts MySQL backslash-escaped generated-expression quotes', async () => {
   const metadata = cloneProductionSchemaMetadata();
   row(metadata, 'conversation_members', 'singleton_role').generation_expression =
-    "(case when (`member_role` in (_utf8mb4\\'relationship_manager\\',"
-      + "_utf8mb4\\'business_owner\\')) then `member_role` else NULL end)";
+    "(case when ((`membership_status` = _utf8mb4\\'active\\') and "
+      + "(`member_role` in (_utf8mb4\\'relationship_manager\\',"
+      + "_utf8mb4\\'business_owner\\'))) then `member_role` else NULL end)";
 
   assert.equal(await verifyMetadata(metadata), true);
 });
@@ -419,37 +536,57 @@ function legacyManagedChatMetadata() {
   return metadata;
 }
 
-test('preserved-core verifier accepts all six role type/default combinations', async (t) => {
-  const allowedTypes = [
-    [
-      'historical three-role enum',
-      "enum('business_owner','investor','admin')",
-    ],
-    [
-      'final four-role enum',
-      "enum('business_owner','investor','relationship_manager','admin')",
-    ],
-    [
-      'audited five-role enum',
-      "enum('business_owner','investor','relationship_manager','admin','superadmin')",
-    ],
-  ];
-  const allowedDefaults = [
-    ["DEFAULT 'business_owner'", 'business_owner'],
-    ['COLUMN_DEFAULT = NULL', null],
-  ];
+test('preserved-core verifier accepts only safe four-role and final five-role inputs', async () => {
+  const priorFourRole = cloneProductionSchemaMetadata();
+  priorFourRole.tables = priorFourRole.tables.filter(({ table_name }) => (
+    table_name !== 'superadmin_audit_logs'
+  ));
+  priorFourRole.columns = priorFourRole.columns.filter((candidate) => (
+    candidate.table_name !== 'superadmin_audit_logs'
+    && !(
+      candidate.table_name === 'portfolios'
+      && candidate.column_name === 'relationship_manager_id'
+    )
+  ));
+  priorFourRole.indexes = priorFourRole.indexes.filter((candidate) => (
+    candidate.table_name !== 'superadmin_audit_logs'
+    && !(
+      candidate.table_name === 'portfolios'
+      && candidate.column_name === 'relationship_manager_id'
+    )
+  ));
+  priorFourRole.foreignKeys = priorFourRole.foreignKeys.filter((candidate) => (
+    candidate.table_name !== 'superadmin_audit_logs'
+    && !(
+      candidate.table_name === 'portfolios'
+      && candidate.column_name === 'relationship_manager_id'
+    )
+  ));
+  row(priorFourRole, 'users', 'role').column_type =
+    "enum('business_owner','investor','relationship_manager','admin')";
+  row(priorFourRole, 'users', 'role').column_default = null;
+  row(priorFourRole, 'notifications', 'type').column_type =
+    "enum('new_message','new_interest','portfolio_approved','portfolio_rejected','portfolio_needs_changes','portfolio_submitted','conversation_created','conversation_member_added','conversation_archived')";
+  row(
+    priorFourRole,
+    'conversation_members',
+    'singleton_role',
+  ).generation_expression =
+    "(case when (`member_role` in (_utf8mb4'relationship_manager',_utf8mb4'business_owner')) then `member_role` else NULL end)";
+  assert.equal(await verifyPreservedMetadata(priorFourRole), true);
 
-  assert.equal(allowedTypes.length * allowedDefaults.length, 6);
-  for (const [typeLabel, columnType] of allowedTypes) {
-    for (const [defaultLabel, columnDefault] of allowedDefaults) {
-      await t.test(`${typeLabel} with ${defaultLabel}`, async () => {
-        const metadata = legacyManagedChatMetadata();
-        row(metadata, 'users', 'role').column_type = columnType;
-        row(metadata, 'users', 'role').column_default = columnDefault;
-        assert.equal(await verifyPreservedMetadata(metadata), true);
-      });
-    }
-  }
+  assert.equal(
+    await verifyPreservedMetadata(cloneProductionSchemaMetadata()),
+    true,
+  );
+});
+
+test('preserved-core verifier rejects the historical three-role default-owner shape', async () => {
+  const metadata = legacyManagedChatMetadata();
+  await assert.rejects(
+    verifyPreservedMetadata(metadata),
+    /users\.role must use an allowed migration (?:enum shape|default)/,
+  );
 });
 
 test('preserved-core verifier rejects an unknown role default', async () => {
