@@ -617,3 +617,75 @@ test('manual removal rolls back membership and archive changes when notification
   assert.equal(fake.state.rollbacks, 1);
   fake.assertConsumed();
 });
+
+test('rollback failure destroys the uncertain connection without exposing or replacing the primary error', async (t) => {
+  const { createManagedConversation, ManagedConversationError } = loadService();
+  for (const [label, destroy] of [
+    ['sync destroy', (state) => { state.destroys += 1; }],
+    ['async destroy', async (state) => { state.destroys += 1; }],
+    ['throwing destroy', (state) => {
+      state.destroys += 1;
+      throw new Error('destroy secret');
+    }],
+    ['rejecting destroy', async (state) => {
+      state.destroys += 1;
+      throw new Error('destroy rejection secret');
+    }],
+  ]) {
+    await t.test(label, async () => {
+      const state = {
+        begins: 0,
+        rollbacks: 0,
+        releases: 0,
+        destroys: 0,
+      };
+      const connection = {
+        async beginTransaction() { state.begins += 1; },
+        async query() {
+          return [[{
+            id: 1,
+            owner_id: 3,
+            name: 'X3',
+            status: 'approved',
+            relationship_manager_id: 10,
+            owner_name: 'Beta',
+          }], []];
+        },
+        async commit() {
+          assert.fail('commit must not run');
+        },
+        async rollback() {
+          state.rollbacks += 1;
+          throw new Error('rollback sql password secret');
+        },
+        release() { state.releases += 1; },
+        destroy() { return destroy(state); },
+      };
+
+      let caught;
+      try {
+        await createManagedConversation({
+          database: { getConnection: async () => connection },
+          managerId: 8,
+          portfolioId: 1,
+          interestIds: [31],
+        });
+      } catch (error) {
+        caught = error;
+      }
+
+      assert.ok(caught instanceof ManagedConversationError);
+      assert.equal(caught.status, 403);
+      assert.equal(caught.code, 'NOT_ASSIGNED_MANAGER');
+      assert.equal(caught.message, 'Only the assigned relationship manager can manage this conversation');
+      assert.equal(Object.hasOwn(caught, 'rollbackError'), false);
+      assert.doesNotMatch(JSON.stringify(caught), /rollback|password|destroy|secret/i);
+      assert.deepEqual(state, {
+        begins: 1,
+        rollbacks: 1,
+        releases: 0,
+        destroys: 1,
+      });
+    });
+  }
+});

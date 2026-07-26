@@ -28,10 +28,15 @@ function sendValidationErrors(req, res) {
 }
 
 function sendWorkflowError(error, res) {
-  if (error instanceof managedConversationWorkflow.ManagedConversationError) {
+  if (
+    error instanceof managedConversationWorkflow.ManagedConversationError
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status <= 499
+  ) {
     return res.status(error.status).json({ error: error.message, code: error.code });
   }
-  console.error(error);
+  console.error('Relationship manager workflow failed');
   return res.status(500).json({ error: 'Server error' });
 }
 
@@ -59,8 +64,8 @@ function createRelationshipManagerRouter({
         database,
         managerId: Number(req.user.id),
       }));
-    } catch (error) {
-      console.error(error);
+    } catch {
+      console.error('Relationship manager dashboard read failed');
       return res.status(500).json({ error: 'Server error' });
     }
   });
@@ -77,10 +82,15 @@ function createRelationshipManagerRouter({
           portfolioId: req.params.portfolioId,
         }));
       } catch (error) {
-        if (error instanceof relationshipManagerReadModel.RelationshipManagerReadError) {
+        if (
+          error instanceof relationshipManagerReadModel.RelationshipManagerReadError
+          && Number.isInteger(error.status)
+          && error.status >= 400
+          && error.status <= 499
+        ) {
           return res.status(error.status).json({ error: error.message });
         }
-        console.error(error);
+        console.error('Relationship manager portfolio read failed');
         return res.status(500).json({ error: 'Server error' });
       }
     },

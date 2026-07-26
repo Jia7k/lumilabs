@@ -199,8 +199,16 @@ test('automatic portfolio archival replaces a prior manual reason atomically', a
   assert.equal(typeof archiveConversationForPortfolio, 'function');
   const fake = scriptedConnection([
     [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'pending',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'archived',
       archived_reason: 'manual',
@@ -227,15 +235,23 @@ test('automatic portfolio archival replaces a prior manual reason atomically', a
 });
 
 test('automatic archive priority never weakens an existing stronger reason', async () => {
-  const fake = scriptedConnection([[
-    {
+  const fake = scriptedConnection([
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'archived',
       archived_reason: 'portfolio_deleted',
-    },
-  ]]);
+    }],
+  ]);
 
   assert.deepEqual(
     await archiveConversationForPortfolio(
@@ -254,8 +270,16 @@ test('approval reconciliation reactivates an eligible room without an invented n
   assert.equal(typeof reconcileConversationAfterApproval, 'function');
   const fake = scriptedConnection([
     [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'archived',
       archived_reason: 'portfolio_unapproved',
@@ -284,8 +308,16 @@ test('approval reconciliation archives a room with no eligible investor and noti
   assert.equal(typeof reconcileConversationAfterApproval, 'function');
   const fake = scriptedConnection([
     [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'active',
       archived_reason: null,
@@ -313,7 +345,16 @@ test('approval reconciliation archives a room with no eligible investor and noti
 });
 
 test('approval reconciliation is a no-op when no room exists or state already matches', async () => {
-  const missing = scriptedConnection([[]]);
+  const missing = scriptedConnection([
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [],
+  ]);
   assert.equal(
     await reconcileConversationAfterApproval(missing.connection, 1, 4),
     null,
@@ -322,8 +363,16 @@ test('approval reconciliation is a no-op when no room exists or state already ma
 
   const unchanged = scriptedConnection([
     [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'active',
       archived_reason: null,
@@ -343,12 +392,55 @@ test('approval reconciliation is a no-op when no room exists or state already ma
   unchanged.assertConsumed();
 });
 
+test('approval reconciliation never weakens or reactivates a deleted room', async () => {
+  for (const eligibleInvestors of [[], [{ user_id: 6 }]]) {
+    const fake = scriptedConnection([
+      [{
+        id: 1,
+        owner_id: 3,
+        name: 'X3',
+        status: 'approved',
+        relationship_manager_id: 8,
+      }],
+      [{
+        id: 12,
+        portfolio_id: 1,
+        relationship_manager_id: 8,
+        title: 'X3',
+        status: 'archived',
+        archived_reason: 'portfolio_deleted',
+      }],
+      eligibleInvestors,
+    ]);
+
+    assert.deepEqual(
+      await reconcileConversationAfterApproval(fake.connection, 1, 4),
+      {
+        conversationId: 12,
+        status: 'archived',
+        archived_reason: 'portfolio_deleted',
+        changed: false,
+      },
+    );
+    assert.equal(fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)), false);
+    fake.assertConsumed();
+  }
+});
+
 test('portfolio deletion preserves room history but severs portfolio and investor access', async () => {
   assert.equal(typeof prepareConversationForPortfolioDeletion, 'function');
   const fake = scriptedConnection([
     [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'draft',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
+      relationship_manager_id: 8,
       title: 'X3',
       status: 'archived',
       archived_reason: 'portfolio_unapproved',
@@ -376,4 +468,63 @@ test('portfolio deletion preserves room history but severs portfolio and investo
     [12, 6, 9],
   );
   fake.assertConsumed();
+});
+
+test('automatic lifecycle helpers lock portfolio before conversation and fail closed on assignment drift', async (t) => {
+  for (const [label, invoke] of [
+    [
+      'archive',
+      (connection) => archiveConversationForPortfolio(
+        connection,
+        1,
+        'portfolio_unapproved',
+        4,
+      ),
+    ],
+    [
+      'approval reconciliation',
+      (connection) => reconcileConversationAfterApproval(connection, 1, 4),
+    ],
+    [
+      'portfolio deletion',
+      (connection) => prepareConversationForPortfolioDeletion(connection, 1, 4),
+    ],
+  ]) {
+    await t.test(label, async () => {
+      const fake = scriptedConnection([
+        [{
+          id: 1,
+          owner_id: 3,
+          name: 'X3',
+          status: 'approved',
+          relationship_manager_id: 8,
+        }],
+        [{
+          id: 12,
+          portfolio_id: 1,
+          relationship_manager_id: 10,
+          title: 'X3',
+          status: 'active',
+          archived_reason: null,
+        }],
+      ]);
+
+      await assert.rejects(
+        invoke(fake.connection),
+        (error) => (
+          error.status === 409
+          && error.code === 'ASSIGNMENT_STATE_MISMATCH'
+        ),
+      );
+      assert.match(fake.calls[0].sql, /^SELECT \* FROM portfolios/);
+      assert.match(fake.calls[0].sql, /FOR UPDATE/);
+      assert.match(fake.calls[1].sql, /FROM conversations/);
+      assert.match(fake.calls[1].sql, /FOR UPDATE/);
+      assert.equal(
+        fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)),
+        false,
+      );
+      fake.assertConsumed();
+    });
+  }
 });

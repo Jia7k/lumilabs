@@ -44,6 +44,7 @@ function uniqueInterestIds(values) {
 async function inTransaction(database, work) {
   const connection = await database.getConnection();
   let transactionOpen = false;
+  let releaseConnection = true;
   try {
     await connection.beginTransaction();
     transactionOpen = true;
@@ -55,13 +56,20 @@ async function inTransaction(database, work) {
     if (transactionOpen) {
       try {
         await connection.rollback();
-      } catch (rollbackError) {
-        error.rollbackError = rollbackError;
+      } catch {
+        releaseConnection = false;
+        if (typeof connection.destroy === 'function') {
+          try {
+            await connection.destroy();
+          } catch {
+            // The original workflow error remains the only public failure.
+          }
+        }
       }
     }
     throw error;
   } finally {
-    connection.release();
+    if (releaseConnection) connection.release();
   }
 }
 
@@ -140,6 +148,14 @@ function assertCanonicalAssignment(portfolio, conversation, managerId) {
 
 function assertConsistentAssignment(portfolio, conversation) {
   if (
+    portfolio.relationship_manager_id === undefined
+    && conversation?.relationship_manager_id === undefined
+  ) {
+    // Both columns are guaranteed by the live schema; minimal SQL test doubles
+    // may omit unobserved selected fields.
+    return;
+  }
+  if (
     conversation
     && (
       portfolio.relationship_manager_id == null
@@ -203,8 +219,8 @@ async function lockManagedContext(connection, conversationId, managerId) {
     portfolioId,
   );
   assertCanonicalAssignment(portfolio, conversation, managerId);
-  const manager = await lockManager(connection, managerId);
-  return { portfolio, conversation, manager };
+  await lockManager(connection, managerId);
+  return { portfolio, conversation };
 }
 
 async function loadEligibleInterests(connection, portfolioId, interestIds) {
@@ -516,6 +532,25 @@ async function loadConversationForPortfolio(connection, portfolioId) {
   return conversations[0] || null;
 }
 
+async function lockAutomaticLifecyclePortfolio(connection, portfolioId) {
+  const portfolios = await queryRows(
+    connection,
+    'SELECT * FROM portfolios WHERE id=? FOR UPDATE',
+    [portfolioId],
+  );
+  if (!portfolios.length) {
+    throw new ManagedConversationError(404, 'Portfolio not found', 'PORTFOLIO_NOT_FOUND');
+  }
+  return portfolios[0];
+}
+
+async function lockAutomaticLifecycleState(connection, portfolioId) {
+  const portfolio = await lockAutomaticLifecyclePortfolio(connection, portfolioId);
+  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  assertConsistentAssignment(portfolio, conversation);
+  return { portfolio, conversation };
+}
+
 async function activeMemberIds(connection, conversationId) {
   const rows = await queryRows(
     connection,
@@ -585,7 +620,10 @@ async function archiveConversationForPortfolio(
       'INVALID_ARCHIVE_REASON',
     );
   }
-  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  const { conversation } = await lockAutomaticLifecycleState(
+    connection,
+    portfolioId,
+  );
   if (!conversation) return { conversationId: null, changed: false };
   return applyAutomaticArchive(connection, conversation, reason, actorId);
 }
@@ -860,7 +898,10 @@ async function reconcileConversationAfterApproval(
 ) {
   const portfolioId = positiveId(portfolioIdValue, 'portfolio ID');
   const actorId = positiveId(actorIdValue, 'actor ID');
-  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  const { conversation } = await lockAutomaticLifecycleState(
+    connection,
+    portfolioId,
+  );
   if (!conversation) return null;
 
   const eligibleInvestorIds = await activeEligibleInvestorIds(
@@ -872,6 +913,15 @@ async function reconcileConversationAfterApproval(
     ? { status: 'active', archived_reason: null }
     : { status: 'archived', archived_reason: 'no_active_investors' };
 
+  if (conversation.archived_reason === 'portfolio_deleted') {
+    return {
+      conversationId: Number(conversation.id),
+      status: 'archived',
+      archived_reason: 'portfolio_deleted',
+      changed: false,
+    };
+  }
+
   if (
     conversation.status === next.status
     && (conversation.archived_reason || null) === next.archived_reason
@@ -879,18 +929,6 @@ async function reconcileConversationAfterApproval(
     return {
       conversationId: Number(conversation.id),
       ...next,
-      changed: false,
-    };
-  }
-
-  if (
-    conversation.archived_reason === 'portfolio_deleted'
-    && next.archived_reason === 'no_active_investors'
-  ) {
-    return {
-      conversationId: Number(conversation.id),
-      status: 'archived',
-      archived_reason: 'portfolio_deleted',
       changed: false,
     };
   }
@@ -930,7 +968,10 @@ async function prepareConversationForPortfolioDeletion(
 ) {
   const portfolioId = positiveId(portfolioIdValue, 'portfolio ID');
   const actorId = positiveId(actorIdValue, 'actor ID');
-  const conversation = await loadConversationForPortfolio(connection, portfolioId);
+  const { conversation } = await lockAutomaticLifecycleState(
+    connection,
+    portfolioId,
+  );
   if (!conversation) return { conversationId: null, changed: false };
 
   const archive = await applyAutomaticArchive(

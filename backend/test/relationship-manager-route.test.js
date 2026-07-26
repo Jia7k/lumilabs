@@ -475,6 +475,57 @@ test('assigned portfolio detail route preserves read-model 404 and 403 errors', 
   }
 });
 
+test('assigned portfolio detail hides server-class read errors and logs only a fixed label', {
+  concurrency: false,
+}, async (t) => {
+  const { RelationshipManagerReadError } = loadReadModel();
+  const logs = [];
+  const originalError = console.error;
+  console.error = (...args) => logs.push(args);
+  t.after(() => {
+    console.error = originalError;
+  });
+  const app = testApp({
+    database: {},
+    readModel: {
+      async loadAssignedPortfolio({ portfolioId }) {
+        if (portfolioId === 20) {
+          const error = new RelationshipManagerReadError(
+            503,
+            'private read model secret',
+          );
+          error.sql = 'SELECT password FROM users';
+          error.params = ['database-secret'];
+          error.cause = new Error('driver secret');
+          throw error;
+        }
+        const error = new Error('unknown private read failure');
+        error.sql = 'SELECT secret FROM hidden';
+        throw error;
+      },
+    },
+  });
+
+  for (const portfolioId of [20, 21]) {
+    const result = await request(
+      t,
+      app,
+      'GET',
+      `/api/relationship-manager/portfolios/${portfolioId}`,
+    );
+    assert.equal(result.response.status, 500);
+    assert.deepEqual(result.payload, { error: 'Server error' });
+    assert.doesNotMatch(
+      JSON.stringify(result.payload),
+      /private|secret|password|driver|hidden/i,
+    );
+  }
+  assert.deepEqual(logs, [
+    ['Relationship manager portfolio read failed'],
+    ['Relationship manager portfolio read failed'],
+  ]);
+});
+
 test('assigned detail read model includes documents and only active participants', async () => {
   const { loadAssignedPortfolio } = loadReadModel();
   assert.equal(typeof loadAssignedPortfolio, 'function');
@@ -611,8 +662,9 @@ test('dashboard SQL does not load unassigned portfolios', async () => {
 test('dashboard responds safely when the read model fails', {
   concurrency: false,
 }, async (t) => {
+  const logs = [];
   const originalError = console.error;
-  console.error = () => {};
+  console.error = (...args) => logs.push(args);
   t.after(() => {
     console.error = originalError;
   });
@@ -622,6 +674,8 @@ test('dashboard responds safely when the read model fails', {
       async loadRelationshipManagerDashboard() {
         const error = new Error('private database failure');
         error.sql = 'SELECT secret FROM hidden';
+        error.params = ['password'];
+        error.cause = new Error('driver cause secret');
         throw error;
       },
     },
@@ -637,6 +691,7 @@ test('dashboard responds safely when the read model fails', {
   assert.equal(result.response.status, 500);
   assert.deepEqual(result.payload, { error: 'Server error' });
   assert.doesNotMatch(JSON.stringify(result.payload), /private|secret|hidden/);
+  assert.deepEqual(logs, [['Relationship manager dashboard read failed']]);
 });
 
 test('dashboard has no global unclaimed portfolio compatibility aliases', async () => {
@@ -1084,8 +1139,9 @@ test('remove-investor adapter validates safe IDs and delegates to the authentica
 test('remove-investor route preserves stable workflow errors and sanitizes unknown failures', {
   concurrency: false,
 }, async (t) => {
+  const logs = [];
   const originalError = console.error;
-  console.error = () => {};
+  console.error = (...args) => logs.push(args);
   t.after(() => {
     console.error = originalError;
   });
@@ -1102,6 +1158,8 @@ test('remove-investor route preserves stable workflow errors and sanitizes unkno
         }
         const error = new Error('private database failure');
         error.sql = 'SELECT secret FROM hidden';
+        error.params = ['password'];
+        error.cause = new Error('driver cause secret');
         throw error;
       },
     },
@@ -1128,6 +1186,59 @@ test('remove-investor route preserves stable workflow errors and sanitizes unkno
   assert.equal(failed.response.status, 500);
   assert.deepEqual(failed.payload, { error: 'Server error' });
   assert.doesNotMatch(JSON.stringify(failed.payload), /private|secret|hidden/);
+  assert.deepEqual(logs, [['Relationship manager workflow failed']]);
+});
+
+test('workflow errors outside the canonical 4xx range return a generic 500 and fixed log', {
+  concurrency: false,
+}, async (t) => {
+  const logs = [];
+  const originalError = console.error;
+  console.error = (...args) => logs.push(args);
+  t.after(() => {
+    console.error = originalError;
+  });
+  const app = testApp({
+    database: {},
+    workflow: {
+      async removeManagedInvestor({ investorId }) {
+        const statusByInvestor = new Map([
+          [9, 399],
+          [10, 500],
+          [11, 599],
+        ]);
+        const error = new ManagedConversationError(
+          statusByInvestor.get(investorId),
+          `private typed error for ${investorId}`,
+          'PRIVATE_DATABASE_CODE',
+        );
+        error.sql = 'SELECT password_hash FROM users';
+        error.params = ['secret'];
+        error.cause = new Error('driver cause secret');
+        throw error;
+      },
+    },
+  });
+
+  for (const investorId of [9, 10, 11]) {
+    const result = await request(
+      t,
+      app,
+      'DELETE',
+      `/api/relationship-manager/conversations/12/investors/${investorId}`,
+    );
+    assert.equal(result.response.status, 500);
+    assert.deepEqual(result.payload, { error: 'Server error' });
+    assert.doesNotMatch(
+      JSON.stringify(result.payload),
+      /private|database|password|secret|driver/i,
+    );
+  }
+  assert.deepEqual(logs, [
+    ['Relationship manager workflow failed'],
+    ['Relationship manager workflow failed'],
+    ['Relationship manager workflow failed'],
+  ]);
 });
 
 test('empty interest selection is rejected before calling the workflow', { concurrency: false }, async (t) => {
