@@ -78,12 +78,13 @@ router.get('/my', authenticate, requireRole('investor'), async (req, res) => {
       `SELECT p.id, p.owner_id, p.name, p.sector, p.readiness_score, p.funding_goal,
         p.relationship_manager_id,
         u.name AS owner_name, ii.created_at AS interested_at,
-        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
-        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+        CASE WHEN investor_member.membership_status='active' THEN c.id ELSE NULL END AS conversation_id,
+        CASE WHEN investor_member.membership_status='active' THEN c.status ELSE NULL END AS conversation_status,
         CASE
-          WHEN investor_member.user_id IS NULL THEN 'awaiting_manager'
-          WHEN c.status='active' THEN 'open'
-          ELSE 'archived'
+          WHEN investor_member.membership_status='removed' THEN 'removed'
+          WHEN investor_member.membership_status='active' AND c.status='active' THEN 'open'
+          WHEN investor_member.membership_status='active' THEN 'archived'
+          ELSE 'awaiting_manager'
         END AS chat_state
        FROM investor_interests ii
        JOIN portfolios p ON p.id = ii.portfolio_id
@@ -93,7 +94,6 @@ router.get('/my', authenticate, requireRole('investor'), async (req, res) => {
          ON investor_member.conversation_id=c.id
         AND investor_member.user_id=ii.investor_id
         AND investor_member.member_role='investor'
-        AND investor_member.membership_status='active'
        WHERE ii.investor_id = ?
        ORDER BY ii.created_at DESC`,
       [req.user.id]

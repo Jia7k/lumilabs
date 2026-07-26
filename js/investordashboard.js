@@ -29,6 +29,9 @@ function browsePortfolioHref(id) {
 
 function managedChatAction(interest) {
   const conversationId = positiveSafeInteger(interest.conversation_id);
+  if (interest.chat_state === "removed") {
+    return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-user-off"></i> Chat access is no longer available</span>`;
+  }
   if (conversationId && interest.chat_state === "open") {
     return `<a class="managed-chat-action managed-chat-action--compact" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
   }

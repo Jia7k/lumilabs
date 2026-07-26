@@ -837,7 +837,7 @@ async function downloadPortfolioDocument(rawPortfolioId, rawDocumentId) {
 function openGroupChat(rawConversationId) {
   const conversationId = positiveSafeInteger(rawConversationId);
   if (!conversationId || !portfolioForConversation(conversationId)) return false;
-  window.location.href = `messages.html?conversationId=${conversationId}`;
+  window.location.href = `messages.html?conversation=${conversationId}`;
   return true;
 }
 

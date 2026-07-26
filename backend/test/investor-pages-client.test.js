@@ -263,10 +263,60 @@ test('My Interests distinguishes open, archived, and awaiting managed chat state
 
   const removed = client.run(`managedChatAction({
     relationship_manager_id: 8,
-    conversation_id: 42,
+    conversation_id: null,
+    conversation_status: null,
     chat_state: 'removed'
   })`);
+  assert.match(removed, /Chat access is no longer available/);
   assert.doesNotMatch(removed, /href=/);
+});
+
+test('investor dashboard renders the removed-member response as non-link copy', () => {
+  const client = loadClient('js/investordashboard.js');
+  client.run(`renderDashboardResult({
+    status: 'fulfilled',
+    value: {
+      stats: { available: 1, interests: 1, messages: 0, highPotential: 0 },
+      recentInterests: [{
+        id: 20,
+        name: 'Northstar',
+        sector: 'Healthtech',
+        relationship_manager_id: 8,
+        conversation_id: null,
+        conversation_status: null,
+        chat_state: 'removed'
+      }],
+      notifications: []
+    }
+  })`);
+
+  const rendered = client.elements.get('recent-interests-list').innerHTML;
+  assert.match(rendered, /Chat access is no longer available/);
+  assert.doesNotMatch(rendered, /messages\.html/);
+});
+
+test('My Interests renders the removed-member response as non-link copy', () => {
+  const client = loadClient('js/my-interests.js');
+  client.run(`
+    interests = [{
+      id: 20,
+      name: 'Northstar',
+      sector: 'Healthtech',
+      readiness_score: 82,
+      funding_goal: '250000.00',
+      relationship_manager_id: 8,
+      owner_name: 'Owner',
+      interested_at: '2026-07-22T00:00:00.000Z',
+      conversation_id: null,
+      conversation_status: null,
+      chat_state: 'removed'
+    }];
+    render();
+  `);
+
+  const rendered = client.elements.get('interests-list').innerHTML;
+  assert.match(rendered, /Chat access is no longer available/);
+  assert.doesNotMatch(rendered, /messages\.html/);
 });
 
 test('recommended and recently added cards preserve their selected portfolio ID', () => {

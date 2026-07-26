@@ -843,6 +843,10 @@ async function sendActiveMessage(event) {
       await reconcileRevokedConversation();
       showToast('You no longer have access to that conversation');
     } else if (error?.status === 409) {
+      setComposeEnabled(false);
+      els.archiveNotice.hidden = false;
+      els.archiveNotice.className = 'archive-notice';
+      els.archiveNotice.textContent = 'This conversation is archived and is read-only.';
       try {
         await reloadActiveConversationFromDatabase(id);
       } catch (reloadError) {

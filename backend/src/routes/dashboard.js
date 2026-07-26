@@ -51,7 +51,7 @@ router.get('/business-owner', authenticate, requireRole('business_owner'), async
 
     const [recentInterests] = await db.query(
       `SELECT u.name AS investor, u.id AS investor_id,
-              p.id AS portfolio_id, p.name AS portfolio,
+              p.id AS portfolio_id, p.name AS portfolio, p.relationship_manager_id,
               CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
               CASE WHEN owner_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
               CASE
@@ -150,21 +150,21 @@ router.get('/investor', authenticate, requireRole('investor'), async (req, res) 
 
     const [recentInterests] = await db.query(
       `SELECT p.id, p.name, p.sector, p.relationship_manager_id,
-              CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
-              CASE WHEN cm.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+              CASE WHEN investor_member.membership_status = 'active' THEN c.id ELSE NULL END AS conversation_id,
+              CASE WHEN investor_member.membership_status = 'active' THEN c.status ELSE NULL END AS conversation_status,
               CASE
-                WHEN cm.user_id IS NULL THEN 'awaiting_manager'
-                WHEN c.status = 'active' THEN 'open'
-                ELSE 'archived'
+                WHEN investor_member.membership_status = 'removed' THEN 'removed'
+                WHEN investor_member.membership_status = 'active' AND c.status = 'active' THEN 'open'
+                WHEN investor_member.membership_status = 'active' THEN 'archived'
+                ELSE 'awaiting_manager'
               END AS chat_state
        FROM investor_interests ii
        JOIN portfolios p ON p.id = ii.portfolio_id
        LEFT JOIN conversations c ON c.portfolio_id = p.id
-       LEFT JOIN conversation_members cm
-         ON cm.conversation_id = c.id
-        AND cm.user_id = ii.investor_id
-        AND cm.member_role = 'investor'
-        AND cm.membership_status = 'active'
+       LEFT JOIN conversation_members investor_member
+         ON investor_member.conversation_id = c.id
+        AND investor_member.user_id = ii.investor_id
+        AND investor_member.member_role = 'investor'
        WHERE ii.investor_id = ? ORDER BY ii.created_at DESC LIMIT 5`,
       [userId]
     );

@@ -343,6 +343,31 @@ test('an archived 409 reloads readable history, preserves the failed draft, and 
   assert.equal(client.run('els.sendBtn.disabled'), true);
 });
 
+test('an archived 409 keeps compose read-only when reconciliation is unavailable', async () => {
+  const client = clientHarness();
+  client.run("els.messageInput.value = 'Keep this draft'");
+  client.hooks.request = async (requestPath) => {
+    if (requestPath === '/messages/conversations/12/messages') {
+      throw Object.assign(new Error('Room archived'), { status: 409 });
+    }
+    if (requestPath === '/messages/conversations/12') {
+      throw Object.assign(new Error('Thread temporarily unavailable'), { status: 503 });
+    }
+    throw new Error(`Unexpected request: ${requestPath}`);
+  };
+
+  await client.run('sendActiveMessage({ preventDefault() {} })');
+
+  assert.equal(client.run('els.messageInput.value'), 'Keep this draft');
+  assert.equal(client.run('els.messageInput.disabled'), true);
+  assert.equal(client.run('els.sendBtn.disabled'), true);
+  assert.equal(client.run('els.archiveNotice.hidden'), false);
+  assert.equal(
+    client.run('els.archiveNotice.textContent'),
+    'This conversation is archived and is read-only.',
+  );
+});
+
 test('refresh is blocked during send while the send reconciliation applies an archived summary', async () => {
   const client = clientHarness();
   const saved = {

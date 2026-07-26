@@ -15,6 +15,9 @@ function positiveSafeInteger(value) {
 
 function managedChatAction(portfolio, hasExpressedInterest) {
   if (!hasExpressedInterest) return "";
+  if (portfolio.chat_state === "removed") {
+    return `<span class="managed-chat-awaiting"><i class="ti ti-user-off"></i> Chat access is no longer available</span>`;
+  }
   const conversationId = positiveSafeInteger(portfolio.conversation_id);
   if (conversationId && portfolio.chat_state === "open") {
     return `<a class="managed-chat-action" href="messages.html?conversation=${conversationId}"><i class="ti ti-messages"></i> Open Managed Chat</a>`;
@@ -22,11 +25,11 @@ function managedChatAction(portfolio, hasExpressedInterest) {
   if (conversationId && portfolio.chat_state === "archived") {
     return `<a class="managed-chat-action managed-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
-  if (["removed", "withdrawn"].includes(portfolio.chat_state)) return "";
+  if (portfolio.chat_state === "withdrawn") return "";
   const guidance = portfolio.relationship_manager_id
     ? "Awaiting relationship manager to create group chat"
     : "Awaiting relationship manager assignment";
-  return `<span class="managed-chat-awaiting" title="Awaiting Relationship Manager"><i class="ti ti-clock"></i> ${guidance}</span>`;
+  return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 
 function formatFunding(n) {

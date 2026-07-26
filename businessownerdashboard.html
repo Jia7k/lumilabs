@@ -156,7 +156,10 @@
       if (conversationId && interest.chat_state === "archived") {
         return `<a class="managed-chat-action managed-chat-action--icon managed-chat-archived" href="messages.html?conversation=${conversationId}" aria-label="View archived chat for ${escapeHtml(interest.portfolio)}" title="View Archived Chat"><i class="ti ti-archive"></i></a>`;
       }
-      return `<span class="managed-chat-awaiting managed-chat-awaiting--icon" title="Awaiting Relationship Manager" aria-label="Awaiting Relationship Manager"><i class="ti ti-clock"></i></span>`;
+      const guidance = interest.relationship_manager_id
+        ? "Awaiting relationship manager to create group chat"
+        : "Awaiting relationship manager assignment";
+      return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> ${guidance}</span>`;
     }
 
     function positiveSafeInteger(value) {

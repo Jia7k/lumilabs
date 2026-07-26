@@ -248,6 +248,7 @@ test('browse managed-chat guidance waits for the current investor to express int
   }, true)`);
   assert.match(assignment, /Awaiting relationship manager assignment/);
   assert.doesNotMatch(assignment, /href=/);
+  assert.doesNotMatch(assignment, /title=/);
 
   const awaiting = client.run(`managedChatAction({
     relationship_manager_id: 8,
@@ -256,11 +257,29 @@ test('browse managed-chat guidance waits for the current investor to express int
   }, true)`);
   assert.match(awaiting, /Awaiting relationship manager to create group chat/);
   assert.doesNotMatch(awaiting, /href=/);
+  assert.doesNotMatch(awaiting, /title=/);
+
+  const removed = client.run(`managedChatAction({
+    relationship_manager_id: 8,
+    conversation_id: null,
+    conversation_status: null,
+    chat_state: 'removed'
+  }, true)`);
+  assert.match(removed, /Chat access is no longer available/);
+  assert.doesNotMatch(removed, /href=/);
+
+  assert.equal(client.run(`managedChatAction({
+    relationship_manager_id: 8,
+    conversation_id: null,
+    conversation_status: null,
+    chat_state: 'removed'
+  }, false)`), '');
 
   assert.equal(client.run(`managedChatAction({
     relationship_manager_id: 8,
     conversation_id: 44,
-    chat_state: 'removed'
+    conversation_status: 'archived',
+    chat_state: 'withdrawn'
   }, false)`), '');
 });
 
@@ -314,6 +333,30 @@ test('an interested Browse card has one explicit removal action', () => {
   assert.match(html, /Remove Interest/);
   assert.match(html, /Interested/);
   assert.match(html, /Awaiting relationship manager assignment/);
+});
+
+test('Browse renders an interested removed-member response as non-link copy', () => {
+  const client = browseHarness();
+  client.run(`
+    interestedIds = new Set([20]);
+    renderGrid([{
+      id: 20,
+      name: 'Northstar',
+      owner_name: 'Owner',
+      sector: 'Healthtech',
+      funding_goal: '250000.00',
+      readiness_score: 82,
+      interest_count: 1,
+      relationship_manager_id: 8,
+      conversation_id: null,
+      conversation_status: null,
+      chat_state: 'removed'
+    }]);
+  `);
+
+  const rendered = client.elements.get('card-grid').innerHTML;
+  assert.match(rendered, /Chat access is no longer available/);
+  assert.doesNotMatch(rendered, /messages\.html/);
 });
 
 test('Browse rejects unsafe chat links and stale access', () => {

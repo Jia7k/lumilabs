@@ -38,6 +38,10 @@ test('owner and investor message stats use membership cursors, not direct-messag
 });
 
 test('recent interests expose managed-room state for owner and investor dashboards', () => {
+  const ownerQuery = source.match(
+    /const \[recentInterests\] = await db\.query\([\s\S]*?FROM investor_interests ii[\s\S]*?\[userId\]\s*\)/,
+  )?.[0] || '';
+  assert.match(ownerQuery, /p\.relationship_manager_id/);
   assert.match(source, /AS conversation_id/);
   assert.match(source, /AS conversation_status/);
   assert.match(source, /AS chat_state/);
@@ -49,7 +53,7 @@ test('recent interests expose managed-room state for owner and investor dashboar
   assert.match(source, /owner_member\.membership_status = 'active'/);
 });
 
-test('interest lists expose chat state only through the requesting user active membership', () => {
+test('interest lists expose room IDs only through active membership and preserve removed state', () => {
   assert.ok(
     interestsSource.match(/AS conversation_id/g)?.length >= 2,
     'expected investor and owner interest queries to expose conversation IDs',
@@ -64,15 +68,24 @@ test('interest lists expose chat state only through the requesting user active m
   );
   assert.match(interestsSource, /investor_member\.user_id=ii\.investor_id/);
   assert.match(interestsSource, /investor_member\.member_role='investor'/);
+  assert.match(
+    interestsSource,
+    /CASE WHEN investor_member\.membership_status='active' THEN c\.id ELSE NULL END AS conversation_id/,
+  );
+  assert.match(
+    interestsSource,
+    /WHEN investor_member\.membership_status='removed' THEN 'removed'/,
+  );
   assert.match(interestsSource, /owner_member\.user_id=p\.owner_id/);
   assert.match(interestsSource, /owner_member\.member_role='business_owner'/);
-  assert.ok(
-    interestsSource.match(/membership_status='active'/g)?.length >= 2,
-    'expected both interest queries to require active membership',
+  assert.doesNotMatch(
+    interestsSource,
+    /investor_member\.member_role='investor'\s+AND investor_member\.membership_status='active'/,
   );
+  assert.match(interestsSource, /owner_member\.membership_status='active'/);
 });
 
-test('portfolio lists expose managed chat state only to active owner or investor members', () => {
+test('portfolio lists expose room IDs only to active members and preserve removed investor state', () => {
   assert.ok(
     portfoliosSource.match(/AS conversation_id/g)?.length >= 2,
     'expected owner and browse portfolio queries to expose conversation IDs',
@@ -85,10 +98,19 @@ test('portfolio lists expose managed chat state only to active owner or investor
   assert.match(portfoliosSource, /owner_member\.member_role='business_owner'/);
   assert.match(portfoliosSource, /investor_member\.user_id=\?/);
   assert.match(portfoliosSource, /investor_member\.member_role='investor'/);
-  assert.ok(
-    portfoliosSource.match(/membership_status='active'/g)?.length >= 2,
-    'expected both portfolio queries to require active membership',
+  assert.match(
+    portfoliosSource,
+    /CASE WHEN investor_member\.membership_status='active' THEN c\.id ELSE NULL END AS conversation_id/,
   );
+  assert.match(
+    portfoliosSource,
+    /WHEN investor_member\.membership_status='removed' THEN 'removed'/,
+  );
+  assert.doesNotMatch(
+    portfoliosSource,
+    /investor_member\.member_role='investor'\s+AND investor_member\.membership_status='active'/,
+  );
+  assert.match(portfoliosSource, /owner_member\.membership_status='active'/);
 });
 
 test('investor-facing workflow reads project assignment and safe notification links', () => {
@@ -123,6 +145,152 @@ test('all notification operations hide room notifications after membership remov
     notificationsSource.match(/VISIBLE_NOTIFICATION_PREDICATE/g)?.length >= 5,
     'expected the visibility predicate declaration plus list, count, single-read, and read-all usage',
   );
+});
+
+function assertRemovedProjectionSql(sql) {
+  assert.match(
+    sql,
+    /CASE WHEN investor_member\.membership_status\s*=\s*'active'\s+THEN c\.id ELSE NULL END AS conversation_id/,
+  );
+  assert.match(
+    sql,
+    /CASE WHEN investor_member\.membership_status\s*=\s*'active'\s+THEN c\.status ELSE NULL END AS conversation_status/,
+  );
+  assert.match(
+    sql,
+    /CASE\s+WHEN investor_member\.membership_status\s*=\s*'removed' THEN 'removed'[\s\S]*?WHEN investor_member\.membership_status\s*=\s*'active' AND c\.status\s*=\s*'active' THEN 'open'[\s\S]*?ELSE 'awaiting_manager'\s+END AS chat_state/,
+  );
+  const join = sql.match(
+    /LEFT JOIN conversation_members investor_member[\s\S]*?(?=\s+WHERE\b)/,
+  )?.[0] || '';
+  assert.doesNotMatch(join, /investor_member\.membership_status\s*=\s*'active'/);
+}
+
+test('investor dashboard route preserves removed chat state without exposing its room ID', {
+  concurrency: false,
+}, async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  let projectionSql = '';
+  db.query = async (sql) => {
+    const statement = String(sql);
+    if (statement.includes("COUNT(*) AS available")) return [[{ available: 1 }]];
+    if (statement.includes("COUNT(*) AS my_interests")) return [[{ my_interests: 1 }]];
+    if (statement.includes('COUNT(m.id) AS total')) return [[{ total: 0, unread: 0 }]];
+    if (statement.includes("COUNT(*) AS high_potential")) return [[{ high_potential: 0 }]];
+    if (statement.includes('FROM investor_interests ii')) {
+      projectionSql = statement;
+      return [[{
+        id: 20,
+        name: 'Northstar',
+        sector: 'Healthtech',
+        relationship_manager_id: 8,
+        conversation_id: null,
+        conversation_status: null,
+        chat_state: 'removed',
+      }]];
+    }
+    if (statement.includes('FROM notifications n')) return [[]];
+    throw new Error(`Unexpected query: ${statement}`);
+  };
+  t.after(() => {
+    db.query = originalQuery;
+  });
+
+  const result = await request(t, 'GET', '/api/dashboard/investor', 'investor');
+
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.payload.recentInterests, [{
+    id: 20,
+    name: 'Northstar',
+    sector: 'Healthtech',
+    relationship_manager_id: 8,
+    conversation_id: null,
+    conversation_status: null,
+    chat_state: 'removed',
+  }]);
+  assertRemovedProjectionSql(projectionSql);
+});
+
+test('investor interest route preserves removed state and omits withdrawn rows', {
+  concurrency: false,
+}, async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  const rows = [{
+    id: 20,
+    owner_id: 9,
+    name: 'Northstar',
+    sector: 'Healthtech',
+    readiness_score: 82,
+    funding_goal: '250000.00',
+    relationship_manager_id: 8,
+    owner_name: 'Owner',
+    interested_at: '2026-07-22T00:00:00.000Z',
+    conversation_id: null,
+    conversation_status: null,
+    chat_state: 'removed',
+  }];
+  let projectionSql = '';
+  db.query = async (sql) => {
+    projectionSql = String(sql);
+    return [rows];
+  };
+  t.after(() => {
+    db.query = originalQuery;
+  });
+
+  const removed = await request(t, 'GET', '/api/interests/my', 'investor');
+  assert.equal(removed.response.status, 200);
+  assert.deepEqual(removed.payload, rows);
+  assertRemovedProjectionSql(projectionSql);
+
+  db.query = async (sql) => {
+    projectionSql = String(sql);
+    return [[]];
+  };
+  const withdrawn = await request(t, 'GET', '/api/interests/my', 'investor');
+  assert.equal(withdrawn.response.status, 200);
+  assert.deepEqual(withdrawn.payload, []);
+  assert.match(projectionSql, /FROM investor_interests ii/);
+  assert.match(projectionSql, /WHERE ii\.investor_id\s*=\s*\?/);
+});
+
+test('Browse route preserves removed state without exposing its room ID', {
+  concurrency: false,
+}, async (t) => {
+  const db = require('../src/config/db');
+  const originalQuery = db.query;
+  const rows = [{
+    id: 20,
+    owner_id: 9,
+    name: 'Northstar',
+    sector: 'Healthtech',
+    description: 'Care coordination',
+    funding_goal: '250000.00',
+    readiness_score: 82,
+    created_at: '2026-07-22T00:00:00.000Z',
+    relationship_manager_id: 8,
+    owner_name: 'Owner',
+    interest_count: 1,
+    conversation_id: null,
+    conversation_status: null,
+    chat_state: 'removed',
+  }];
+  let projectionSql = '';
+  db.query = async (sql) => {
+    projectionSql = String(sql);
+    return [rows];
+  };
+  t.after(() => {
+    db.query = originalQuery;
+  });
+
+  const result = await request(t, 'GET', '/api/portfolios', 'investor');
+
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.payload, rows);
+  assertRemovedProjectionSql(projectionSql);
 });
 
 function authHeaders(role, id = 31) {

@@ -3,10 +3,47 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const vm = require('node:vm');
 
 const root = path.join(__dirname, '..', '..');
 const pages = fs.readdirSync(root).filter((name) => name.endsWith('.html'));
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+
+function businessDashboardChatAction(interest) {
+  const html = read('businessownerdashboard.html');
+  const inlineScript = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+    .at(-1)?.[1];
+  assert.ok(inlineScript, 'missing business dashboard inline client');
+  const elements = new Map();
+  const context = vm.createContext({
+    window: { location: { href: '' } },
+    document: {
+      getElementById(id) {
+        if (!elements.has(id)) {
+          elements.set(id, {
+            addEventListener() {},
+            classList: { toggle() { return false; }, remove() {} },
+            style: {},
+          });
+        }
+        return elements.get(id);
+      },
+      addEventListener() {},
+    },
+    requirePageRole: async () => null,
+    API: {},
+    normalizeReadinessScore: () => 0,
+    alert() {},
+    console,
+  });
+  vm.runInContext(inlineScript, context);
+  context.interestFixture = interest;
+  return vm.runInContext('managedChatAction(interestFixture)', context);
+}
+
+function visibleText(markup) {
+  return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 function elementTag(source, id) {
   const match = source.match(
@@ -149,9 +186,32 @@ test('owner and investor entry points use only server-provided managed chat stat
     assert.doesNotMatch(source, /partnerId|receiver_id|Message owner|Message investor/);
     assert.match(source, /chat_state|messages\.html/);
   }
-  assert.match(read('js/browse.js'), /Awaiting Relationship Manager/);
   assert.match(read('js/my-interests.js'), /Open Managed Chat/);
   assert.match(read('js/mybusinesses.js'), /View Archived Chat/);
+
+  const unassigned = businessDashboardChatAction({
+    portfolio: 'Northstar',
+    relationship_manager_id: null,
+    conversation_id: null,
+    chat_state: 'awaiting_manager',
+  });
+  assert.equal(
+    visibleText(unassigned),
+    'Awaiting relationship manager assignment',
+  );
+  assert.doesNotMatch(unassigned, /title=/);
+
+  const assigned = businessDashboardChatAction({
+    portfolio: 'Northstar',
+    relationship_manager_id: 8,
+    conversation_id: null,
+    chat_state: 'awaiting_manager',
+  });
+  assert.equal(
+    visibleText(assigned),
+    'Awaiting relationship manager to create group chat',
+  );
+  assert.doesNotMatch(assigned, /title=/);
 });
 
 test('public registration exposes only owner and investor roles', () => {

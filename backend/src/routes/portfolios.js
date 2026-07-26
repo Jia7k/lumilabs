@@ -346,12 +346,13 @@ router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res)
         p.readiness_score, p.created_at, p.relationship_manager_id,
         u.name AS owner_name,
         (SELECT COUNT(*) FROM investor_interests WHERE portfolio_id = p.id) AS interest_count,
-        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.id END AS conversation_id,
-        CASE WHEN investor_member.user_id IS NULL THEN NULL ELSE c.status END AS conversation_status,
+        CASE WHEN investor_member.membership_status='active' THEN c.id ELSE NULL END AS conversation_id,
+        CASE WHEN investor_member.membership_status='active' THEN c.status ELSE NULL END AS conversation_status,
         CASE
-          WHEN investor_member.user_id IS NULL THEN 'awaiting_manager'
-          WHEN c.status='active' THEN 'open'
-          ELSE 'archived'
+          WHEN investor_member.membership_status='removed' THEN 'removed'
+          WHEN investor_member.membership_status='active' AND c.status='active' THEN 'open'
+          WHEN investor_member.membership_status='active' THEN 'archived'
+          ELSE 'awaiting_manager'
         END AS chat_state
       FROM portfolios p
       JOIN users u ON u.id = p.owner_id
@@ -360,7 +361,6 @@ router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res)
         ON investor_member.conversation_id=c.id
        AND investor_member.user_id=?
        AND investor_member.member_role='investor'
-       AND investor_member.membership_status='active'
       WHERE p.status = 'approved'
     `;
     const params = [req.user.id];

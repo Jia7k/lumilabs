@@ -841,6 +841,17 @@ test('ID normalization rejects coercible non-string and non-number values', () =
   }
 });
 
+test('Open group chat emits the canonical conversation query parameter', async () => {
+  const page = relationshipManagerHarness(activeRoomResponse);
+  await page.initialize();
+
+  assert.equal(page.run('openGroupChat(40)'), true);
+  assert.equal(
+    page.run('window.location.href'),
+    'messages.html?conversation=40',
+  );
+});
+
 test('manual archive and reopen controls are absent from source and rendered cards', async () => {
   const page = relationshipManagerHarness(activeRoomResponse);
   await page.initialize();
