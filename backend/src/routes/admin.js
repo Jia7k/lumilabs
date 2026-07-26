@@ -1,37 +1,10 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { moderatePortfolio } = require('../services/workflow');
-const { DB_LIMITS } = require('../validation/database-boundaries');
 
 const router = express.Router();
-
-const relationshipManagerValidation = [
-  body('name')
-    .isString().bail()
-    .trim()
-    .notEmpty().bail()
-    .isLength({ max: DB_LIMITS.USER_NAME_CHARS })
-    .withMessage('Name must be at most 100 characters'),
-  body('email')
-    .isString().bail()
-    .normalizeEmail()
-    .isLength({ max: DB_LIMITS.USER_EMAIL_CHARS })
-    .withMessage('Email must be at most 255 characters').bail()
-    .isEmail(),
-  body('password').isString().bail().isLength({ min: 6, max: 128 }),
-];
-
-function safeValidationErrors(req) {
-  return validationResult(req).array().map(({ type, msg, path, location }) => ({
-    type,
-    msg,
-    path,
-    location,
-  }));
-}
 
 function sendWorkflowError(res, error) {
   if (error && Number.isInteger(error.status)) {
@@ -40,60 +13,6 @@ function sendWorkflowError(res, error) {
   console.error(error);
   return res.status(500).json({ error: 'Server error' });
 }
-
-// POST /api/admin/relationship-managers — administrator-provisioned accounts only
-router.post(
-  '/relationship-managers',
-  authenticate,
-  requireRole('admin'),
-  relationshipManagerValidation,
-  async (req, res) => {
-    const errors = safeValidationErrors(req);
-    if (errors.length) return res.status(400).json({ errors });
-
-    const { email, name, password } = req.body;
-    try {
-      const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
-      if (existing.length) {
-        return res.status(409).json({ error: 'Email already registered' });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      const [result] = await db.query(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        [email, passwordHash, name, 'relationship_manager'],
-      );
-      const [created] = await db.query(
-        'SELECT id, name, email, role, created_at FROM users WHERE id = ?',
-        [result.insertId],
-      );
-      if (created.length !== 1) throw new Error('Created relationship manager could not be read');
-      return res.status(201).json(created[0]);
-    } catch (error) {
-      if (error.code === 'ER_DUP_ENTRY') {
-        return res.status(409).json({ error: 'Email already registered' });
-      }
-      console.error(error);
-      return res.status(500).json({ error: 'Server error' });
-    }
-  },
-);
-
-// GET /api/admin/relationship-managers — safe account metadata
-router.get('/relationship-managers', authenticate, requireRole('admin'), async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT id, name, email, role, created_at
-         FROM users
-        WHERE role = 'relationship_manager'
-        ORDER BY created_at DESC, id DESC`,
-    );
-    return res.json(rows);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
 
 // GET /api/admin/queue  — pending portfolios
 router.get('/queue', authenticate, requireRole('admin'), async (req, res) => {
@@ -181,19 +100,6 @@ router.get('/stats', authenticate, requireRole('admin'), async (req, res) => {
     const [[{ total_users }]] = await db.query('SELECT COUNT(*) AS total_users FROM users');
 
     res.json({ pending, approved, rejected, total_matches, total_users });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// GET /api/admin/users  — list all users
-router.get('/users', authenticate, requireRole('admin'), async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      'SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC'
-    );
-    res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

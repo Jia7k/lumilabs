@@ -50,9 +50,16 @@ async function request(server, path, body, { admin = false } = {}) {
     headers,
     body: JSON.stringify(body),
   });
+  const responseBody = await response.text();
+  let payload = responseBody;
+  try {
+    payload = JSON.parse(responseBody);
+  } catch {
+    // Express returns an HTML body for removed routes.
+  }
   return {
     response,
-    payload: await response.json(),
+    payload,
   };
 }
 
@@ -181,7 +188,7 @@ test('login rejects email overflow before a database call', {
   assert.equal(calls.length, 0);
 });
 
-test('manager creation rejects name and email overflow before a database call', {
+test('removed admin manager creation endpoint performs no database call', {
   concurrency: false,
 }, async (t) => {
   const calls = stubQueries(t);
@@ -198,7 +205,7 @@ test('manager creation rejects name and email overflow before a database call', 
     },
     { admin: true },
   );
-  assert.equal(name.response.status, 400);
+  assert.equal(name.response.status, 404);
   assert.equal(calls.length, 0);
 
   const email = await request(
@@ -211,13 +218,7 @@ test('manager creation rejects name and email overflow before a database call', 
     },
     { admin: true },
   );
-  assert.equal(email.response.status, 400);
-  assert.equal(
-    email.payload.errors.some(
-      ({ msg }) => msg === 'Email must be at most 255 characters',
-    ),
-    true,
-  );
+  assert.equal(email.response.status, 404);
   assert.equal(calls.length, 0);
 });
 
