@@ -277,6 +277,31 @@ test('review documents never expose download URLs and use loaded metadata', asyn
   ]]);
 });
 
+test('review escapes numeric-like database fields while preserving display suffixes', async () => {
+  const client = adminHarness({
+    getPortfolio: async () => ({
+      id: 42,
+      name: 'New Company',
+      sector: 'Technology',
+      mvp_status: 'Beta',
+      funding_goal: 100000,
+      readiness_score: 60,
+      founded_year: '<img src=x onerror=alert(1)>',
+      growth_rate: '<svg onload=alert(2)>',
+      runway_months: '<iframe srcdoc=alert(3)>',
+      documents: [],
+    }),
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+
+  const html = client.element('review-card').innerHTML;
+  assert.doesNotMatch(html, /<(?:img|svg|iframe)\b/i);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(html, /&lt;svg onload=alert\(2\)&gt;%/);
+  assert.match(html, /&lt;iframe srcdoc=alert\(3\)&gt; months/);
+});
+
 test('approval is single-flight, disables both decisions, and refreshes moderation once', async () => {
   const approve = deferred();
   const client = adminHarness({ approvePortfolio: async () => approve.promise });

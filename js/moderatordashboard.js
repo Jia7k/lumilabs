@@ -425,7 +425,7 @@ function renderReviewDetails(full, p) {
       </div>
       <div>
         <div class="modal-field-label">Founded Year</div>
-        <div class="modal-field-value">${full.founded_year ?? "—"}</div>
+        <div class="modal-field-value">${full.founded_year != null ? escapeHtml(full.founded_year) : "—"}</div>
       </div>
       <div class="modal-field-full">
         <div class="modal-field-label">Advisors / Notable Members</div>
@@ -445,7 +445,7 @@ function renderReviewDetails(full, p) {
       </div>
       <div>
         <div class="modal-field-label">MoM Growth</div>
-        <div class="modal-field-value">${full.growth_rate != null ? full.growth_rate + "%" : "—"}</div>
+        <div class="modal-field-value">${full.growth_rate != null ? escapeHtml(full.growth_rate) + "%" : "—"}</div>
       </div>
     </div>
 
@@ -469,7 +469,7 @@ function renderReviewDetails(full, p) {
       </div>
       <div>
         <div class="modal-field-label">Runway</div>
-        <div class="modal-field-value">${full.runway_months != null ? full.runway_months + " months" : "—"}</div>
+        <div class="modal-field-value">${full.runway_months != null ? escapeHtml(full.runway_months) + " months" : "—"}</div>
       </div>
     </div>
 
