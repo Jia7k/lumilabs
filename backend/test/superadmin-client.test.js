@@ -28,6 +28,7 @@ test('dashboard keeps its protected shell hidden until authorization resolves', 
   const initialization = page.initialize();
   await flush();
   assert.equal(page.element('superadmin-main').hidden, true);
+  assert.equal(page.element('protected-nav').hidden, true);
   assert.deepEqual(page.calls, ['getCurrentUser']);
   auth.resolve({
     id: 1,
@@ -36,6 +37,24 @@ test('dashboard keeps its protected shell hidden until authorization resolves', 
   });
   await initialization;
   assert.equal(page.element('superadmin-main').hidden, false);
+  assert.equal(page.element('protected-nav').hidden, false);
+});
+
+test('transient authorization recovery reveals only the recovery main', async () => {
+  const page = superadminDashboardHarness({
+    getCurrentUser: async () => {
+      throw new Error('network unavailable');
+    },
+  });
+  await page.initialize();
+  assert.deepEqual(page.calls, ['getCurrentUser']);
+  assert.equal(page.element('protected-nav').hidden, true);
+  assert.equal(page.element('superadmin-main').hidden, false);
+  assert.equal(page.element('protected-page-recovery').hidden, false);
+  assert.equal(
+    page.element('protected-page-recovery').parentElement,
+    page.element('superadmin-main'),
+  );
 });
 
 test('dashboard loaders fail and retry independently', async () => {
@@ -206,6 +225,71 @@ test('staff submission is single-flight and refreshes only relevant data', async
   assert.equal(page.element('staff-password').value, '');
 });
 
+test('staff success queues fresh section reads behind busy initial reads', async () => {
+  const stats = deferred();
+  const staff = deferred();
+  const audit = deferred();
+  let statsCalls = 0;
+  let staffCalls = 0;
+  let auditCalls = 0;
+  const page = superadminDashboardHarness({
+    getSuperadminStats: async () => {
+      statsCalls += 1;
+      if (statsCalls === 1) return stats.promise;
+      return {
+        business_owners: 1,
+        investors: 1,
+        admins: 2,
+        relationship_managers: 1,
+        approved_portfolios: 1,
+        assigned_portfolios: 1,
+        unassigned_portfolios: 0,
+        rm_workload: [],
+      };
+    },
+    getStaff: async () => {
+      staffCalls += 1;
+      if (staffCalls === 1) return staff.promise;
+      return [];
+    },
+    getSuperadminAuditLogs: async (page, limit) => {
+      auditCalls += 1;
+      if (auditCalls === 1) return audit.promise;
+      return {
+        items: [],
+        pagination: { page, limit, total: 0, total_pages: 0 },
+      };
+    },
+  });
+  const initialization = page.initialize();
+  await flush();
+  page.element('staff-name').value = 'Fresh Admin';
+  page.element('staff-email').value = 'fresh@example.test';
+  page.element('staff-password').value = 'secret1';
+  page.element('staff-role').value = 'admin';
+  const submission = page.submitStaff();
+  await flush();
+  stats.resolve({
+    business_owners: 1,
+    investors: 1,
+    admins: 1,
+    relationship_managers: 1,
+    approved_portfolios: 1,
+    assigned_portfolios: 1,
+    unassigned_portfolios: 0,
+    rm_workload: [],
+  });
+  staff.resolve([]);
+  audit.resolve({
+    items: [],
+    pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
+  });
+  await Promise.all([initialization, submission]);
+  assert.equal(page.methodCalls.getSuperadminStats.length, 2);
+  assert.equal(page.methodCalls.getStaff.length, 2);
+  assert.equal(page.methodCalls.getSuperadminAuditLogs.length, 2);
+});
+
 test('audit controls paginate without reloading other sections', async () => {
   const page = superadminDashboardHarness({
     getSuperadminAuditLogs: async (page, limit) => ({
@@ -218,6 +302,36 @@ test('audit controls paginate without reloading other sections', async () => {
   assert.deepEqual(page.methodCalls.getSuperadminAuditLogs, [[1, 50], [2, 50]]);
   assert.equal(page.methodCalls.getSuperadminStats.length, 1);
   assert.equal(page.methodCalls.getStaff.length, 1);
+  assert.equal(page.element('audit-page').textContent, 'Page 2 of 3');
+});
+
+test('audit Retry repeats the failed requested page, not the last successful page', async () => {
+  let pageTwoAttempts = 0;
+  const page = superadminDashboardHarness({
+    getSuperadminAuditLogs: async (requestedPage, limit) => {
+      if (requestedPage === 2) {
+        pageTwoAttempts += 1;
+        if (pageTwoAttempts === 1) throw new Error('page two unavailable');
+      }
+      return {
+        items: [],
+        pagination: {
+          page: requestedPage,
+          limit,
+          total: 120,
+          total_pages: 3,
+        },
+      };
+    },
+  });
+  await page.initialize();
+  await page.element('audit-next').dispatch('click');
+  assert.equal(page.element('audit-retry').hidden, false);
+  await page.element('audit-retry').dispatch('click');
+  assert.deepEqual(
+    page.methodCalls.getSuperadminAuditLogs,
+    [[1, 50], [2, 50], [2, 50]],
+  );
   assert.equal(page.element('audit-page').textContent, 'Page 2 of 3');
 });
 

@@ -50,10 +50,11 @@ class FakeElement {
     this.className = '';
     this.dataset = {};
     this.hidden = id === 'assignments-main'
+      || id === 'protected-nav'
       || id.endsWith('-dialog')
-      || id === 'assignment-retry';
+      || id.endsWith('-retry');
     this.disabled = false;
-    this.innerHTML = '';
+    this._innerHTML = '';
     this.innerText = '';
     this.textContent = '';
     this.value = '';
@@ -61,6 +62,38 @@ class FakeElement {
     this.listeners = new Map();
     this.attributes = new Map();
     this.style = {};
+    this.parentElement = null;
+    this.isConnected = true;
+    this.inert = false;
+    this.renderedActions = [];
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    if (this.id !== 'assignment-rows') return;
+    this.renderedActions.forEach((action) => {
+      action.isConnected = false;
+      action.parentElement = null;
+    });
+    this.renderedActions = [
+      ...this._innerHTML.matchAll(
+        /<button\b([\s\S]*?)data-assignment-action="([^"]+)"([\s\S]*?)data-portfolio-id="([^"]+)"([\s\S]*?)>/g,
+      ),
+    ].map((match, index) => {
+      const action = new FakeElement(
+        `generated-assignment-action-${index}`,
+        this.ownerDocument,
+      );
+      action.dataset.assignmentAction = match[2];
+      action.dataset.portfolioId = match[4];
+      action.disabled = /\bdisabled\b/.test(`${match[1]}${match[3]}${match[5]}`);
+      action.parentElement = this;
+      return action;
+    });
   }
 
   addEventListener(type, handler) {
@@ -99,7 +132,9 @@ class FakeElement {
   }
 
   contains(element) {
-    return this === element || this.children.includes(element);
+    return this === element
+      || this.children.includes(element)
+      || this.renderedActions.includes(element);
   }
 
   closest(selector) {
@@ -108,6 +143,34 @@ class FakeElement {
       && this.dataset.assignmentAction != null
     ) return this;
     return null;
+  }
+
+  replaceChildren(...children) {
+    this.children.forEach((child) => {
+      child.parentElement = null;
+      child.isConnected = false;
+    });
+    this.children = children;
+    children.forEach((child) => {
+      child.parentElement = this;
+      child.isConnected = true;
+    });
+  }
+
+  querySelectorAll() {
+    const ids = this.id === 'assignment-dialog'
+      ? [
+        'assignment-manager',
+        'assignment-dialog-retry',
+        'assignment-cancel',
+        'assignment-submit',
+      ]
+      : this.id === 'unassign-dialog'
+        ? ['unassign-dialog-retry', 'unassign-cancel', 'unassign-submit']
+        : [];
+    return ids
+      .map((id) => this.ownerDocument.getElementById(id))
+      .filter((element) => !element.disabled && !element.hidden);
   }
 }
 
@@ -130,8 +193,30 @@ function assignmentsHarness(overrides = {}) {
     listeners: new Map(),
     body: null,
     getElementById(id) {
+      if (id === 'protected-page-recovery' && !elements.has(id)) return null;
       if (!elements.has(id)) elements.set(id, new FakeElement(id, document));
       return elements.get(id);
+    },
+    querySelector(selector) {
+      if (selector === 'main') return this.getElementById('assignments-main');
+      const actionMatch = selector.match(
+        /^\[data-assignment-action="([^"]+)"\]\[data-portfolio-id="([^"]+)"\]$/,
+      );
+      if (actionMatch) {
+        return this.getElementById('assignment-rows').renderedActions.find(
+          (element) => (
+            element.dataset.assignmentAction === actionMatch[1]
+            && element.dataset.portfolioId === actionMatch[2]
+          ),
+        ) || null;
+      }
+      const portfolioActionMatch = selector.match(
+        /^\[data-portfolio-id="([^"]+)"\]\[data-assignment-action\]$/,
+      );
+      if (!portfolioActionMatch) return null;
+      return this.getElementById('assignment-rows').renderedActions.find(
+        (element) => element.dataset.portfolioId === portfolioActionMatch[1],
+      ) || null;
     },
     addEventListener(type, handler) {
       const list = this.listeners.get(type) || [];
@@ -143,6 +228,8 @@ function assignmentsHarness(overrides = {}) {
     },
   };
   document.body = document.getElementById('body');
+  document.getElementById('protected-nav');
+  document.getElementById('assignments-main');
 
   const defaultAssignments = [{
     id: 20,
@@ -231,12 +318,21 @@ function assignmentsHarness(overrides = {}) {
   };
   const location = { href: '' };
   const requirePageRole = async (requiredRole) => {
-    const user = await api.getCurrentUser();
-    if (user.role !== requiredRole) {
-      location.href = roleDashboards[user.role] || 'index.html';
+    try {
+      const user = await api.getCurrentUser();
+      if (user.role !== requiredRole) {
+        location.href = roleDashboards[user.role] || 'index.html';
+        return null;
+      }
+      return user;
+    } catch {
+      const recovery = new FakeElement('protected-page-recovery', document);
+      elements.set('protected-page-recovery', recovery);
+      recovery.hidden = false;
+      recovery.setAttribute('role', 'alert');
+      document.getElementById('assignments-main').replaceChildren(recovery);
       return null;
     }
-    return user;
   };
 
   const sandbox = {
@@ -276,6 +372,12 @@ globalThis.__assignmentsClient = {
   submitUnassign: typeof submitUnassignment === "function"
     ? submitUnassignment
     : async function () {},
+  closeAssignment: typeof closeAssignmentDialog === "function"
+    ? closeAssignmentDialog
+    : async function () {},
+  closeUnassign: typeof closeUnassignDialog === "function"
+    ? closeUnassignDialog
+    : async function () {},
 };`,
     context,
     { filename: 'js/assignments.js' },
@@ -302,6 +404,8 @@ globalThis.__assignmentsClient = {
     submitUnassignment: () => context.__assignmentsClient.submitUnassign({
       preventDefault() {},
     }),
+    closeAssignment: () => context.__assignmentsClient.closeAssignment(),
+    closeUnassignment: () => context.__assignmentsClient.closeUnassign(),
     setMutationStatus: (status) => {
       mutationStatus = status;
     },

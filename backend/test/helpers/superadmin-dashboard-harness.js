@@ -52,7 +52,7 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.className = '';
     this.dataset = {};
-    this.hidden = id === 'superadmin-main';
+    this.hidden = id === 'superadmin-main' || id === 'protected-nav';
     this.disabled = false;
     this.innerHTML = '';
     this.innerText = '';
@@ -62,6 +62,9 @@ class FakeElement {
     this.listeners = new Map();
     this.attributes = new Map();
     this.style = {};
+    this.parentElement = null;
+    this.isConnected = true;
+    this.inert = false;
   }
 
   addEventListener(type, handler) {
@@ -102,6 +105,26 @@ class FakeElement {
   contains(element) {
     return this === element || this.children.includes(element);
   }
+
+  replaceChildren(...children) {
+    this.children.forEach((child) => {
+      child.parentElement = null;
+      child.isConnected = false;
+    });
+    this.children = children;
+    children.forEach((child) => {
+      child.parentElement = this;
+      child.isConnected = true;
+    });
+  }
+
+  closest(selector) {
+    if (selector === 'main') {
+      if (this.id === 'superadmin-main') return this;
+      return this.parentElement?.closest(selector) || null;
+    }
+    return null;
+  }
 }
 
 function asAsync(value, fallback) {
@@ -117,8 +140,13 @@ function superadminDashboardHarness(overrides = {}) {
     listeners: new Map(),
     body: null,
     getElementById(id) {
+      if (id === 'protected-page-recovery' && !elements.has(id)) return null;
       if (!elements.has(id)) elements.set(id, new FakeElement(id, document));
       return elements.get(id);
+    },
+    querySelector(selector) {
+      if (selector === 'main') return this.getElementById('superadmin-main');
+      return null;
     },
     addEventListener(type, handler) {
       const list = this.listeners.get(type) || [];
@@ -130,6 +158,8 @@ function superadminDashboardHarness(overrides = {}) {
     },
   };
   document.body = document.getElementById('body');
+  document.getElementById('protected-nav');
+  document.getElementById('superadmin-main');
 
   const calls = [];
   const methodCalls = Object.fromEntries([
@@ -215,12 +245,21 @@ function superadminDashboardHarness(overrides = {}) {
   };
   const location = { href: '' };
   const requirePageRole = async (requiredRole) => {
-    const user = await api.getCurrentUser();
-    if (user.role !== requiredRole) {
-      location.href = roleDashboards[user.role] || 'index.html';
+    try {
+      const user = await api.getCurrentUser();
+      if (user.role !== requiredRole) {
+        location.href = roleDashboards[user.role] || 'index.html';
+        return null;
+      }
+      return user;
+    } catch {
+      const recovery = new FakeElement('protected-page-recovery', document);
+      elements.set('protected-page-recovery', recovery);
+      recovery.hidden = false;
+      recovery.setAttribute('role', 'alert');
+      document.getElementById('superadmin-main').replaceChildren(recovery);
       return null;
     }
-    return user;
   };
 
   const sandbox = {

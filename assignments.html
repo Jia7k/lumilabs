@@ -12,7 +12,7 @@
 <body class="dashboard protected-page">
   <a class="skip-link" href="#assignments-main">Skip to assignments</a>
 
-  <nav class="nav" aria-label="Superadmin navigation">
+  <nav class="nav" id="protected-nav" aria-label="Superadmin navigation" hidden>
     <a class="nav-logo" href="index.html">
       <span class="logo-icon" aria-hidden="true"><i class="ti ti-trending-up"></i></span>
       Lumi5 Labs
@@ -130,6 +130,9 @@
         </div>
         <p class="form-status" id="assignment-dialog-status" role="status" aria-live="polite"></p>
         <div class="assignment-dialog-actions">
+          <button class="btn btn-outline" id="assignment-dialog-retry" type="button" hidden>
+            <i class="ti ti-refresh" aria-hidden="true"></i> Refresh data
+          </button>
           <button class="btn btn-outline" id="assignment-cancel" type="button">Cancel</button>
           <button class="btn btn-primary" id="assignment-submit" type="submit">Save assignment</button>
         </div>
@@ -152,6 +155,9 @@
       </p>
       <p class="form-status" id="unassign-dialog-status" role="status" aria-live="polite"></p>
       <div class="assignment-dialog-actions">
+        <button class="btn btn-outline" id="unassign-dialog-retry" type="button" hidden>
+          <i class="ti ti-refresh" aria-hidden="true"></i> Refresh data
+        </button>
         <button class="btn btn-outline" id="unassign-cancel" type="button">Keep assignment</button>
         <button class="btn btn-danger" id="unassign-submit" type="button">Confirm unassign</button>
       </div>

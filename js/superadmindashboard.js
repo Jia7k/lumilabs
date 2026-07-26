@@ -12,10 +12,19 @@ const superadminDashboardState = {
   statsLoading: false,
   staffLoading: false,
   auditLoading: false,
+  statsPromise: null,
+  staffPromise: null,
+  auditPromise: null,
+  statsQueuedPromise: null,
+  staffQueuedPromise: null,
+  auditQueuedPromise: null,
+  auditQueuedPage: null,
   staffSubmitting: false,
   auditPage: 1,
   auditTotalPages: 1,
   auditLimit: 50,
+  auditRequestedPage: 1,
+  auditFailedPage: null,
 };
 
 function setText(id, value) {
@@ -91,23 +100,42 @@ function renderStatsAndWorkload(stats) {
       </tr>`;
 }
 
-async function loadStatsAndWorkload() {
-  if (superadminDashboardState.statsLoading) return;
-  superadminDashboardState.statsLoading = true;
-  setSectionRecovery("stats");
-  setText("stats-status", "Loading platform overview…");
-  try {
-    const stats = await API.getSuperadminStats();
-    renderStatsAndWorkload(stats || {});
-    setText("stats-status", "");
-  } catch (error) {
-    setSectionRecovery(
-      "stats",
-      error.message || "Platform overview could not be loaded.",
-    );
-  } finally {
-    superadminDashboardState.statsLoading = false;
+function loadStatsAndWorkload({ force = false } = {}) {
+  if (superadminDashboardState.statsPromise) {
+    if (!force) return superadminDashboardState.statsPromise;
+    if (!superadminDashboardState.statsQueuedPromise) {
+      superadminDashboardState.statsQueuedPromise =
+        superadminDashboardState.statsPromise.then(() => {
+          superadminDashboardState.statsQueuedPromise = null;
+          return loadStatsAndWorkload();
+        });
+    }
+    return superadminDashboardState.statsQueuedPromise;
   }
+
+  superadminDashboardState.statsLoading = true;
+  const request = (async () => {
+    setSectionRecovery("stats");
+    setText("stats-status", "Loading platform overview…");
+    try {
+      const stats = await API.getSuperadminStats();
+      renderStatsAndWorkload(stats || {});
+      setText("stats-status", "");
+    } catch (error) {
+      setSectionRecovery(
+        "stats",
+        error.message || "Platform overview could not be loaded.",
+      );
+    }
+  })();
+  superadminDashboardState.statsPromise = request;
+  request.finally(() => {
+    if (superadminDashboardState.statsPromise === request) {
+      superadminDashboardState.statsPromise = null;
+      superadminDashboardState.statsLoading = false;
+    }
+  });
+  return request;
 }
 
 function staffRow(staff) {
@@ -132,23 +160,42 @@ function renderStaffDirectory(staff) {
       </tr>`;
 }
 
-async function loadStaffDirectory() {
-  if (superadminDashboardState.staffLoading) return;
-  superadminDashboardState.staffLoading = true;
-  setSectionRecovery("staff");
-  setText("staff-status", "Loading staff directory…");
-  try {
-    const staff = await API.getStaff();
-    renderStaffDirectory(staff);
-    setText("staff-status", "");
-  } catch (error) {
-    setSectionRecovery(
-      "staff",
-      error.message || "Staff directory could not be loaded.",
-    );
-  } finally {
-    superadminDashboardState.staffLoading = false;
+function loadStaffDirectory({ force = false } = {}) {
+  if (superadminDashboardState.staffPromise) {
+    if (!force) return superadminDashboardState.staffPromise;
+    if (!superadminDashboardState.staffQueuedPromise) {
+      superadminDashboardState.staffQueuedPromise =
+        superadminDashboardState.staffPromise.then(() => {
+          superadminDashboardState.staffQueuedPromise = null;
+          return loadStaffDirectory();
+        });
+    }
+    return superadminDashboardState.staffQueuedPromise;
   }
+
+  superadminDashboardState.staffLoading = true;
+  const request = (async () => {
+    setSectionRecovery("staff");
+    setText("staff-status", "Loading staff directory…");
+    try {
+      const staff = await API.getStaff();
+      renderStaffDirectory(staff);
+      setText("staff-status", "");
+    } catch (error) {
+      setSectionRecovery(
+        "staff",
+        error.message || "Staff directory could not be loaded.",
+      );
+    }
+  })();
+  superadminDashboardState.staffPromise = request;
+  request.finally(() => {
+    if (superadminDashboardState.staffPromise === request) {
+      superadminDashboardState.staffPromise = null;
+      superadminDashboardState.staffLoading = false;
+    }
+  });
+  return request;
 }
 
 function auditActionLabel(action) {
@@ -213,31 +260,58 @@ function renderAuditPage(payload) {
     superadminDashboardState.auditPage >= superadminDashboardState.auditTotalPages;
 }
 
-async function loadAuditPage(page = superadminDashboardState.auditPage) {
-  if (superadminDashboardState.auditLoading) return;
+function loadAuditPage(
+  page = superadminDashboardState.auditPage,
+  { force = false } = {},
+) {
   const normalizedPage = Number(page);
   if (!Number.isSafeInteger(normalizedPage) || normalizedPage <= 0) return;
+  if (superadminDashboardState.auditPromise) {
+    if (!force) return superadminDashboardState.auditPromise;
+    superadminDashboardState.auditQueuedPage = normalizedPage;
+    if (!superadminDashboardState.auditQueuedPromise) {
+      superadminDashboardState.auditQueuedPromise =
+        superadminDashboardState.auditPromise.then(() => {
+          const queuedPage = superadminDashboardState.auditQueuedPage;
+          superadminDashboardState.auditQueuedPage = null;
+          superadminDashboardState.auditQueuedPromise = null;
+          return loadAuditPage(queuedPage);
+        });
+    }
+    return superadminDashboardState.auditQueuedPromise;
+  }
 
   superadminDashboardState.auditLoading = true;
-  setSectionRecovery("audit");
-  setText("audit-status", "Loading audit history…");
-  document.getElementById("audit-previous").disabled = true;
-  document.getElementById("audit-next").disabled = true;
-  try {
-    const payload = await API.getSuperadminAuditLogs(
-      normalizedPage,
-      superadminDashboardState.auditLimit,
-    );
-    renderAuditPage(payload || {});
-    setText("audit-status", "");
-  } catch (error) {
-    setSectionRecovery(
-      "audit",
-      error.message || "Audit history could not be loaded.",
-    );
-  } finally {
-    superadminDashboardState.auditLoading = false;
-  }
+  superadminDashboardState.auditRequestedPage = normalizedPage;
+  const request = (async () => {
+    setSectionRecovery("audit");
+    setText("audit-status", "Loading audit history…");
+    document.getElementById("audit-previous").disabled = true;
+    document.getElementById("audit-next").disabled = true;
+    try {
+      const payload = await API.getSuperadminAuditLogs(
+        normalizedPage,
+        superadminDashboardState.auditLimit,
+      );
+      renderAuditPage(payload || {});
+      superadminDashboardState.auditFailedPage = null;
+      setText("audit-status", "");
+    } catch (error) {
+      superadminDashboardState.auditFailedPage = normalizedPage;
+      setSectionRecovery(
+        "audit",
+        error.message || "Audit history could not be loaded.",
+      );
+    }
+  })();
+  superadminDashboardState.auditPromise = request;
+  request.finally(() => {
+    if (superadminDashboardState.auditPromise === request) {
+      superadminDashboardState.auditPromise = null;
+      superadminDashboardState.auditLoading = false;
+    }
+  });
+  return request;
 }
 
 function clearStaffErrors() {
@@ -309,9 +383,9 @@ async function submitStaffAccount(event) {
     status.classList.add("success");
     status.textContent = `${formatRole(payload.role)} account created. Share the temporary password securely.`;
     await Promise.allSettled([
-      loadStatsAndWorkload(),
-      loadStaffDirectory(),
-      loadAuditPage(1),
+      loadStatsAndWorkload({ force: true }),
+      loadStaffDirectory({ force: true }),
+      loadAuditPage(1, { force: true }),
     ]);
   } catch (error) {
     status.classList.add("error");
@@ -342,7 +416,11 @@ function bindSuperadminDashboardEvents() {
   document.getElementById("staff-retry").addEventListener("click", loadStaffDirectory);
   document.getElementById("audit-retry").addEventListener(
     "click",
-    () => loadAuditPage(superadminDashboardState.auditPage),
+    () => loadAuditPage(
+      superadminDashboardState.auditFailedPage
+        || superadminDashboardState.auditRequestedPage
+        || superadminDashboardState.auditPage,
+    ),
   );
   document.getElementById("audit-previous").addEventListener(
     "click",
@@ -358,10 +436,18 @@ function bindSuperadminDashboardEvents() {
 
 async function initializeSuperadminDashboard() {
   const user = await requirePageRole("superadmin");
-  if (!user) return;
+  if (!user) {
+    const recovery = document.getElementById("protected-page-recovery");
+    if (recovery) {
+      const recoveryMain = recovery.closest("main") || document.querySelector("main");
+      if (recoveryMain) recoveryMain.hidden = false;
+    }
+    return;
+  }
 
   superadminDashboardState.currentUser = user;
   renderCurrentSuperadmin(user);
+  document.getElementById("protected-nav").hidden = false;
   document.getElementById("superadmin-main").hidden = false;
   await Promise.allSettled([
     loadStatsAndWorkload(),

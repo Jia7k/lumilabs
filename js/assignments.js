@@ -16,6 +16,7 @@ const assignmentState = {
   unassignPortfolioId: null,
   dialogInvoker: null,
   unassignInvoker: null,
+  pendingFocus: null,
 };
 
 function positiveSafeInteger(value) {
@@ -71,7 +72,7 @@ function disabledActionReason(reason, fallback) {
 function assignmentActions(portfolio) {
   const assigned = Boolean(portfolio.relationship_manager);
   const actions = portfolio.actions || {};
-  const busy = assignmentState.mutatingPortfolioId === portfolio.id;
+  const busy = assignmentState.mutatingPortfolioId !== null;
   const primaryAction = assigned ? "reassign" : "assign";
   const canPrimary = assigned ? actions.can_reassign : actions.can_assign;
   const primaryReason = assigned
@@ -80,7 +81,9 @@ function assignmentActions(portfolio) {
   const primaryLabel = assigned ? "Reassign" : "Assign";
   const primaryDisabled = busy || !canPrimary;
   const primaryDisabledReason = busy
-    ? "Saving this portfolio assignment…"
+    ? assignmentState.mutatingPortfolioId === portfolio.id
+      ? "Saving this portfolio assignment…"
+      : "Another portfolio assignment is being saved…"
     : primaryReason;
 
   let html = `
@@ -106,7 +109,9 @@ function assignmentActions(portfolio) {
     const canUnassign = Boolean(actions.can_unassign);
     const unassignDisabled = busy || !canUnassign;
     const unassignReason = busy
-      ? "Saving this portfolio assignment…"
+      ? assignmentState.mutatingPortfolioId === portfolio.id
+        ? "Saving this portfolio assignment…"
+        : "Another portfolio assignment is being saved…"
       : actions.unassign_disabled_reason;
     html += `
       <div class="assignment-action-group">
@@ -191,10 +196,136 @@ function normalizeManagers(payload) {
     .map(manager => ({ ...manager, id: positiveSafeInteger(manager.id) }));
 }
 
+function invokerDescriptor(invoker, fallbackAction, portfolioId) {
+  const candidate = invoker?.closest?.("[data-assignment-action]") || invoker;
+  const action = candidate?.dataset?.assignmentAction || fallbackAction;
+  const normalizedId = positiveSafeInteger(
+    candidate?.dataset?.portfolioId || portfolioId,
+  );
+  if (
+    normalizedId === null
+    || !["assign", "reassign", "unassign"].includes(action)
+  ) return null;
+  return { action, portfolioId: normalizedId };
+}
+
+function restoreActionFocus(descriptor) {
+  if (!descriptor) return;
+  const selector =
+    `[data-assignment-action="${descriptor.action}"]`
+    + `[data-portfolio-id="${descriptor.portfolioId}"]`;
+  const replacement = document.querySelector(selector)
+    || document.querySelector(
+      `[data-portfolio-id="${descriptor.portfolioId}"]`
+      + "[data-assignment-action]",
+    );
+  const fallback = document.getElementById("assignment-filter");
+  (replacement || fallback)?.focus();
+}
+
+function syncModalBackground() {
+  const modalOpen =
+    !document.getElementById("assignment-dialog").hidden
+    || !document.getElementById("unassign-dialog").hidden;
+  for (const id of ["protected-nav", "assignments-main"]) {
+    const element = document.getElementById(id);
+    element.inert = modalOpen;
+    if (modalOpen) element.setAttribute("aria-hidden", "true");
+    else element.removeAttribute("aria-hidden");
+  }
+}
+
+function assignmentDialogEligibility(portfolio) {
+  if (!portfolio) {
+    return {
+      eligible: false,
+      reason: "This portfolio is no longer available. Refresh the workspace.",
+    };
+  }
+  return {
+    eligible: canOpenAssignment(portfolio),
+    reason: assignmentDisabledReason(portfolio)
+      || "This assignment is no longer available.",
+  };
+}
+
+function renderAssignmentDialog(portfolio, { refreshed = false } = {}) {
+  const eligibility = assignmentDialogEligibility(portfolio);
+  const selectedManagerId = positiveSafeInteger(
+    portfolio?.relationship_manager?.id,
+  );
+  const title = document.getElementById("assignment-dialog-title");
+  const description = document.getElementById("assignment-dialog-description");
+  const select = document.getElementById("assignment-manager");
+  const submit = document.getElementById("assignment-submit");
+  const status = document.getElementById("assignment-dialog-status");
+  document.getElementById("assignment-dialog-retry").hidden = true;
+
+  title.textContent = !portfolio
+    ? "Assignment unavailable"
+    : selectedManagerId === null
+      ? "Assign relationship manager"
+      : "Reassign relationship manager";
+  description.textContent = portfolio
+    ? `Choose who will oversee “${portfolio.name}” and its managed chat.`
+    : "This portfolio is no longer part of the assignment workspace.";
+  select.innerHTML = managerOptions(selectedManagerId);
+  select.value = selectedManagerId === null ? "" : String(selectedManagerId);
+  select.disabled = !eligibility.eligible;
+  submit.disabled = !eligibility.eligible;
+  document.getElementById("assignment-manager-error").textContent = "";
+  status.classList.toggle("error", !eligibility.eligible);
+  status.textContent = !eligibility.eligible
+    ? eligibility.reason
+    : refreshed
+      ? "Assignment data refreshed. Review the current manager before saving."
+      : "";
+}
+
+function renderUnassignDialog(portfolio, { refreshed = false } = {}) {
+  const submit = document.getElementById("unassign-submit");
+  const status = document.getElementById("unassign-dialog-status");
+  document.getElementById("unassign-dialog-retry").hidden = true;
+  const canUnassign = Boolean(
+    portfolio?.relationship_manager
+    && portfolio.actions?.can_unassign,
+  );
+  document.getElementById("unassign-dialog-description").textContent =
+    portfolio?.relationship_manager
+      ? `Remove ${portfolio.relationship_manager.name} from “${portfolio.name}”? `
+        + "The portfolio will return to the awaiting-assignment queue."
+      : "This assignment is no longer available.";
+  submit.disabled = !canUnassign;
+  status.classList.toggle("error", !canUnassign);
+  status.textContent = !canUnassign
+    ? portfolio?.actions?.unassign_disabled_reason
+      || "This assignment can no longer be removed."
+    : refreshed
+      ? "Assignment data refreshed. Confirm the current manager before unassigning."
+      : "";
+}
+
+function reconcileOpenDialogs() {
+  if (!document.getElementById("assignment-dialog").hidden) {
+    renderAssignmentDialog(
+      findPortfolio(assignmentState.dialogPortfolioId),
+      { refreshed: true },
+    );
+  }
+  if (!document.getElementById("unassign-dialog").hidden) {
+    renderUnassignDialog(
+      findPortfolio(assignmentState.unassignPortfolioId),
+      { refreshed: true },
+    );
+  }
+}
+
 async function loadAssignments() {
   if (assignmentState.loading) return;
   assignmentState.loading = true;
   document.getElementById("assignment-retry").hidden = true;
+  document.getElementById("assignment-dialog-retry").disabled = true;
+  document.getElementById("unassign-dialog-retry").disabled = true;
   document.getElementById("assignments-main").setAttribute("aria-busy", "true");
   setAssignmentStatus("Loading portfolio assignments…");
   try {
@@ -205,6 +336,11 @@ async function loadAssignments() {
     assignmentState.items = normalizeAssignments(items);
     assignmentState.managers = normalizeManagers(managers);
     renderAssignmentRows();
+    reconcileOpenDialogs();
+    if (assignmentState.pendingFocus) {
+      restoreActionFocus(assignmentState.pendingFocus);
+      assignmentState.pendingFocus = null;
+    }
     setAssignmentStatus("");
   } catch (error) {
     setAssignmentStatus(
@@ -214,6 +350,8 @@ async function loadAssignments() {
     document.getElementById("assignment-retry").hidden = false;
   } finally {
     assignmentState.loading = false;
+    document.getElementById("assignment-dialog-retry").disabled = false;
+    document.getElementById("unassign-dialog-retry").disabled = false;
     document.getElementById("assignments-main").removeAttribute("aria-busy");
   }
 }
@@ -251,6 +389,7 @@ function managerOptions(selectedId) {
 }
 
 function openAssignmentDialog(portfolioId, invoker = document.activeElement) {
+  if (assignmentState.mutatingPortfolioId !== null) return;
   const portfolio = findPortfolio(portfolioId);
   if (!portfolio || !canOpenAssignment(portfolio)) {
     setAssignmentStatus(
@@ -261,49 +400,39 @@ function openAssignmentDialog(portfolioId, invoker = document.activeElement) {
     return;
   }
 
-  const selectedManagerId = positiveSafeInteger(
-    portfolio.relationship_manager?.id,
-  );
   assignmentState.dialogPortfolioId = portfolio.id;
-  assignmentState.dialogInvoker = invoker || null;
-  document.getElementById("assignment-dialog-title").textContent =
-    selectedManagerId === null
-      ? "Assign relationship manager"
-      : "Reassign relationship manager";
-  document.getElementById("assignment-dialog-description").textContent =
-    `Choose who will oversee “${portfolio.name}” and its managed chat.`;
-  const select = document.getElementById("assignment-manager");
-  select.innerHTML = managerOptions(selectedManagerId);
-  select.value = selectedManagerId === null ? "" : String(selectedManagerId);
-  select.disabled = false;
-  document.getElementById("assignment-submit").disabled = false;
-  document.getElementById("assignment-manager-error").textContent = "";
-  document.getElementById("assignment-dialog-status").textContent = "";
-  document.getElementById("assignment-dialog-status").classList.remove("error");
+  assignmentState.dialogInvoker = invokerDescriptor(
+    invoker,
+    portfolio.relationship_manager ? "reassign" : "assign",
+    portfolio.id,
+  );
+  renderAssignmentDialog(portfolio);
   const dialog = document.getElementById("assignment-dialog");
   dialog.hidden = false;
-  select.focus();
+  syncModalBackground();
+  document.getElementById("assignment-manager").focus();
 }
 
-function restoreFocus(invoker) {
-  if (invoker && typeof invoker.focus === "function") invoker.focus();
-}
-
-function closeAssignmentDialog() {
+function closeAssignmentDialog({ restoreAfterLoad = false } = {}) {
   if (assignmentState.mutatingPortfolioId !== null) return;
   const invoker = assignmentState.dialogInvoker;
   const dialog = document.getElementById("assignment-dialog");
   dialog.hidden = true;
   assignmentState.dialogPortfolioId = null;
   assignmentState.dialogInvoker = null;
+  if (restoreAfterLoad) assignmentState.pendingFocus = invoker;
+  document.getElementById("assignment-dialog-retry").hidden = true;
   document.getElementById("assignment-dialog-status").textContent = "";
-  restoreFocus(invoker);
+  syncModalBackground();
+  restoreActionFocus(invoker);
 }
 
 function setMutationState(portfolioId, active) {
   assignmentState.mutatingPortfolioId = active ? portfolioId : null;
   document.getElementById("assignment-submit").disabled = active;
+  document.getElementById("assignment-cancel").disabled = active;
   document.getElementById("unassign-submit").disabled = active;
+  document.getElementById("unassign-cancel").disabled = active;
   document.getElementById("assignment-manager").disabled = active;
   renderAssignmentRows();
 }
@@ -318,6 +447,11 @@ function showMutationConflict(message, statusId) {
     true,
   );
   document.getElementById("assignment-retry").hidden = false;
+  document.getElementById(
+    statusId === "unassign-dialog-status"
+      ? "unassign-dialog-retry"
+      : "assignment-dialog-retry",
+  ).hidden = false;
 }
 
 async function submitAssignment(event) {
@@ -361,7 +495,7 @@ async function submitAssignment(event) {
   try {
     await API.assignPortfolioManager(portfolio.id, managerId);
     setMutationState(portfolio.id, false);
-    closeAssignmentDialog();
+    closeAssignmentDialog({ restoreAfterLoad: true });
     setAssignmentStatus("Assignment saved.");
     await loadAssignments();
   } catch (error) {
@@ -376,6 +510,7 @@ async function submitAssignment(event) {
 }
 
 function openUnassignDialog(portfolioId, invoker = document.activeElement) {
+  if (assignmentState.mutatingPortfolioId !== null) return;
   const portfolio = findPortfolio(portfolioId);
   if (!portfolio || !portfolio.relationship_manager || !portfolio.actions?.can_unassign) {
     setAssignmentStatus(
@@ -386,26 +521,29 @@ function openUnassignDialog(portfolioId, invoker = document.activeElement) {
     return;
   }
   assignmentState.unassignPortfolioId = portfolio.id;
-  assignmentState.unassignInvoker = invoker || null;
-  document.getElementById("unassign-dialog-description").textContent =
-    `Remove ${portfolio.relationship_manager.name} from “${portfolio.name}”? `
-    + "The portfolio will return to the awaiting-assignment queue.";
-  document.getElementById("unassign-dialog-status").textContent = "";
-  document.getElementById("unassign-dialog-status").classList.remove("error");
-  document.getElementById("unassign-submit").disabled = false;
+  assignmentState.unassignInvoker = invokerDescriptor(
+    invoker,
+    "unassign",
+    portfolio.id,
+  );
+  renderUnassignDialog(portfolio);
   const dialog = document.getElementById("unassign-dialog");
   dialog.hidden = false;
+  syncModalBackground();
   document.getElementById("unassign-cancel").focus();
 }
 
-function closeUnassignDialog() {
+function closeUnassignDialog({ restoreAfterLoad = false } = {}) {
   if (assignmentState.mutatingPortfolioId !== null) return;
   const invoker = assignmentState.unassignInvoker;
   document.getElementById("unassign-dialog").hidden = true;
   assignmentState.unassignPortfolioId = null;
   assignmentState.unassignInvoker = null;
+  if (restoreAfterLoad) assignmentState.pendingFocus = invoker;
+  document.getElementById("unassign-dialog-retry").hidden = true;
   document.getElementById("unassign-dialog-status").textContent = "";
-  restoreFocus(invoker);
+  syncModalBackground();
+  restoreActionFocus(invoker);
 }
 
 async function submitUnassignment(event) {
@@ -434,7 +572,7 @@ async function submitUnassignment(event) {
   try {
     await API.unassignPortfolioManager(portfolio.id);
     setMutationState(portfolio.id, false);
-    closeUnassignDialog();
+    closeUnassignDialog({ restoreAfterLoad: true });
     setAssignmentStatus("Relationship manager unassigned.");
     await loadAssignments();
   } catch (error) {
@@ -449,6 +587,7 @@ async function submitUnassignment(event) {
 }
 
 function handleAssignmentAction(event) {
+  if (assignmentState.mutatingPortfolioId !== null) return;
   const actionButton = event.target.closest("[data-assignment-action]");
   if (!actionButton || actionButton.disabled) return;
   const portfolioId = positiveSafeInteger(actionButton.dataset.portfolioId);
@@ -460,6 +599,23 @@ function handleAssignmentAction(event) {
   if (["assign", "reassign"].includes(actionButton.dataset.assignmentAction)) {
     openAssignmentDialog(portfolioId, actionButton);
   }
+}
+
+function trapDialogFocus(event, dialog) {
+  const focusable = Array.from(dialog.querySelectorAll(
+    "button:not([disabled]), select:not([disabled]), "
+    + "input:not([disabled]), [tabindex]:not([tabindex=\"-1\"])",
+  )).filter(element => !element.hidden);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const activeIndex = focusable.indexOf(document.activeElement);
+  const shouldWrapBackward = event.shiftKey && activeIndex <= 0;
+  const shouldWrapForward = !event.shiftKey
+    && (activeIndex === -1 || document.activeElement === last);
+  if (!shouldWrapBackward && !shouldWrapForward) return;
+  event.preventDefault();
+  (shouldWrapBackward ? last : first).focus();
 }
 
 function initRoleMenu() {
@@ -506,6 +662,14 @@ function bindAssignmentEvents() {
     "click",
     loadAssignments,
   );
+  document.getElementById("assignment-dialog-retry").addEventListener(
+    "click",
+    loadAssignments,
+  );
+  document.getElementById("unassign-dialog-retry").addEventListener(
+    "click",
+    loadAssignments,
+  );
   document.getElementById("assignment-dialog").addEventListener("click", event => {
     if (event.target.dataset.dialogDismiss === "assignment") {
       closeAssignmentDialog();
@@ -515,10 +679,21 @@ function bindAssignmentEvents() {
     if (event.target.dataset.dialogDismiss === "unassign") closeUnassignDialog();
   });
   document.addEventListener("keydown", event => {
+    const unassignDialog = document.getElementById("unassign-dialog");
+    const assignmentDialog = document.getElementById("assignment-dialog");
+    const openDialog = !unassignDialog.hidden
+      ? unassignDialog
+      : !assignmentDialog.hidden
+        ? assignmentDialog
+        : null;
+    if (event.key === "Tab" && openDialog) {
+      trapDialogFocus(event, openDialog);
+      return;
+    }
     if (event.key !== "Escape" || assignmentState.mutatingPortfolioId !== null) return;
-    if (!document.getElementById("unassign-dialog").hidden) {
+    if (!unassignDialog.hidden) {
       closeUnassignDialog();
-    } else if (!document.getElementById("assignment-dialog").hidden) {
+    } else if (!assignmentDialog.hidden) {
       closeAssignmentDialog();
     }
   });
@@ -527,12 +702,20 @@ function bindAssignmentEvents() {
 
 async function initializeAssignments() {
   const user = await requirePageRole("superadmin");
-  if (!user) return;
+  if (!user) {
+    const recovery = document.getElementById("protected-page-recovery");
+    if (recovery) {
+      const recoveryMain = recovery.closest("main") || document.querySelector("main");
+      if (recoveryMain) recoveryMain.hidden = false;
+    }
+    return;
+  }
 
   const name = String(user.name || "Superadmin");
   document.getElementById("user-avatar").textContent = name.charAt(0).toUpperCase();
   document.getElementById("user-name").textContent = name;
   document.getElementById("user-role").textContent = formatRole(user.role);
+  document.getElementById("protected-nav").hidden = false;
   document.getElementById("assignments-main").hidden = false;
   await loadAssignments();
 }
