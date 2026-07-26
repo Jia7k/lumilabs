@@ -135,11 +135,125 @@ function replaceRows(metadata, finalMetadata, collection, predicate) {
   ));
 }
 
+function metadataAfterCheckpoint(checkpoint) {
+  const checkpoints = [
+    'role',
+    'portfolio_column',
+    'portfolio_index',
+    'portfolio_foreign_key',
+    'backfill',
+    'singleton',
+    'notification',
+    'audit_table',
+  ];
+  const reached = checkpoints.indexOf(checkpoint);
+  assert.notEqual(reached, -1, `Unknown migration checkpoint: ${checkpoint}`);
+
+  const metadata = priorMetadata();
+  const finalMetadata = cloneProductionSchemaMetadata();
+  if (reached >= checkpoints.indexOf('role')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'columns',
+      (row) => row.table_name === 'users' && row.column_name === 'role',
+    );
+  }
+  if (reached >= checkpoints.indexOf('portfolio_column')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'columns',
+      (row) => (
+        row.table_name === 'portfolios'
+        && row.column_name === 'relationship_manager_id'
+      ),
+    );
+  }
+  if (reached >= checkpoints.indexOf('portfolio_index')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'indexes',
+      (row) => (
+        row.table_name === 'portfolios'
+        && row.index_name === 'fk_relationship_manager'
+      ),
+    );
+  }
+  if (reached >= checkpoints.indexOf('portfolio_foreign_key')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'foreignKeys',
+      (row) => (
+        row.table_name === 'portfolios'
+        && row.constraint_name === 'fk_relationship_manager'
+      ),
+    );
+  }
+  if (reached >= checkpoints.indexOf('singleton')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'columns',
+      (row) => (
+        row.table_name === 'conversation_members'
+        && row.column_name === 'singleton_role'
+      ),
+    );
+  }
+  if (reached >= checkpoints.indexOf('notification')) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      'columns',
+      (row) => row.table_name === 'notifications' && row.column_name === 'type',
+    );
+  }
+  if (reached >= checkpoints.indexOf('audit_table')) {
+    for (const collection of [
+      'tables',
+      'columns',
+      'indexes',
+      'foreignKeys',
+    ]) {
+      replaceRows(
+        metadata,
+        finalMetadata,
+        collection,
+        (row) => row.table_name === 'superadmin_audit_logs',
+      );
+    }
+  }
+  return metadata;
+}
+
+function priorMetadataWithFinalAuditTable() {
+  const metadata = priorMetadata();
+  const finalMetadata = cloneProductionSchemaMetadata();
+  for (const collection of [
+    'tables',
+    'columns',
+    'indexes',
+    'foreignKeys',
+  ]) {
+    replaceRows(
+      metadata,
+      finalMetadata,
+      collection,
+      (row) => row.table_name === 'superadmin_audit_logs',
+    );
+  }
+  return metadata;
+}
+
 function migrationHarness(
   initialMetadata,
   {
     managerConflicts = [],
     invalidAssignees = [],
+    orphanAssignees = [],
     duplicateActiveSingletons = [],
     nullAssignments = 0,
     beforeCounts = defaultCounts,
@@ -351,6 +465,13 @@ function migrationHarness(
         return [clone(managerConflicts), []];
       }
       if (/AS assigned_user_role/i.test(source)) {
+        if (orphanAssignees.length) {
+          const preservesOrphans = (
+            /LEFT JOIN users u/i.test(source)
+            && /u\.id IS NULL/i.test(source)
+          );
+          return [preservesOrphans ? clone(orphanAssignees) : [], []];
+        }
         return [clone(invalidAssignees), []];
       }
       if (/AS duplicate_count/i.test(source)) {
@@ -504,6 +625,24 @@ test('non-relationship-manager assignments abort before mutation', async () => {
   assert.deepEqual(connection.mutations, []);
 });
 
+test('orphan portfolio manager IDs abort before mutation', async () => {
+  const connection = migrationHarness(partiallyAppliedMetadata(), {
+    orphanAssignees: [{
+      portfolio_id: 14,
+      relationship_manager_id: 999,
+      assigned_user_id: null,
+      assigned_user_role: null,
+    }],
+  });
+
+  await assert.rejects(
+    migrateFiveRoleWorkflow(connection, confirmedEnvironment),
+    (error) => error.code === 'ASSIGNEE_ROLE_INVALID',
+  );
+  assert.deepEqual(connection.mutations, []);
+  assert.equal(connection.releaseCount, 1);
+});
+
 test('duplicate active singleton members abort before mutation', async () => {
   const connection = migrationHarness(priorMetadata(), {
     duplicateActiveSingletons: [{
@@ -519,6 +658,103 @@ test('duplicate active singleton members abort before mutation', async () => {
   );
   assert.deepEqual(connection.mutations, []);
 });
+
+test('known prior and final singleton expressions are classified exactly', async () => {
+  const priorConnection = migrationHarness(priorMetadata());
+  const priorResult = await migrateFiveRoleWorkflow(
+    priorConnection,
+    confirmedEnvironment,
+  );
+  assert.ok(
+    priorResult.changed.includes('conversation_members.singleton_role'),
+  );
+
+  const finalConnection = migrationHarness(cloneProductionSchemaMetadata());
+  const finalResult = await migrateFiveRoleWorkflow(
+    finalConnection,
+    confirmedEnvironment,
+  );
+  assert.deepEqual(finalResult.changed, []);
+  assert.deepEqual(finalConnection.mutations, []);
+});
+
+test('singleton expressions with extra predicates fail preflight without mutation', async () => {
+  const metadata = priorMetadata();
+  metadataRow(
+    metadata,
+    'conversation_members',
+    'singleton_role',
+  ).generation_expression =
+    "(case when ((`membership_status` = _utf8mb4'active') and "
+    + "(`member_role` in (_utf8mb4'relationship_manager',"
+    + "_utf8mb4'business_owner')) and (1 = 1)) "
+    + 'then `member_role` else NULL end)';
+  const connection = migrationHarness(metadata);
+
+  await assert.rejects(
+    migrateFiveRoleWorkflow(connection, confirmedEnvironment),
+    (error) => error.code === 'SINGLETON_EXPRESSION_INVALID',
+  );
+  assert.deepEqual(connection.mutations, []);
+  assert.equal(connection.releaseCount, 1);
+});
+
+for (const { label, mutate } of [
+  {
+    label: 'wrong table engine',
+    mutate(metadata) {
+      metadata.tables.find((row) => (
+        row.table_name === 'superadmin_audit_logs'
+      )).engine = 'MyISAM';
+    },
+  },
+  {
+    label: 'view in place of the table',
+    mutate(metadata) {
+      metadata.tables.find((row) => (
+        row.table_name === 'superadmin_audit_logs'
+      )).table_type = 'VIEW';
+    },
+  },
+  {
+    label: 'column drift',
+    mutate(metadata) {
+      metadataRow(metadata, 'superadmin_audit_logs', 'action').column_type =
+        "enum('portfolio_assigned','unexpected')";
+    },
+  },
+  {
+    label: 'index drift',
+    mutate(metadata) {
+      metadata.indexes.find((row) => (
+        row.table_name === 'superadmin_audit_logs'
+        && row.index_name === 'idx_superadmin_audit_created_user'
+      )).column_name = 'created_user_id_snapshot';
+    },
+  },
+  {
+    label: 'foreign-key drift',
+    mutate(metadata) {
+      metadata.foreignKeys.find((row) => (
+        row.table_name === 'superadmin_audit_logs'
+        && row.constraint_name === 'fk_superadmin_audit_actor'
+      )).delete_rule = 'CASCADE';
+    },
+  },
+]) {
+  test(`existing superadmin audit ${label} fails before mutation`, async () => {
+    const metadata = priorMetadataWithFinalAuditTable();
+    mutate(metadata);
+    const connection = migrationHarness(metadata);
+
+    await assert.rejects(
+      migrateFiveRoleWorkflow(connection, confirmedEnvironment),
+      (error) => error.code === 'SUPERADMIN_AUDIT_SCHEMA_DRIFT',
+    );
+    assert.deepEqual(connection.mutations, []);
+    assert.equal(connection.releaseCount, 1);
+  });
+}
 
 test('prior metadata upgrades additively and backfills null assignments only', async () => {
   const connection = migrationHarness(priorMetadata(), {
@@ -548,32 +784,110 @@ test('prior metadata upgrades additively and backfills null assignments only', a
   assert.doesNotMatch(updates[0], /IS NOT NULL/i);
 });
 
-test('partially applied metadata completes once and reruns as a no-op', async () => {
-  const connection = migrationHarness(partiallyAppliedMetadata(), {
-    nullAssignments: 1,
+for (const checkpoint of [
+  {
+    name: 'role',
+    nullAssignments: 2,
+    changed: [
+      'portfolios.relationship_manager_id',
+      'portfolios.fk_relationship_manager.index',
+      'portfolios.fk_relationship_manager.foreign_key',
+      'conversation_members.singleton_role',
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 2,
+  },
+  {
+    name: 'portfolio_column',
+    nullAssignments: 2,
+    changed: [
+      'portfolios.fk_relationship_manager.index',
+      'portfolios.fk_relationship_manager.foreign_key',
+      'conversation_members.singleton_role',
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 2,
+  },
+  {
+    name: 'portfolio_index',
+    nullAssignments: 2,
+    changed: [
+      'portfolios.fk_relationship_manager.foreign_key',
+      'conversation_members.singleton_role',
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 2,
+  },
+  {
+    name: 'portfolio_foreign_key',
+    nullAssignments: 2,
+    changed: [
+      'conversation_members.singleton_role',
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 2,
+  },
+  {
+    name: 'backfill',
+    nullAssignments: 0,
+    changed: [
+      'conversation_members.singleton_role',
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 0,
+  },
+  {
+    name: 'singleton',
+    nullAssignments: 0,
+    changed: [
+      'notifications.type',
+      'superadmin_audit_logs',
+    ],
+    backfilled: 0,
+  },
+  {
+    name: 'notification',
+    nullAssignments: 0,
+    changed: ['superadmin_audit_logs'],
+    backfilled: 0,
+  },
+  {
+    name: 'audit_table',
+    nullAssignments: 0,
+    changed: [],
+    backfilled: 0,
+  },
+]) {
+  test(`rerun after ${checkpoint.name} checkpoint converges then is mutation-free`, async () => {
+    const connection = migrationHarness(
+      metadataAfterCheckpoint(checkpoint.name),
+      { nullAssignments: checkpoint.nullAssignments },
+    );
+    const first = await migrateFiveRoleWorkflow(
+      connection,
+      confirmedEnvironment,
+    );
+
+    assert.deepEqual(first.changed, checkpoint.changed);
+    assert.equal(first.backfilled_assignments, checkpoint.backfilled);
+    assert.deepEqual(first.after, first.before);
+
+    const mutationCount = connection.mutations.length;
+    const second = await migrateFiveRoleWorkflow(
+      connection,
+      confirmedEnvironment,
+    );
+    assert.deepEqual(second.changed, []);
+    assert.equal(second.backfilled_assignments, 0);
+    assert.equal(connection.mutations.length, mutationCount);
+    assert.equal(connection.releaseCount, 2);
   });
-  const first = await migrateFiveRoleWorkflow(
-    connection,
-    confirmedEnvironment,
-  );
-
-  assert.equal(first.backfilled_assignments, 1);
-  assert.deepEqual(first.changed, [
-    'conversation_members.singleton_role',
-    'notifications.type',
-    'superadmin_audit_logs',
-  ]);
-
-  const mutationCount = connection.mutations.length;
-  const second = await migrateFiveRoleWorkflow(
-    connection,
-    confirmedEnvironment,
-  );
-  assert.deepEqual(second.changed, []);
-  assert.equal(second.backfilled_assignments, 0);
-  assert.equal(connection.mutations.length, mutationCount);
-  assert.equal(connection.releaseCount, 2);
-});
+}
 
 test('protected row count drift is rejected after final verification', async () => {
   const afterCounts = { ...defaultCounts, messages: defaultCounts.messages - 1 };

@@ -1,4 +1,5 @@
 const {
+  EXPECTED_SCHEMA,
   FINAL_NOTIFICATION_COLUMN_TYPE,
   FINAL_ROLE_COLUMN_TYPE,
   verifyPreservedCoreSchema,
@@ -15,6 +16,94 @@ const PRIOR_NOTIFICATION_COLUMN_TYPE =
   "enum('new_message','new_interest','portfolio_approved','portfolio_rejected',"
   + "'portfolio_needs_changes','portfolio_submitted','conversation_created',"
   + "'conversation_member_added','conversation_archived')";
+const PRIOR_SINGLETON_GENERATION_EXPRESSION =
+  "(case when (`member_role` in (_utf8mb4'relationship_manager',"
+  + "_utf8mb4'business_owner')) then `member_role` else NULL end)";
+const FINAL_SINGLETON_GENERATION_EXPRESSION =
+  "(case when ((`membership_status` = _utf8mb4'active') and "
+  + "(`member_role` in (_utf8mb4'relationship_manager',"
+  + "_utf8mb4'business_owner'))) then `member_role` else NULL end)";
+
+const SUPERADMIN_AUDIT_INDEXES = new Map([
+  ['PRIMARY', { unique: true, columns: ['id'] }],
+  [
+    'idx_superadmin_audit_actor',
+    { unique: false, columns: ['superadmin_id', 'created_at'] },
+  ],
+  [
+    'idx_superadmin_audit_action',
+    { unique: false, columns: ['action', 'created_at'] },
+  ],
+  [
+    'idx_superadmin_audit_portfolio',
+    { unique: false, columns: ['portfolio_id', 'created_at'] },
+  ],
+  [
+    'idx_superadmin_audit_previous_manager',
+    { unique: false, columns: ['previous_relationship_manager_id'] },
+  ],
+  [
+    'idx_superadmin_audit_new_manager',
+    { unique: false, columns: ['new_relationship_manager_id'] },
+  ],
+  [
+    'idx_superadmin_audit_created_user',
+    { unique: false, columns: ['created_user_id'] },
+  ],
+]);
+
+const SUPERADMIN_AUDIT_FOREIGN_KEYS = new Map([
+  [
+    'fk_superadmin_audit_actor',
+    {
+      columns: ['superadmin_id'],
+      referencedTable: 'users',
+      referencedColumns: ['id'],
+      deleteRule: 'SET NULL',
+      updateRule: 'NO ACTION',
+    },
+  ],
+  [
+    'fk_superadmin_audit_created_user',
+    {
+      columns: ['created_user_id'],
+      referencedTable: 'users',
+      referencedColumns: ['id'],
+      deleteRule: 'SET NULL',
+      updateRule: 'NO ACTION',
+    },
+  ],
+  [
+    'fk_superadmin_audit_new_manager',
+    {
+      columns: ['new_relationship_manager_id'],
+      referencedTable: 'users',
+      referencedColumns: ['id'],
+      deleteRule: 'SET NULL',
+      updateRule: 'NO ACTION',
+    },
+  ],
+  [
+    'fk_superadmin_audit_portfolio',
+    {
+      columns: ['portfolio_id'],
+      referencedTable: 'portfolios',
+      referencedColumns: ['id'],
+      deleteRule: 'SET NULL',
+      updateRule: 'NO ACTION',
+    },
+  ],
+  [
+    'fk_superadmin_audit_previous_manager',
+    {
+      columns: ['previous_relationship_manager_id'],
+      referencedTable: 'users',
+      referencedColumns: ['id'],
+      deleteRule: 'SET NULL',
+      updateRule: 'NO ACTION',
+    },
+  ],
+]);
 
 const PROTECTED_TABLES = [
   'users',
@@ -137,12 +226,38 @@ function normalizedSql(value) {
 }
 
 function normalizedExpression(value) {
-  return String(value ?? '')
+  let normalized = String(value ?? '')
     .replace(/\\'/g, "'")
     .replace(/`/g, '')
     .replace(/_utf8mb4/gi, '')
     .replace(/\s+/g, '')
     .toLowerCase();
+  while (outerParenthesesEnclose(normalized)) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function outerParenthesesEnclose(value) {
+  if (!value.startsWith('(') || !value.endsWith(')')) return false;
+  let depth = 0;
+  let inString = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "'") {
+      if (inString && value[index + 1] === "'") {
+        index += 1;
+      } else {
+        inString = !inString;
+      }
+      continue;
+    }
+    if (inString) continue;
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (depth === 0 && index < value.length - 1) return false;
+  }
+  return depth === 0;
 }
 
 function exactDefault(row, expected) {
@@ -180,27 +295,35 @@ function exactColumn(
   );
 }
 
-function exactSingletonColumn(row) {
+function singletonExpressionKind(row) {
   if (!exactColumn(row, {
     type: 'varchar(24)',
     nullable: 'YES',
     defaultValue: null,
     ordinalPosition: 4,
   })) {
-    return false;
+    return 'invalid';
   }
   const extra = normalizedSql(property(row, 'extra'));
-  if (!extra.includes('stored') || !extra.includes('generated')) return false;
+  if (extra !== 'storedgenerated' && extra !== 'generatedstored') {
+    return 'invalid';
+  }
   const expression = normalizedExpression(
     property(row, 'generation_expression'),
   );
-  return (
-    expression.includes("membership_status='active'")
-    && expression.includes(
-      "member_rolein('relationship_manager','business_owner')",
-    )
-    && expression.includes('thenmember_roleelsenullend')
-  );
+  if (
+    expression
+    === normalizedExpression(PRIOR_SINGLETON_GENERATION_EXPRESSION)
+  ) {
+    return 'prior';
+  }
+  if (
+    expression
+    === normalizedExpression(FINAL_SINGLETON_GENERATION_EXPRESSION)
+  ) {
+    return 'final';
+  }
+  return 'invalid';
 }
 
 function exactIndex(indexRows, { unique, columns }) {
@@ -239,6 +362,90 @@ function exactForeignKey(
     && String(property(row, 'delete_rule')).toUpperCase() === deleteRule
     && String(property(row, 'update_rule')).toUpperCase() === updateRule
   ));
+}
+
+function rowsForTable(metadata, collection, tableName) {
+  return metadata[collection].filter((row) => (
+    property(row, 'table_name') === tableName
+  ));
+}
+
+function groupedBy(rowsToGroup, propertyName) {
+  const groups = new Map();
+  for (const row of rowsToGroup) {
+    const name = property(row, propertyName);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(row);
+  }
+  return groups;
+}
+
+function superadminAuditMetadataKind(metadata) {
+  const tableName = 'superadmin_audit_logs';
+  const tables = rowsForTable(metadata, 'tables', tableName);
+  const columns = rowsForTable(metadata, 'columns', tableName);
+  const indexes = rowsForTable(metadata, 'indexes', tableName);
+  const foreignKeys = rowsForTable(metadata, 'foreignKeys', tableName);
+  if (tables.length === 0) {
+    return (
+      columns.length === 0
+      && indexes.length === 0
+      && foreignKeys.length === 0
+    ) ? 'absent' : 'drifted';
+  }
+  if (
+    tables.length !== 1
+    || String(property(tables[0], 'table_type')).toUpperCase() !== 'BASE TABLE'
+    || String(property(tables[0], 'engine')).toLowerCase() !== 'innodb'
+    || String(property(tables[0], 'table_collation')).toLowerCase()
+      !== 'utf8mb4_0900_ai_ci'
+  ) {
+    return 'drifted';
+  }
+
+  const expectedColumns = EXPECTED_SCHEMA.columns[tableName];
+  if (columns.length !== expectedColumns.length) return 'drifted';
+  for (const expected of expectedColumns) {
+    const actual = columns.find((row) => (
+      property(row, 'column_name') === expected.name
+    ));
+    if (!exactColumn(actual, {
+      type: expected.type,
+      nullable: expected.nullable,
+      defaultValue: expected.defaultValue,
+      ordinalPosition: expected.ordinalPosition,
+      extra: expected.extra,
+    })) {
+      return 'drifted';
+    }
+    if (
+      normalizedExpression(property(actual, 'generation_expression'))
+      !== normalizedExpression(expected.generationExpression)
+    ) {
+      return 'drifted';
+    }
+  }
+
+  const indexGroups = groupedBy(indexes, 'index_name');
+  if (indexGroups.size !== SUPERADMIN_AUDIT_INDEXES.size) return 'drifted';
+  for (const [name, contract] of SUPERADMIN_AUDIT_INDEXES) {
+    if (!exactIndex(indexGroups.get(name) || [], contract)) return 'drifted';
+  }
+
+  const foreignKeyGroups = groupedBy(foreignKeys, 'constraint_name');
+  if (
+    foreignKeyGroups.size !== SUPERADMIN_AUDIT_FOREIGN_KEYS.size
+  ) {
+    return 'drifted';
+  }
+  for (const [name, contract] of SUPERADMIN_AUDIT_FOREIGN_KEYS) {
+    if (
+      !exactForeignKey(foreignKeyGroups.get(name) || [], contract)
+    ) {
+      return 'drifted';
+    }
+  }
+  return 'final';
 }
 
 async function collectMigrationMetadata(connection) {
@@ -345,6 +552,22 @@ async function verifyMigrationInput(connection) {
       'CORE_SCHEMA_INVALID',
     );
   }
+  const singletonRole = metadata.columns.find((row) => (
+    property(row, 'table_name') === 'conversation_members'
+    && property(row, 'column_name') === 'singleton_role'
+  ));
+  if (singletonExpressionKind(singletonRole) === 'invalid') {
+    throw new FiveRoleMigrationError(
+      'conversation_members.singleton_role is not the known prior or final expression',
+      'SINGLETON_EXPRESSION_INVALID',
+    );
+  }
+  if (superadminAuditMetadataKind(metadata) === 'drifted') {
+    throw new FiveRoleMigrationError(
+      'Existing superadmin_audit_logs metadata differs from the final contract',
+      'SUPERADMIN_AUDIT_SCHEMA_DRIFT',
+    );
+  }
   if (
     ![
       normalizedSql(PRIOR_NOTIFICATION_COLUMN_TYPE),
@@ -445,10 +668,11 @@ async function assertAssignedUsersAreRelationshipManagers(connection) {
                 p.relationship_manager_id,
                 c.relationship_manager_id
               ) AS relationship_manager_id,
+              u.id AS assigned_user_id,
               u.role AS assigned_user_role
          FROM portfolios p
          LEFT JOIN conversations c ON c.portfolio_id = p.id
-         JOIN users u
+         LEFT JOIN users u
            ON u.id = COALESCE(
              p.relationship_manager_id,
              c.relationship_manager_id
@@ -457,17 +681,22 @@ async function assertAssignedUsersAreRelationshipManagers(connection) {
                 p.relationship_manager_id,
                 c.relationship_manager_id
               ) IS NOT NULL
-          AND u.role <> 'relationship_manager'`,
+          AND (
+            u.id IS NULL
+            OR u.role <> 'relationship_manager'
+          )`,
     )
     : await rows(
       connection,
       `SELECT p.id AS portfolio_id,
               c.relationship_manager_id AS relationship_manager_id,
+              u.id AS assigned_user_id,
               u.role AS assigned_user_role
          FROM portfolios p
          JOIN conversations c ON c.portfolio_id = p.id
-         JOIN users u ON u.id = c.relationship_manager_id
-        WHERE u.role <> 'relationship_manager'`,
+         LEFT JOIN users u ON u.id = c.relationship_manager_id
+        WHERE u.id IS NULL
+           OR u.role <> 'relationship_manager'`,
     );
   if (invalid.length) {
     throw new FiveRoleMigrationError(
@@ -701,7 +930,14 @@ async function ensureActiveOnlySingletonExpression(connection, changed) {
       'SCHEMA_OBJECT_CONFLICT',
     );
   }
-  if (!exactSingletonColumn(columns[0])) {
+  const expressionKind = singletonExpressionKind(columns[0]);
+  if (expressionKind === 'invalid') {
+    throw new FiveRoleMigrationError(
+      'conversation_members.singleton_role changed after preflight',
+      'SINGLETON_EXPRESSION_INVALID',
+    );
+  }
+  if (expressionKind === 'prior') {
     await connection.query(
       `ALTER TABLE conversation_members
          MODIFY COLUMN singleton_role VARCHAR(24)
