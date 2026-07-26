@@ -202,12 +202,18 @@ function adminHarness(overrides = {}) {
 
   return {
     api,
+    get apiCalls() {
+      return Object.entries(calls)
+        .flatMap(([name, methodCalls]) => methodCalls.map(() => name));
+    },
     calls,
     context,
     document,
     element: (id) => document.getElementById(id),
     init: () => context.__adminInitPromise,
+    initialize: () => context.__adminInitPromise,
     run: (code) => vm.runInContext(code, context),
+    source,
   };
 }
 

@@ -8,272 +8,871 @@ const root = path.join(__dirname, '..', '..');
 const htmlPath = path.join(root, 'relationshipmanagerdashboard.html');
 const clientPath = path.join(root, 'js', 'relationshipmanagerdashboard.js');
 const cssPath = path.join(root, 'css', 'style.css');
+const htmlSource = fs.readFileSync(htmlPath, 'utf8');
+const clientSource = fs.readFileSync(clientPath, 'utf8');
 
-function readRequired(file, label) {
-  assert.equal(fs.existsSync(file), true, `${label} must exist`);
-  return fs.readFileSync(file, 'utf8');
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
 }
 
-function managerHarness() {
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function portfolio(overrides = {}) {
+  return {
+    id: 20,
+    name: 'Northstar Health',
+    status: 'approved',
+    sector: 'Healthtech',
+    description: 'Care coordination for neighbourhood clinics.',
+    mvp_status: 'Beta',
+    funding_goal: '250000.00',
+    readiness_score: 82,
+    team_size: 5,
+    founded_year: 2024,
+    location: 'Singapore',
+    website: 'https://northstar.example',
+    advisor_names: 'Dr Tan',
+    monthly_revenue: '12000.00',
+    user_count: 450,
+    growth_rate: '12.50',
+    market_size: 'Regional clinics',
+    competitor_analysis: 'Focused on small practices',
+    burn_rate: '18000.00',
+    runway_months: 14,
+    created_at: '2026-06-01T00:00:00.000Z',
+    submitted_at: '2026-07-20T00:00:00.000Z',
+    owner: {
+      id: 9,
+      name: 'Olivia Owner',
+      email: 'olivia@example.test',
+    },
+    conversation: null,
+    interests: [],
+    participants: [],
+    documents: [{
+      id: 51,
+      file_name: 'northstar-deck.pdf',
+      file_type: 'pitch_deck',
+      uploaded_at: '2026-07-21T00:00:00.000Z',
+      download_url: '/api/portfolios/20/documents/51/download',
+    }],
+    actions: {
+      can_create_conversation: false,
+      create_disabled_reason: 'Create chat becomes available after an investor expresses interest',
+      can_add_investors: false,
+      add_disabled_reason: 'Create the portfolio chat first',
+    },
+    ...overrides,
+  };
+}
+
+function dashboard(portfolios) {
+  return {
+    stats: {
+      assigned_portfolios: portfolios.length,
+      approved_portfolios: portfolios.filter((item) => item.status === 'approved').length,
+      eligible_interests: portfolios.reduce(
+        (total, item) => total + item.interests.filter((interest) => !interest.is_active_member).length,
+        0,
+      ),
+      active_rooms: portfolios.filter(
+        (item) => item.conversation?.status === 'active',
+      ).length,
+      unread_messages: portfolios.reduce(
+        (total, item) => total + (item.conversation?.unread_count || 0),
+        0,
+      ),
+    },
+    portfolios,
+  };
+}
+
+const assignedNoInterestResponse = dashboard([portfolio()]);
+
+const activeRoomResponse = dashboard([portfolio({
+  conversation: {
+    id: 40,
+    title: 'Northstar investor room',
+    status: 'active',
+    archived_reason: null,
+    unread_count: 3,
+  },
+  interests: [{
+    interest_id: 60,
+    investor: {
+      id: 11,
+      name: 'Ian Investor',
+      email: 'ian@example.test',
+    },
+    is_active_member: true,
+  }],
+  participants: [
+    {
+      id: 7,
+      name: 'Rita Manager',
+      email: 'rita@example.test',
+      role: 'relationship_manager',
+      joined_at: '2026-07-22T00:00:00.000Z',
+    },
+    {
+      id: 9,
+      name: 'Olivia Owner',
+      email: 'olivia@example.test',
+      role: 'business_owner',
+      joined_at: '2026-07-22T00:00:00.000Z',
+    },
+    {
+      id: 11,
+      name: 'Ian Investor',
+      email: 'ian@example.test',
+      role: 'investor',
+      joined_at: '2026-07-22T00:00:00.000Z',
+    },
+  ],
+  actions: {
+    can_create_conversation: false,
+    create_disabled_reason: 'This portfolio already has its group chat',
+    can_add_investors: false,
+    add_disabled_reason: 'No additional interested investors are available',
+  },
+})]);
+
+class FakeClassList {
+  constructor() {
+    this.values = new Set();
+  }
+
+  add(...names) {
+    names.forEach((name) => this.values.add(name));
+  }
+
+  remove(...names) {
+    names.forEach((name) => this.values.delete(name));
+  }
+
+  contains(name) {
+    return this.values.has(name);
+  }
+
+  toggle(name, force) {
+    const next = force === undefined ? !this.values.has(name) : Boolean(force);
+    if (next) this.values.add(name);
+    else this.values.delete(name);
+    return next;
+  }
+}
+
+class FakeElement {
+  constructor(id, ownerDocument) {
+    this.id = id;
+    this.ownerDocument = ownerDocument;
+    this.classList = new FakeClassList();
+    this.className = '';
+    this.dataset = {};
+    this.disabled = false;
+    this.hidden = false;
+    this.innerHTML = '';
+    this.innerText = '';
+    this.textContent = '';
+    this.value = '';
+    this.focusableChildren = [];
+    this.listeners = new Map();
+    this.attributes = new Map();
+  }
+
+  addEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  async dispatch(type, overrides = {}) {
+    if (type === 'click' && (this.disabled || this.hidden)) return false;
+    const event = {
+      type,
+      target: overrides.target || this,
+      currentTarget: this,
+      preventDefault() {},
+      stopPropagation() {},
+      ...overrides,
+    };
+    for (const handler of this.listeners.get(type) || []) await handler(event);
+    return true;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  closest(selector) {
+    if (selector === 'button[data-action]' && this.dataset.action) return this;
+    if (selector === 'input[data-selection]' && this.dataset.selection) return this;
+    return null;
+  }
+
+  querySelectorAll() {
+    return this.focusableChildren;
+  }
+
+  contains(element) {
+    return this === element || this.focusableChildren.includes(element);
+  }
+
+  focus() {
+    this.ownerDocument.activeElement = this;
+  }
+}
+
+function decodeHtml(value) {
+  return value
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#039;', "'")
+    .replaceAll('&amp;', '&');
+}
+
+function textFromHtml(value) {
+  return decodeHtml(value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+}
+
+function buttonFromHtml(cardHtml, action) {
+  const tag = [...cardHtml.matchAll(/<button\b[^>]*>/g)]
+    .map((match) => match[0])
+    .find((candidate) => new RegExp(`data-action=["']${action}["']`).test(candidate));
+  if (!tag) return null;
+  return {
+    disabled: /\sdisabled(?:\s|>|=)/.test(tag),
+    html: tag,
+  };
+}
+
+function relationshipManagerHarness(response, overrides = {}) {
   const elements = new Map();
-  const hooks = { statuses: [], renders: 0, refreshes: 0 };
+  let checkedInputs = [];
   const document = {
-    addEventListener() {},
-    querySelectorAll() { return []; },
+    activeElement: null,
+    listeners: new Map(),
     getElementById(id) {
-      if (!elements.has(id)) {
-        elements.set(id, {
-          innerHTML: '', textContent: '', className: '', hidden: false,
-          addEventListener() {},
-        });
-      }
+      if (!elements.has(id)) elements.set(id, new FakeElement(id, document));
       return elements.get(id);
     },
+    querySelectorAll(selector) {
+      if (!selector.includes(':checked')) return [];
+      const selection = selector.match(/data-selection=["']?([^"'\]]+)/)?.[1];
+      const portfolioId = selector.match(/data-portfolio-id=["']?([^"'\]]+)/)?.[1]
+        || selector.match(/data-parent-id=["']?([^"'\]]+)/)?.[1];
+      return checkedInputs.filter((input) => (
+        (!selection || input.dataset.selection === selection)
+        && (!portfolioId || input.dataset.portfolioId === portfolioId
+          || input.dataset.parentId === portfolioId)
+        && input.checked
+      ));
+    },
+    addEventListener(type, handler) {
+      const handlers = this.listeners.get(type) || [];
+      handlers.push(handler);
+      this.listeners.set(type, handlers);
+    },
+    async dispatch(type, event = {}) {
+      for (const handler of this.listeners.get(type) || []) await handler(event);
+    },
   };
+
+  const methodCalls = Object.fromEntries([
+    'getRelationshipManagerDashboard',
+    'getAssignedPortfolio',
+    'createManagedConversation',
+    'addManagedInvestors',
+    'removeManagedInvestor',
+    'downloadDocument',
+  ].map((name) => [name, []]));
+  let currentResponse = response;
+  const defaultImplementations = {
+    getRelationshipManagerDashboard: async () => clone(currentResponse),
+    getAssignedPortfolio: async (portfolioId) => {
+      const assigned = currentResponse.portfolios.find((item) => item.id === portfolioId);
+      return clone(assigned);
+    },
+    createManagedConversation: async () => ({}),
+    addManagedInvestors: async () => ({}),
+    removeManagedInvestor: async () => ({}),
+    downloadDocument: async () => {},
+  };
+  const api = {};
+  for (const [name, fallback] of Object.entries(defaultImplementations)) {
+    api[name] = async (...args) => {
+      methodCalls[name].push(args);
+      return (overrides[name] || fallback)(...args);
+    };
+  }
+
+  const confirmations = [];
+  const window = {
+    location: { href: '' },
+    confirm(message) {
+      confirmations.push(message);
+      return overrides.confirm === undefined ? true : overrides.confirm(message);
+    },
+  };
+  const requirePageRole = overrides.requirePageRole || (async () => ({
+    id: 7,
+    name: 'Rita Manager',
+    email: 'rita@example.test',
+    role: 'relationship_manager',
+  }));
   const context = vm.createContext({
-    window: { location: { href: '' } }, document, console, API: {},
-    requirePageRole: async () => null, hooks,
+    API: api,
+    document,
+    window,
+    requirePageRole,
+    signOut() {},
+    console,
+    setTimeout,
+    clearTimeout,
   });
-  vm.runInContext(readRequired(clientPath, 'relationship manager client'), context);
-  const originalSetStatus = context.setStatus;
-  vm.runInContext(`
-    setStatus = (message, type, retryable) => hooks.statuses.push({ message, type, retryable });
-    renderDashboard = () => { hooks.renders += 1; };
-  `, context);
+  vm.runInContext(clientSource, context, {
+    filename: 'js/relationshipmanagerdashboard.js',
+  });
+
+  function card(id) {
+    const rendered = document.getElementById('portfolio-list').innerHTML;
+    const match = rendered.match(new RegExp(
+      `<article\\b[^>]*data-portfolio-card=["']${id}["'][^>]*>([\\s\\S]*?)<\\/article>`,
+    ));
+    const cardHtml = match?.[0] || '';
+    return {
+      html: cardHtml,
+      textContent: textFromHtml(cardHtml),
+      createButton: buttonFromHtml(cardHtml, 'create'),
+      addButton: buttonFromHtml(cardHtml, 'add'),
+    };
+  }
+
+  async function clickAction(action, dataset = {}) {
+    const button = new FakeElement(`${action}-button`, document);
+    button.dataset = { action, ...Object.fromEntries(
+      Object.entries(dataset).map(([key, value]) => [key, String(value)]),
+    ) };
+    await document.getElementById('main-content').dispatch('click', { target: button });
+  }
+
   return {
+    api,
+    card,
+    confirmations,
     context,
-    elements,
-    hooks,
-    originalSetStatus,
+    document,
+    element: (id) => document.getElementById(id),
+    methodCalls,
+    source: clientSource,
+    get dashboardLoads() {
+      return methodCalls.getRelationshipManagerDashboard.length;
+    },
+    get removals() {
+      return methodCalls.removeManagedInvestor.map(([conversationId, investorId]) => ({
+        conversationId,
+        investorId,
+      }));
+    },
+    initialize: () => (
+      typeof context.initRelationshipManagerDashboard === 'function'
+        ? context.initRelationshipManagerDashboard()
+        : false
+    ),
+    setResponse(nextResponse) {
+      currentResponse = nextResponse;
+    },
+    selectInterests(kind, portfolioId, interestIds) {
+      checkedInputs = interestIds.map((interestId) => ({
+        checked: true,
+        value: String(interestId),
+        dataset: {
+          selection: kind,
+          portfolioId: String(portfolioId),
+          parentId: String(portfolioId),
+        },
+      }));
+      if (typeof context.syncSelectionFromDom === 'function') {
+        context.syncSelectionFromDom(kind, String(portfolioId));
+        context.renderDashboard();
+      }
+    },
+    clickAction,
+    openDetails: (portfolioId, trigger = null) => (
+      typeof context.openPortfolioDetails === 'function'
+        ? context.openPortfolioDetails(portfolioId, trigger)
+        : false
+    ),
+    closeDetails: () => (
+      typeof context.closePortfolioDetails === 'function'
+        ? context.closePortfolioDetails()
+        : false
+    ),
+    removeInvestor: ({ conversationId, investorId }) => (
+      typeof context.removeInvestor === 'function'
+        ? context.removeInvestor(conversationId, investorId)
+        : false
+    ),
+    download: (portfolioId, documentId) => (
+      typeof context.downloadPortfolioDocument === 'function'
+        ? context.downloadPortfolioDocument(portfolioId, documentId)
+        : false
+    ),
     run: (code) => vm.runInContext(code, context),
   };
 }
 
-test('manager dashboard has semantic loading, content, empty, and recoverable status regions', () => {
-  const html = readRequired(htmlPath, 'relationship manager dashboard');
+test('dashboard markup exposes one assigned workspace and an accessible detail dialog', () => {
   for (const id of [
-    'stat-eligible', 'stat-active', 'stat-businesses', 'stat-unread',
-    'dashboard-status', 'unclaimed-room-list', 'managed-room-list',
-    'user-avatar', 'user-name', 'user-role',
-  ]) assert.match(html, new RegExp(`id=["']${id}["']`), id);
-  assert.match(html, /aria-live="polite"/);
-  assert.match(html, /Loading managed conversations/);
-  assert.match(html, /<main/);
-  assert.match(html, /signOut/);
+    'stat-assigned', 'stat-approved', 'stat-eligible', 'stat-active', 'stat-unread',
+    'dashboard-status', 'dashboard-retry', 'portfolio-list', 'portfolio-detail-overlay',
+    'portfolio-detail-card', 'user-avatar', 'user-name', 'user-role',
+  ]) {
+    assert.match(htmlSource, new RegExp(`id=["']${id}["']`), id);
+  }
+  assert.match(htmlSource, /aria-live="polite"/);
+  assert.match(htmlSource, /role="dialog"/);
+  assert.match(htmlSource, /<main/);
+  assert.doesNotMatch(htmlSource, /unclaimed-room-list|managed-room-list/);
 });
 
-test('Retry remains visually hidden when the dashboard status is not retryable', () => {
-  const css = readRequired(cssPath, 'shared stylesheet');
-  assert.match(
-    css,
-    /\.rm-retry\[hidden\]\s*\{[^}]*display:\s*none\s*;?[^}]*\}/s,
-  );
+test('role authorization completes before dashboard data loading', async () => {
+  const role = deferred();
+  const page = relationshipManagerHarness(assignedNoInterestResponse, {
+    requirePageRole: async () => role.promise,
+  });
 
-  const client = managerHarness();
+  const initialization = page.initialize();
+  await flush();
+  assert.equal(page.dashboardLoads, 0);
 
-  client.originalSetStatus('Dashboard is up to date.', 'success');
-  assert.equal(client.elements.get('dashboard-retry').hidden, true);
-
-  client.originalSetStatus('Could not load the dashboard.', 'error', true);
-  assert.equal(client.elements.get('dashboard-retry').hidden, false);
+  role.resolve({
+    id: 7,
+    name: 'Rita Manager',
+    email: 'rita@example.test',
+    role: 'relationship_manager',
+  });
+  await initialization;
+  assert.equal(page.dashboardLoads, 1);
 });
 
-test('role authorization completes before dashboard data loading', () => {
-  const source = readRequired(clientPath, 'relationship manager client');
-  const roleCheck = source.indexOf('await requirePageRole("relationship_manager")');
-  const dataLoad = source.indexOf('API.getRelationshipManagerDashboard()');
-  assert.ok(roleCheck >= 0 && dataLoad > roleCheck);
-  assert.match(source, /if \(!state\.user\) return/);
+test('renders assigned no-interest portfolio with disabled explanation', async () => {
+  const page = relationshipManagerHarness(assignedNoInterestResponse);
+  await page.initialize();
+
+  assert.match(page.card(20).textContent, /after an investor expresses interest/i);
+  assert.equal(page.card(20).createButton.disabled, true);
+  assert.match(page.card(20).textContent, /approved/i);
+  assert.match(page.card(20).textContent, /chat not started/i);
 });
 
-test('client tracks multiple create/add selections and recoverable pending state', () => {
-  const source = readRequired(clientPath, 'relationship manager client');
-  assert.match(source, /selectedCreateInterests:\s*new Map\(\)/);
-  assert.match(source, /selectedAddInterests:\s*new Map\(\)/);
-  assert.match(source, /pending:\s*new Set\(\)/);
-  assert.match(source, /const selector = [^\n]*:checked/);
-  assert.match(source, /querySelectorAll\(selector\)/);
-  assert.match(source, /API\.createManagedConversation\([^,]+,\s*interestIds\)/);
-  assert.match(source, /API\.addManagedInvestors\([^,]+,\s*interestIds\)/);
-  assert.match(source, /Please select at least one interested investor/);
-  assert.match(source, /setStatus\(error\.message,\s*"error"\)/);
-});
+test('renders every assigned status and trusts server-disabled action reasons', async () => {
+  const statuses = ['approved', 'draft', 'pending', 'rejected'];
+  const response = dashboard(statuses.map((status, index) => portfolio({
+    id: 20 + index,
+    name: `${status} portfolio`,
+    status,
+    interests: [{
+      interest_id: 80 + index,
+      investor: {
+        id: 100 + index,
+        name: `${status} investor`,
+        email: `${status}@example.test`,
+      },
+      is_active_member: false,
+    }],
+    actions: {
+      can_create_conversation: false,
+      create_disabled_reason: `Server blocked ${status}`,
+      can_add_investors: false,
+      add_disabled_reason: 'Create the portfolio chat first',
+    },
+  })));
+  const page = relationshipManagerHarness(response);
+  await page.initialize();
 
-test('rendering escapes names and titles and avoids unescaped inline handlers', () => {
-  const source = readRequired(clientPath, 'relationship manager client');
-  for (const expression of [
-    'portfolio.portfolio_name', 'portfolio.owner.name', 'interest.investor.name', 'room.title',
-  ]) assert.match(source, new RegExp(`escapeHtml\\(${expression.replace('.', '\\.')}\\)`));
-  assert.match(source, /function participantChip\(name,[\s\S]*escapeHtml\(name\)/);
-  assert.match(source, /participantChip\(room\.owner\.name/);
-  assert.match(source, /participantChip\(investor\.name/);
-  assert.doesNotMatch(source, /onclick=/);
-  assert.match(source, /addEventListener\("click"/);
-  assert.match(source, /<fieldset/);
-  assert.match(source, /<legend/);
-});
-
-test('reopen eligibility fails closed and allows a newly active investor', () => {
-  const client = managerHarness();
-  const cases = [
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'manual', investors: [{ id: 2 }], eligible_interests: [] }, true, ''],
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'no_active_investors', investors: [{ id: 2 }], eligible_interests: [] }, true, ''],
-    [{ status: 'archived', portfolio_id: null, archived_reason: 'portfolio_deleted', investors: [], eligible_interests: [] }, false, 'permanent'],
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'portfolio_unapproved', investors: [{ id: 2 }], eligible_interests: [] }, false, 'approved'],
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'no_active_investors', investors: [], eligible_interests: [{ id: 7 }] }, false, 'Add an eligible investor'],
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'no_active_investors', investors: [], eligible_interests: [] }, false, 'express interest'],
-    [{ status: 'archived', portfolio_id: 1, archived_reason: 'manual' }, false, 'current state'],
-  ];
-  for (const [room, enabled, reason] of cases) {
-    client.context.room = room;
-    const result = client.run('reopenEligibility(room)');
-    assert.equal(result.enabled, enabled, JSON.stringify(room));
-    if (reason) assert.match(result.reason, new RegExp(reason, 'i'));
-    else assert.equal(result.reason, '');
+  for (let index = 0; index < statuses.length; index += 1) {
+    assert.match(page.card(20 + index).textContent, new RegExp(statuses[index], 'i'));
+    assert.match(page.card(20 + index).textContent, new RegExp(`Server blocked ${statuses[index]}`));
+    assert.equal(page.card(20 + index).createButton.disabled, true);
   }
 });
 
-test('mutation success plus refresh failure is marked stale and blocks another mutation', async () => {
-  const client = managerHarness();
-  client.run(`
-    state.dashboard = { stats: {}, unclaimed_portfolios: [], rooms: [] };
-    loadDashboard = async () => { hooks.refreshes += 1; return false; };
-    mutationCalls = 0;
-  `);
-  await client.run(`runMutation('archive:12', async () => { mutationCalls += 1; }, 'wrong success')`);
-  assert.equal(client.run('mutationCalls'), 1);
-  assert.equal(client.run('state.stale'), true);
-  assert.equal(client.hooks.refreshes, 1);
-  assert.doesNotMatch(client.hooks.statuses.at(-1).message, /wrong success/);
-  assert.match(client.hooks.statuses.at(-1).message, /saved.*refresh/i);
-  assert.equal(client.hooks.statuses.at(-1).retryable, true);
-  await client.run(`runMutation('archive:13', async () => { mutationCalls += 1; }, 'never')`);
-  assert.equal(client.run('mutationCalls'), 1);
+test('unknown status labels cannot escape the fixed presentation class map', async () => {
+  const page = relationshipManagerHarness(dashboard([
+    portfolio({ status: 'constructor' }),
+  ]));
+  await page.initialize();
+
+  assert.match(page.card(20).html, /rm-portfolio-card--unknown/);
+  assert.doesNotMatch(page.card(20).html, /function Object/);
+  assert.match(page.card(20).textContent, /Constructor/);
 });
 
-test('mutation rejection retains coherent state and does not refresh', async () => {
-  const client = managerHarness();
-  client.run(`
-    previousDashboard = { stats: { active_rooms: 1 }, unclaimed_portfolios: [], rooms: [] };
-    state.dashboard = previousDashboard;
-    loadDashboard = async () => { hooks.refreshes += 1; return true; };
-  `);
-  await client.run(`runMutation('archive:12', async () => { throw new Error('Not allowed'); }, 'success')`);
-  assert.equal(client.run('state.dashboard === previousDashboard'), true);
-  assert.equal(client.run('state.stale'), false);
-  assert.equal(client.hooks.refreshes, 0);
-  assert.equal(client.hooks.statuses.at(-1).message, 'Not allowed');
+test('create submits multiple eligible interest_id values and never active members', async () => {
+  const response = dashboard([portfolio({
+    id: 30,
+    interests: [
+      {
+        interest_id: 101,
+        investor: { id: 21, name: 'One', email: 'one@example.test' },
+        is_active_member: false,
+      },
+      {
+        interest_id: 102,
+        investor: { id: 22, name: 'Two', email: 'two@example.test' },
+        is_active_member: false,
+      },
+      {
+        interest_id: 103,
+        investor: { id: 23, name: 'Already active', email: 'active@example.test' },
+        is_active_member: true,
+      },
+    ],
+    actions: {
+      can_create_conversation: true,
+      create_disabled_reason: null,
+      can_add_investors: false,
+      add_disabled_reason: 'Create the portfolio chat first',
+    },
+  })]);
+  const page = relationshipManagerHarness(response);
+  await page.initialize();
+  assert.doesNotMatch(page.card(30).textContent, /Already active/);
+
+  page.selectInterests('create', 30, [101, 102]);
+  assert.equal(page.card(30).createButton.disabled, false);
+  await page.clickAction('create', { portfolioId: 30 });
+
+  assert.deepEqual(clone(page.methodCalls.createManagedConversation), [[30, [101, 102]]]);
+  assert.equal(page.dashboardLoads, 2);
 });
 
-test('successful dashboard Retry atomically replaces data and clears stale', async () => {
-  const client = managerHarness();
-  client.run(`
-    state.stale = true;
-    state.dashboard = { stats: { active_rooms: 1 }, unclaimed_portfolios: [], rooms: [] };
-    API.getRelationshipManagerDashboard = async () => ({
-      stats: { active_rooms: 2 }, unclaimed_portfolios: [], rooms: []
-    });
-  `);
-  assert.equal(await client.run('loadDashboard()'), true);
-  assert.equal(client.run('state.dashboard.stats.active_rooms'), 2);
-  assert.equal(client.run('state.stale'), false);
+test('add submits multiple selected nonmember interests to the existing conversation', async () => {
+  const response = dashboard([portfolio({
+    id: 31,
+    conversation: {
+      id: 41,
+      title: 'Growth room',
+      status: 'active',
+      archived_reason: null,
+      unread_count: 0,
+    },
+    interests: [
+      {
+        interest_id: 111,
+        investor: { id: 31, name: 'Three', email: 'three@example.test' },
+        is_active_member: false,
+      },
+      {
+        interest_id: 112,
+        investor: { id: 32, name: 'Four', email: 'four@example.test' },
+        is_active_member: false,
+      },
+      {
+        interest_id: 113,
+        investor: { id: 33, name: 'Current', email: 'current@example.test' },
+        is_active_member: true,
+      },
+    ],
+    participants: [{
+      id: 33,
+      name: 'Current',
+      email: 'current@example.test',
+      role: 'investor',
+      joined_at: '2026-07-22T00:00:00.000Z',
+    }],
+    actions: {
+      can_create_conversation: false,
+      create_disabled_reason: 'This portfolio already has its group chat',
+      can_add_investors: true,
+      add_disabled_reason: null,
+    },
+  })]);
+  const page = relationshipManagerHarness(response);
+  await page.initialize();
+  page.selectInterests('add', 31, [111, 112]);
+
+  assert.equal(page.card(31).addButton.disabled, false);
+  await page.clickAction('add', { portfolioId: 31 });
+  assert.deepEqual(clone(page.methodCalls.addManagedInvestors), [[41, [111, 112]]]);
 });
 
-test('successful mutation installs refreshed data before announcing success', async () => {
-  const client = managerHarness();
-  client.run(`
-    state.dashboard = { stats: { active_rooms: 1 }, unclaimed_portfolios: [], rooms: [] };
-    API.getRelationshipManagerDashboard = async () => ({
-      stats: { active_rooms: 2 }, unclaimed_portfolios: [], rooms: []
-    });
-    mutationCalls = 0;
-  `);
-  await client.run(`runMutation('archive:12', async () => { mutationCalls += 1; }, 'Room archived')`);
-  assert.equal(client.run('mutationCalls'), 1);
-  assert.equal(client.run('state.dashboard.stats.active_rooms'), 2);
-  assert.equal(client.run('state.stale'), false);
-  assert.equal(client.run('state.pending.size'), 0);
-  assert.equal(client.hooks.statuses.at(-1).message, 'Room archived');
+test('detail loads assigned data, escapes fields, and stays read-only', async () => {
+  const unsafe = portfolio({
+    name: '<img src=x onerror=alert(1)>',
+    description: '<script>bad()</script>',
+    owner: {
+      id: 9,
+      name: '<b>Owner</b>',
+      email: 'owner@example.test',
+    },
+    documents: [{
+      id: 51,
+      file_name: '<deck>.pdf',
+      file_type: 'pitch_deck',
+      uploaded_at: '2026-07-21T00:00:00.000Z',
+      download_url: '/api/portfolios/20/documents/51/download',
+    }],
+  });
+  const page = relationshipManagerHarness(dashboard([unsafe]));
+  await page.initialize();
+  const trigger = new FakeElement('detail-trigger', page.document);
+
+  await page.openDetails('20', trigger);
+
+  assert.deepEqual(page.methodCalls.getAssignedPortfolio, [[20]]);
+  assert.equal(page.document.activeElement, page.element('portfolio-detail-card'));
+  const detail = page.element('portfolio-detail-card').innerHTML;
+  assert.match(detail, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(detail, /&lt;script&gt;bad\(\)&lt;\/script&gt;/);
+  assert.match(detail, /&lt;b&gt;Owner&lt;\/b&gt;/);
+  assert.match(detail, /&lt;deck&gt;\.pdf/);
+  assert.match(detail, /Monthly Revenue/);
+  assert.doesNotMatch(detail, /<(?:input|textarea|select)\b/i);
+  assert.doesNotMatch(detail, /href=["'][^"']*download/i);
 });
 
-test('disabled Reopen explains why while Open Group Chat remains enabled', () => {
-  const client = managerHarness();
-  client.run(`
-    state.dashboard = {
-      stats: {}, unclaimed_portfolios: [], rooms: [{
-        conversation_id: 12,
-        portfolio_id: 1,
-        title: 'Solar Stack',
-        status: 'archived',
-        archived_reason: 'no_active_investors',
-        unread_count: 0,
-        owner: { id: 3, name: 'Charlie' },
-        investors: [],
-        eligible_interests: [{ id: 7, investor: { id: 8, name: 'Investor One' } }]
-      }]
-    };
-    renderManagedRooms();
-  `);
-  const rendered = client.elements.get('managed-room-list').innerHTML;
-  assert.match(rendered, /data-action="open"/);
-  assert.doesNotMatch(rendered, /data-action="open"[^>]*disabled/);
-  assert.match(rendered, /data-action="reopen"[^>]*[\s\S]*disabled/);
-  assert.match(rendered, /aria-describedby="reopen-reason-12"/);
-  assert.match(rendered, /Add an eligible investor/);
+test('document action uses trusted detail metadata without navigating an untrusted href', async () => {
+  const page = relationshipManagerHarness(assignedNoInterestResponse);
+  await page.initialize();
+  await page.openDetails(20);
+  await page.download(20, 51);
+
+  assert.deepEqual(page.methodCalls.downloadDocument, [[
+    '/api/portfolios/20/documents/51/download',
+    'northstar-deck.pdf',
+  ]]);
 });
 
-test('managed room distinguishes zero investors from an exhausted eligible list', () => {
-  const client = managerHarness();
+test('closing a pending detail ignores its late response and restores trigger focus', async () => {
+  const detail = deferred();
+  const page = relationshipManagerHarness(assignedNoInterestResponse, {
+    getAssignedPortfolio: async () => detail.promise,
+  });
+  await page.initialize();
+  const trigger = new FakeElement('detail-trigger', page.document);
 
-  client.run(`
-    state.dashboard = {
-      stats: {},
-      unclaimed_portfolios: [],
-      rooms: [{
-        conversation_id: 12,
-        portfolio_id: 1,
-        title: 'Solar Stack',
-        status: 'archived',
-        archived_reason: 'no_active_investors',
-        unread_count: 0,
-        owner: { id: 3, name: 'Charlie' },
-        investors: [],
-        eligible_interests: []
-      }]
-    };
-    renderManagedRooms();
-  `);
+  const opening = page.openDetails(20, trigger);
+  await flush();
+  assert.equal(page.document.activeElement, page.element('portfolio-detail-card'));
+  page.closeDetails();
+  detail.resolve(portfolio({ name: 'Late portfolio' }));
+  await opening;
 
-  let rendered = client.elements.get('managed-room-list').innerHTML;
-  assert.match(rendered, /No investors are currently interested\./);
-  assert.doesNotMatch(
-    rendered,
-    /All currently interested investors are already in this room/,
-  );
+  assert.equal(page.element('portfolio-detail-overlay').classList.contains('open'), false);
+  assert.doesNotMatch(page.element('portfolio-detail-card').innerHTML, /Late portfolio/);
+  assert.equal(page.document.activeElement, trigger);
+});
 
-  client.run(`
-    state.dashboard.rooms[0].investors = [{ id: 6, name: 'Investor One' }];
-    renderManagedRooms();
-  `);
+test('Escape closes the detail dialog and restores focus', async () => {
+  const page = relationshipManagerHarness(assignedNoInterestResponse);
+  await page.initialize();
+  const trigger = new FakeElement('detail-trigger', page.document);
+  await page.openDetails(20, trigger);
 
-  rendered = client.elements.get('managed-room-list').innerHTML;
+  await page.document.dispatch('keydown', { key: 'Escape' });
+
+  assert.equal(page.element('portfolio-detail-overlay').classList.contains('open'), false);
+  assert.equal(page.document.activeElement, trigger);
+});
+
+test('detail loading is closable, traps Tab focus, and isolates then restores the background', async () => {
+  const detail = deferred();
+  const page = relationshipManagerHarness(assignedNoInterestResponse, {
+    getAssignedPortfolio: async () => detail.promise,
+  });
+  await page.initialize();
+  const trigger = new FakeElement('detail-trigger', page.document);
+  const opening = page.openDetails(20, trigger);
+  await flush();
+
   assert.match(
-    rendered,
-    /All currently interested investors are already in this room/,
+    page.element('portfolio-detail-card').innerHTML,
+    /data-action="close-detail"/,
   );
-  assert.doesNotMatch(rendered, /No investors are currently interested\./);
+  assert.equal(page.element('main-content').inert, true);
+  assert.equal(page.element('skip-link').inert, true);
+  assert.equal(page.element('relationship-manager-nav').inert, true);
+
+  const first = new FakeElement('first-focusable', page.document);
+  const last = new FakeElement('last-focusable', page.document);
+  page.element('portfolio-detail-card').focusableChildren = [first, last];
+  let prevented = 0;
+
+  first.focus();
+  await page.document.dispatch('keydown', {
+    key: 'Tab',
+    shiftKey: true,
+    preventDefault() {
+      prevented += 1;
+    },
+  });
+  assert.equal(page.document.activeElement, last);
+
+  last.focus();
+  await page.document.dispatch('keydown', {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault() {
+      prevented += 1;
+    },
+  });
+  assert.equal(page.document.activeElement, first);
+  assert.equal(prevented, 2);
+
+  page.closeDetails();
+  assert.equal(page.element('main-content').inert, false);
+  assert.equal(page.element('skip-link').inert, false);
+  assert.equal(page.element('relationship-manager-nav').inert, false);
+
+  detail.resolve(portfolio());
+  await opening;
 });
 
-test('Open Group Chat navigates only by conversation ID', () => {
-  const source = readRequired(clientPath, 'relationship manager client');
-  const sandbox = {
-    window: { location: { href: '' } },
-    document: { addEventListener() {} },
-    console,
-  };
-  vm.runInNewContext(source, sandbox, { filename: clientPath });
-  sandbox.openGroupChat('12');
-  assert.equal(sandbox.window.location.href, 'messages.html?conversationId=12');
-  assert.match(source, /`messages\.html\?conversationId=\$\{conversationId\}`/);
-  assert.doesNotMatch(source, /partnerId|receiver_id/);
+test('removal confirmation calls one DELETE and refreshes', async () => {
+  const page = relationshipManagerHarness(activeRoomResponse);
+  await page.initialize();
+  await page.removeInvestor({ conversationId: 40, investorId: 11 });
+
+  assert.deepEqual(page.removals, [{ conversationId: 40, investorId: 11 }]);
+  assert.equal(page.dashboardLoads, 2);
+  assert.match(page.confirmations[0], /Ian Investor/);
+  assert.match(page.confirmations[0], /Northstar Health/);
+});
+
+test('cancelled removal does not call DELETE or refresh', async () => {
+  const page = relationshipManagerHarness(activeRoomResponse, {
+    confirm: () => false,
+  });
+  await page.initialize();
+  await page.removeInvestor({ conversationId: 40, investorId: 11 });
+
+  assert.deepEqual(page.removals, []);
+  assert.equal(page.dashboardLoads, 1);
+});
+
+test('removal is single-flight and disables mutation controls while pending', async () => {
+  const removal = deferred();
+  const page = relationshipManagerHarness(activeRoomResponse, {
+    removeManagedInvestor: async () => removal.promise,
+  });
+  await page.initialize();
+
+  const first = page.removeInvestor({ conversationId: 40, investorId: 11 });
+  const second = page.removeInvestor({ conversationId: 40, investorId: 11 });
+  await flush();
+
+  assert.equal(page.removals.length, 1);
+  assert.match(page.card(20).html, /data-action="remove"[\s\S]*disabled/);
+  removal.resolve({});
+  await Promise.all([first, second]);
+  assert.equal(page.dashboardLoads, 2);
+});
+
+test('stale 409 refreshes dashboard data once without replaying DELETE', async () => {
+  const conflict = new Error('Investor membership changed');
+  conflict.status = 409;
+  const page = relationshipManagerHarness(activeRoomResponse, {
+    removeManagedInvestor: async () => {
+      throw conflict;
+    },
+  });
+  await page.initialize();
+  await page.removeInvestor({ conversationId: 40, investorId: 11 });
+
+  assert.deepEqual(page.removals, [{ conversationId: 40, investorId: 11 }]);
+  assert.equal(page.dashboardLoads, 2);
+  assert.match(page.element('dashboard-status').textContent, /refreshed/i);
+});
+
+test('unsafe IDs and non-investor participant roles never reach mutation APIs', async () => {
+  const unsafeResponse = dashboard([portfolio({
+    conversation: {
+      id: '9007199254740992',
+      title: 'Unsafe room',
+      status: 'active',
+      archived_reason: null,
+      unread_count: 0,
+    },
+    participants: [{
+      id: 11,
+      name: 'Not an investor',
+      email: 'person@example.test',
+      role: 'investor" onclick="alert(1)',
+      joined_at: '2026-07-22T00:00:00.000Z',
+    }],
+  })]);
+  const page = relationshipManagerHarness(unsafeResponse);
+  await page.initialize();
+  await page.removeInvestor({
+    conversationId: '9007199254740992',
+    investorId: 11,
+  });
+
+  assert.deepEqual(page.removals, []);
+  assert.doesNotMatch(page.card(20).html, /onclick=/);
+});
+
+test('ID normalization rejects coercible non-string and non-number values', () => {
+  const page = relationshipManagerHarness(assignedNoInterestResponse);
+  for (const candidate of [true, [20], { valueOf: () => 20 }]) {
+    page.context.candidate = candidate;
+    assert.equal(page.run('positiveSafeInteger(candidate)'), null);
+  }
+});
+
+test('manual archive and reopen controls are absent from source and rendered cards', async () => {
+  const page = relationshipManagerHarness(activeRoomResponse);
+  await page.initialize();
+
+  assert.doesNotMatch(page.source, /archiveManagedConversation|reopenManagedConversation|reopenEligibility/);
+  assert.doesNotMatch(page.card(20).html, /data-action=["'](?:archive|reopen)["']/);
+});
+
+test('failed refresh preserves one stale disabled assigned snapshot', async () => {
+  let loads = 0;
+  const page = relationshipManagerHarness(assignedNoInterestResponse, {
+    getRelationshipManagerDashboard: async () => {
+      loads += 1;
+      if (loads === 1) return clone(assignedNoInterestResponse);
+      throw new Error('dashboard offline');
+    },
+  });
+  await page.initialize();
+  await page.run('loadDashboard()');
+
+  assert.match(page.element('dashboard-status').className, /stale/);
+  assert.match(page.card(20).textContent, /Northstar Health/);
+  assert.equal(page.card(20).createButton.disabled, true);
+  assert.equal(page.element('dashboard-retry').hidden, false);
+});
+
+test('relationship manager controls remain responsive at 390 pixels', () => {
+  const css = fs.readFileSync(cssPath, 'utf8');
+  assert.match(
+    css,
+    /@media \(max-width:\s*390px\)[\s\S]*?\.rm-portfolio-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(css, /\.rm-detail-card\s*\{[^}]*max-height:\s*calc\(100dvh - 32px\)/s);
+  assert.match(css, /\.rm-dashboard :is\([\s\S]*?\):focus-visible\s*\{/);
 });

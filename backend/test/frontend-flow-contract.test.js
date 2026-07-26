@@ -121,7 +121,11 @@ test('database-derived labels describe the actual result sets', () => {
   }
 
   assert.match(read('moderatordashboard.html'), />Investor Interests</);
-  assert.match(read('moderatordashboard.html'), />Relationship managers</);
+  assert.doesNotMatch(read('moderatordashboard.html'), /id=["']rm-account-form["']/);
+  assert.doesNotMatch(
+    read('js/moderatordashboard.js'),
+    /createRelationshipManager|getRelationshipManagers/,
+  );
   assert.match(
     read('messages.html'),
     /id=["']conversation-search["'][^>]*placeholder=["']Search conversations["']/,
@@ -296,22 +300,15 @@ test('portfolio editor guards its optional account menu before binding it', () =
   assert.match(client, /if\s*\(\s*!?menu[\s\S]*?button\.addEventListener/);
 });
 
-test('administrator dashboard provisions managers with accessible recoverable form state', () => {
+test('administrator dashboard is moderation-only with accessible recovery state', () => {
   const html = read('moderatordashboard.html');
   const client = read('js/moderatordashboard.js');
-  for (const id of [
-    'rm-name', 'rm-name-error', 'rm-email', 'rm-email-error',
-    'rm-password', 'rm-password-error', 'rm-submit', 'rm-form-message',
-    'rm-account-list',
-  ]) assert.match(html, new RegExp(`id=["']${id}["']`), id);
-  assert.match(html, /Temporary password/);
-  assert.match(html, /communicate it securely/i);
-  assert.match(client, /Promise\.all/);
-  assert.match(client, /API\.createRelationshipManager/);
-  assert.match(client, /API\.getRelationshipManagers/);
-  assert.match(client, /rmSubmit\.disabled\s*=\s*true/);
-  assert.match(client, /escapeHtml\(manager\.name\)/);
-  assert.match(client, /escapeHtml\(manager\.email\)/);
+  assert.match(html, /id=["']queue-list["']/);
+  assert.match(html, /View Audit Logs/);
+  assert.match(client, /API\.getStats\(\)/);
+  assert.match(client, /API\.getQueue\(\)/);
+  assert.doesNotMatch(html, /rm-account-form|rm-account-list|Temporary password/);
+  assert.doesNotMatch(client, /createRelationshipManager|getRelationshipManagers/);
 });
 
 test('administrator dashboard exposes recoverable sections and synchronized assets', () => {
@@ -321,8 +318,6 @@ test('administrator dashboard exposes recoverable sections and synchronized asse
   for (const id of [
     'moderation-status',
     'moderation-retry-btn',
-    'manager-directory-status',
-    'manager-directory-retry-btn',
     'reason-error',
   ]) {
     assert.match(html, new RegExp(`id=["']${id}["']`), id);

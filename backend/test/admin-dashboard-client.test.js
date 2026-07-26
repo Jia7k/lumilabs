@@ -2,73 +2,52 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { adminHarness, deferred, flush } = require('./helpers/admin-dashboard-harness');
 
-test('manager failure does not blank a successful moderation section', async () => {
-  const client = adminHarness({
-    getRelationshipManagers: async () => {
-      throw new Error('directory offline');
-    },
-  });
+test('admin initialization loads moderation only', async () => {
+  const page = adminHarness();
+  await page.initialize();
 
-  await client.init();
-
-  assert.equal(client.element('stat-pending').innerText, 1);
-  assert.match(client.element('queue-list').innerHTML, /New Company/);
-  assert.match(client.element('manager-directory-status').textContent, /directory/i);
-  assert.equal(client.element('manager-directory-retry-btn').hidden, false);
-  assert.equal(client.element('rm-submit').disabled, false);
+  assert.deepEqual(page.apiCalls.sort(), ['getQueue', 'getStats']);
+  assert.equal(page.source.includes('createRelationshipManager'), false);
+  assert.equal(page.source.includes('getRelationshipManagers'), false);
 });
 
-test('first moderation failure shows placeholders while manager directory remains usable', async () => {
+test('first moderation failure shows placeholders and a scoped retry', async () => {
   const client = adminHarness({
     getStats: async () => {
       throw new Error('stats offline');
     },
-    getRelationshipManagers: async () => [{
-      name: 'Manager',
-      email: 'manager@example.com',
-      role: 'relationship_manager',
-      created_at: '2026-07-23T00:00:00.000Z',
-    }],
   });
 
   await client.init();
 
   assert.equal(client.element('stat-pending').innerText, '—');
   assert.match(client.element('queue-list').innerHTML, /load the moderation queue/i);
-  assert.match(client.element('rm-account-list').innerHTML, /Manager/);
-  assert.equal(client.element('rm-submit').disabled, false);
+  assert.equal(client.element('moderation-retry-btn').hidden, false);
 });
 
-test('empty moderation retains stats and renders intentional queue and manager rows', async () => {
+test('empty moderation retains stats and renders an intentional queue row', async () => {
   const client = adminHarness({ getQueue: async () => [] });
   await client.init();
 
   assert.equal(client.element('stat-approved').innerText, 2);
   assert.match(client.element('queue-list').innerHTML, /No portfolios are waiting for review/);
-  assert.match(client.element('rm-account-list').innerHTML, /No relationship manager accounts/);
 });
 
-test('initial requests expose section-scoped loading without disabling account creation', async () => {
+test('initial requests expose section-scoped moderation loading', async () => {
   const stats = deferred();
   const queue = deferred();
-  const managers = deferred();
   const client = adminHarness({
     getStats: async () => stats.promise,
     getQueue: async () => queue.promise,
-    getRelationshipManagers: async () => managers.promise,
   });
 
   const initial = client.init();
   await flush();
   assert.match(client.element('moderation-status').textContent, /Loading moderation/i);
   assert.match(client.element('queue-list').innerHTML, /Loading portfolios/i);
-  assert.match(client.element('manager-directory-status').textContent, /Loading manager/i);
-  assert.match(client.element('rm-account-list').innerHTML, /Loading manager accounts/i);
-  assert.equal(client.element('rm-submit').disabled, false);
 
   stats.resolve({ pending: 0, approved: 2, rejected: 0, total_matches: 3 });
   queue.resolve([]);
-  managers.resolve([]);
   await initial;
 });
 
@@ -116,113 +95,6 @@ test('moderation retry refreshes only moderation and ignores an older response',
   assert.equal(client.element('stat-approved').innerText, 9);
   assert.match(client.element('queue-list').innerHTML, /Newest/);
   assert.doesNotMatch(client.element('queue-list').innerHTML, /Old/);
-});
-
-test('manager directory ignores an older response and marks a failed refresh stale', async () => {
-  const oldManagers = deferred();
-  let managerCalls = 0;
-  const client = adminHarness({
-    getRelationshipManagers: async () => {
-      managerCalls += 1;
-      if (managerCalls === 1) return oldManagers.promise;
-      return [{
-        name: 'Newest Manager',
-        email: 'newest@example.com',
-        role: 'relationship_manager',
-      }];
-    },
-  });
-
-  const initial = client.init();
-  await flush();
-  await client.run('loadManagerDirectory()');
-  oldManagers.resolve([{
-    name: 'Old Manager',
-    email: 'old@example.com',
-    role: 'relationship_manager',
-  }]);
-  await initial;
-  assert.match(client.element('rm-account-list').innerHTML, /Newest Manager/);
-  assert.doesNotMatch(client.element('rm-account-list').innerHTML, /Old Manager/);
-
-  client.api.getRelationshipManagers = async () => {
-    throw new Error('directory refresh offline');
-  };
-  assert.equal(await client.run('loadManagerDirectory()'), false);
-  assert.match(client.element('manager-directory-status').className, /stale/);
-  assert.match(client.element('rm-account-list').innerHTML, /Newest Manager/);
-});
-
-test('manager creation is single-flight and preserves fields while pending', async () => {
-  const create = deferred();
-  const client = adminHarness({
-    createRelationshipManager: async () => create.promise,
-  });
-  await client.init();
-  client.element('rm-name').value = 'New Manager';
-  client.element('rm-email').value = 'new.manager@example.com';
-  client.element('rm-password').value = '123456';
-
-  const first = client.element('rm-account-form').dispatch('submit');
-  const second = client.element('rm-account-form').dispatch('submit');
-  await flush();
-
-  assert.equal(client.calls.createRelationshipManager.length, 1);
-  assert.equal(client.element('rm-submit').disabled, true);
-  assert.equal(client.element('rm-name').value, 'New Manager');
-  assert.equal(client.element('rm-email').value, 'new.manager@example.com');
-  create.resolve({ id: 10 });
-  await Promise.all([first, second]);
-});
-
-test('created account plus failed directory refresh retries GET without repeating POST', async () => {
-  let directoryCalls = 0;
-  const client = adminHarness({
-    getRelationshipManagers: async () => {
-      directoryCalls += 1;
-      if (directoryCalls === 1) return [];
-      if (directoryCalls === 2) throw new Error('refresh failed');
-      return [{
-        name: 'New Manager',
-        email: 'new.manager@example.com',
-        role: 'relationship_manager',
-      }];
-    },
-  });
-  await client.init();
-  client.element('rm-name').value = 'New Manager';
-  client.element('rm-email').value = 'new.manager@example.com';
-  client.element('rm-password').value = '123456';
-
-  await client.element('rm-account-form').dispatch('submit');
-  assert.equal(client.calls.createRelationshipManager.length, 1);
-  assert.match(client.element('rm-form-message').textContent, /created.*could not refresh/i);
-  assert.equal(client.element('rm-password').value, '');
-
-  await client.element('manager-directory-retry-btn').dispatch('click');
-  assert.equal(client.calls.createRelationshipManager.length, 1);
-  assert.equal(client.calls.getRelationshipManagers.length, 3);
-  assert.match(client.element('rm-account-list').innerHTML, /New Manager/);
-});
-
-test('manager creation failure keeps every entered field and restores submit', async () => {
-  const client = adminHarness({
-    createRelationshipManager: async () => {
-      throw new Error('email already exists');
-    },
-  });
-  await client.init();
-  client.element('rm-name').value = 'New Manager';
-  client.element('rm-email').value = 'new.manager@example.com';
-  client.element('rm-password').value = '123456';
-
-  await client.element('rm-account-form').dispatch('submit');
-
-  assert.equal(client.element('rm-name').value, 'New Manager');
-  assert.equal(client.element('rm-email').value, 'new.manager@example.com');
-  assert.equal(client.element('rm-password').value, '123456');
-  assert.equal(client.element('rm-submit').disabled, false);
-  assert.match(client.element('rm-form-message').textContent, /already exists/i);
 });
 
 test('delegated Review normalizes a string ID and opens loading before detail resolves', async () => {
@@ -346,6 +218,65 @@ test('malformed detail enters the same recoverable modal error state', async () 
   assert.match(client.element('review-card').innerHTML, /couldn.t display/i);
 });
 
+test('moderator IDs reject unsafe and coercible values while accepting canonical IDs', () => {
+  const client = adminHarness();
+  const normalize = (candidate) => {
+    client.context.candidate = candidate;
+    return client.run('normalizePortfolioId(candidate)');
+  };
+
+  assert.equal(normalize(42), 42);
+  assert.equal(normalize('42'), 42);
+  for (const candidate of [
+    true,
+    [42],
+    { valueOf: () => 42 },
+    Number.MAX_SAFE_INTEGER + 1,
+    '042',
+    '1e2',
+    '0',
+    '-1',
+  ]) {
+    assert.equal(normalize(candidate), null);
+  }
+});
+
+test('review documents never expose download URLs and use loaded metadata', async () => {
+  const client = adminHarness({
+    getPortfolio: async () => ({
+      id: 42,
+      name: 'New Company',
+      sector: 'Technology',
+      mvp_status: 'Beta',
+      funding_goal: 100000,
+      readiness_score: 60,
+      documents: [{
+        id: 51,
+        file_name: '<deck>.pdf',
+        download_url: 'javascript:alert(1)',
+      }],
+    }),
+  });
+  await client.init();
+  await client.run('openReviewModal(42)');
+
+  const html = client.element('review-card').innerHTML;
+  assert.doesNotMatch(html, /\bhref\s*=/i);
+  assert.doesNotMatch(html, /javascript:alert/);
+  assert.match(html, /data-document-id="51"/);
+  assert.match(html, /&lt;deck&gt;\.pdf/);
+
+  const download = client.element('review-document');
+  download.dataset.documentDownload = '';
+  download.dataset.documentId = '51';
+  await client.element('review-card').dispatch('click', { target: download });
+
+  assert.deepEqual(client.calls.downloadDocument, [[
+    'javascript:alert(1)',
+    '<deck>.pdf',
+  ]]);
+});
+
 test('approval is single-flight, disables both decisions, and refreshes moderation once', async () => {
   const approve = deferred();
   const client = adminHarness({ approvePortfolio: async () => approve.promise });
@@ -467,26 +398,6 @@ test('a successful decision status survives the moderation rerender', async () =
   assert.equal(client.element('moderation-status').hidden, false);
   assert.equal(client.element('moderation-status').textContent, 'Portfolio approved.');
   assert.match(client.element('moderation-status').className, /success/);
-});
-
-test('manager directory retry is single-flight', async () => {
-  const retry = deferred();
-  let calls = 0;
-  const client = adminHarness({
-    getRelationshipManagers: async () => {
-      calls += 1;
-      if (calls === 1) throw new Error('offline');
-      return retry.promise;
-    },
-  });
-  await client.init();
-
-  const first = client.element('manager-directory-retry-btn').dispatch('click');
-  const second = client.element('manager-directory-retry-btn').dispatch('click');
-  await flush();
-  assert.equal(client.calls.getRelationshipManagers.length, 2);
-  retry.resolve([]);
-  await Promise.all([first, second]);
 });
 
 test('moderator queue and review normalize malformed readiness and preserve team zero', async () => {

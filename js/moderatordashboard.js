@@ -32,62 +32,24 @@ function formatSubmitted(iso) {
 
 let currentUser = null;
 let currentQueue = [];
-let relationshipManagers = [];
 let activeReviewId = null; // portfolio id currently open in the review modal
 let currentStats = null;
 let hasModerationSnapshot = false;
-let hasManagerSnapshot = false;
 let moderationRequestVersion = 0;
-let managerRequestVersion = 0;
-let managerCreateInFlight = false;
 let reviewRequestVersion = 0;
 let reviewLoadInFlight = false;
 let activeReviewTrigger = null;
 let activeReviewPortfolio = null;
+let activeReviewDetail = null;
 let decisionInFlight = false;
 
 function normalizePortfolioId(value) {
-  const id = Number(value);
-  return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-function setRmFieldError(inputId, message) {
-  const input = document.getElementById(inputId);
-  const group = input.closest(".form-group");
-  group.classList.toggle("has-error", Boolean(message));
-  document.getElementById(`${inputId}-error`).textContent = message;
-}
-
-function setRmFormMessage(message, type = "") {
-  const element = document.getElementById("rm-form-message");
-  element.textContent = message;
-  element.className = message ? `form-message show ${type}` : "form-message";
-}
-
-function renderRelationshipManagers(managers = relationshipManagers) {
-  const list = document.getElementById("rm-account-list");
-  document.getElementById("rm-account-count").textContent =
-    `${managers.length} ${managers.length === 1 ? "account" : "accounts"}`;
-  if (!managers.length) {
-    list.innerHTML = '<tr class="rm-empty-row"><td colspan="3">No relationship manager accounts yet.</td></tr>';
-    return;
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
   }
-  list.innerHTML = managers.map((manager) => {
-    const created = manager.created_at
-      ? new Date(manager.created_at).toLocaleDateString("en-SG", {
-        day: "numeric", month: "short", year: "numeric"
-      })
-      : "—";
-    return `
-      <tr>
-        <td>
-          <span class="rm-account-name">${escapeHtml(manager.name)}</span>
-          <span class="rm-account-role">${escapeHtml(manager.role.replaceAll("_", " "))}</span>
-        </td>
-        <td>${escapeHtml(manager.email)}</td>
-        <td>${escapeHtml(created)}</td>
-      </tr>`;
-  }).join("");
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 function setSectionStatus(statusId, retryId, message, {
@@ -191,73 +153,6 @@ function renderModerationSnapshot(stats, queue, options = {}) {
   renderQueue(queue, options);
 }
 
-function bindRelationshipManagerForm() {
-  const form = document.getElementById("rm-account-form");
-  const rmSubmit = document.getElementById("rm-submit");
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (managerCreateInFlight) return;
-
-    const name = document.getElementById("rm-name");
-    const email = document.getElementById("rm-email");
-    const password = document.getElementById("rm-password");
-    const cleanName = name.value.trim();
-    const cleanEmail = email.value.trim();
-    let valid = true;
-
-    setRmFormMessage("");
-    setRmFieldError("rm-name", "");
-    setRmFieldError("rm-email", "");
-    setRmFieldError("rm-password", "");
-    if (!cleanName) {
-      setRmFieldError("rm-name", "Full name is required.");
-      valid = false;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      setRmFieldError("rm-email", "Enter a valid email address.");
-      valid = false;
-    }
-    if (password.value.length < 6 || password.value.length > 128) {
-      setRmFieldError("rm-password", "Use between 6 and 128 characters.");
-      valid = false;
-    }
-    if (!valid) {
-      setRmFormMessage("Please fix the highlighted fields.", "error");
-      return;
-    }
-
-    managerCreateInFlight = true;
-    rmSubmit.disabled = true;
-    rmSubmit.innerHTML = '<i class="ti ti-loader-2"></i> Creating account…';
-    try {
-      await API.createRelationshipManager({
-        name: cleanName,
-        email: cleanEmail,
-        password: password.value,
-      });
-      password.value = "";
-    } catch (error) {
-      setRmFormMessage(error.message, "error");
-      return;
-    } finally {
-      managerCreateInFlight = false;
-      rmSubmit.disabled = false;
-      rmSubmit.innerHTML = '<i class="ti ti-user-plus"></i> Create manager account';
-    }
-
-    const refreshed = await loadManagerDirectory({
-      successMessage: "Manager directory updated.",
-      failureMessage: "Account created, but the manager directory could not refresh.",
-    });
-    setRmFormMessage(
-      refreshed
-        ? "Relationship manager account created."
-        : "Relationship manager account created, but the directory could not refresh.",
-      "success",
-    );
-  });
-}
-
 async function initAdmin() {
   currentUser = await requirePageRole("admin");
   if (!currentUser) return;
@@ -271,11 +166,8 @@ async function initAdmin() {
   document.getElementById("page-title").innerText = "Moderation Dashboard";
   document.getElementById("page-subtitle").innerText = "Review and manage startup portfolios";
 
-  bindRelationshipManagerForm();
   document.getElementById("moderation-retry-btn")
     ?.addEventListener("click", () => loadModeration());
-  document.getElementById("manager-directory-retry-btn")
-    ?.addEventListener("click", () => loadManagerDirectory());
   document.getElementById("queue-list").addEventListener("click", async (event) => {
     const trigger = event.target.closest("[data-portfolio-id]");
     if (!trigger || trigger.disabled) return;
@@ -345,55 +237,8 @@ async function loadModeration({
   }
 }
 
-async function loadManagerDirectory({
-  successMessage = "",
-  failureMessage = "Couldn't load the manager directory. Try again.",
-} = {}) {
-  const requestVersion = ++managerRequestVersion;
-  const hadSnapshot = hasManagerSnapshot;
-  setSectionStatus(
-    "manager-directory-status",
-    "manager-directory-retry-btn",
-    hadSnapshot ? "Refreshing manager directory…" : "Loading manager directory…",
-    { type: "loading", loading: true },
-  );
-  if (!hadSnapshot) {
-    document.getElementById("rm-account-list").innerHTML =
-      '<tr class="rm-empty-row"><td colspan="3">Loading manager accounts…</td></tr>';
-  }
-
-  try {
-    const managers = await API.getRelationshipManagers();
-    if (requestVersion !== managerRequestVersion) return false;
-    if (!Array.isArray(managers)) throw new Error("Invalid manager response");
-    relationshipManagers = managers;
-    hasManagerSnapshot = true;
-    renderRelationshipManagers(relationshipManagers);
-    setSectionStatus(
-      "manager-directory-status",
-      "manager-directory-retry-btn",
-      successMessage,
-      { type: successMessage ? "success" : "" },
-    );
-    return true;
-  } catch (error) {
-    if (requestVersion !== managerRequestVersion) return false;
-    if (!hadSnapshot) {
-      document.getElementById("rm-account-list").innerHTML =
-        '<tr class="rm-empty-row"><td colspan="3">Manager directory unavailable.</td></tr>';
-    }
-    setSectionStatus(
-      "manager-directory-status",
-      "manager-directory-retry-btn",
-      hadSnapshot ? `${failureMessage} Showing the last loaded directory.` : failureMessage,
-      { type: hadSnapshot ? "stale" : "error", retryable: true },
-    );
-    return false;
-  }
-}
-
 async function renderAdmin() {
-  await Promise.allSettled([loadModeration(), loadManagerDirectory()]);
+  await loadModeration();
 }
 
 function setReviewOverlayOpen(open) {
@@ -443,11 +288,13 @@ async function loadReviewDetails(id) {
   if (reviewLoadInFlight) return false;
   const requestVersion = ++reviewRequestVersion;
   reviewLoadInFlight = true;
+  activeReviewDetail = null;
   renderReviewLoading();
   try {
     const detail = await API.getPortfolio(id);
     if (requestVersion !== reviewRequestVersion || activeReviewId !== id) return false;
     validatePortfolioDetail(detail, id);
+    activeReviewDetail = detail;
     renderReviewDetails(detail, activeReviewPortfolio);
     return true;
   } catch (error) {
@@ -474,6 +321,7 @@ async function openReviewModal(rawId, trigger = null) {
 
   activeReviewId = id;
   activeReviewPortfolio = portfolio;
+  activeReviewDetail = null;
   activeReviewTrigger = trigger;
   renderReviewLoading();
   setReviewOverlayOpen(true);
@@ -551,12 +399,18 @@ function renderReviewDetails(full, p) {
         <div class="modal-field-value">
           ${
             full.documents && full.documents.length > 0
-              ? full.documents.map(d => `
-                  <a href="${escapeHtml(d.download_url)}" data-document-download data-file-name="${escapeHtml(d.file_name)}"
-                     style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                    <i class="ti ti-file"></i> ${escapeHtml(d.file_name)}
-                  </a>
-                `).join("")
+              ? full.documents.map((document) => {
+                  const documentId = normalizePortfolioId(document?.id);
+                  if (!documentId) return "";
+                  return `
+                    <button class="admin-document-download"
+                            type="button"
+                            data-document-download
+                            data-document-id="${documentId}">
+                      <i class="ti ti-download" aria-hidden="true"></i>
+                      Download ${escapeHtml(document.file_name)}
+                    </button>`;
+                }).join("") || "—"
               : `—`
           }
         </div>
@@ -646,6 +500,7 @@ function closeReviewModal() {
   reviewLoadInFlight = false;
   activeReviewId = null;
   activeReviewPortfolio = null;
+  activeReviewDetail = null;
   setReviewOverlayOpen(false);
   document.getElementById("review-card").innerHTML = "";
   const trigger = activeReviewTrigger;
@@ -662,8 +517,15 @@ document.getElementById("review-card").addEventListener("click", async (event) =
   const download = event.target.closest("[data-document-download]");
   if (download) {
     event.preventDefault();
+    const documentId = normalizePortfolioId(download.dataset.documentId);
+    const documentRecord = documentId && Array.isArray(activeReviewDetail?.documents)
+      ? activeReviewDetail.documents.find(
+          (document) => normalizePortfolioId(document?.id) === documentId,
+        )
+      : null;
+    if (!documentRecord) return;
     try {
-      await API.downloadDocument(download.getAttribute("href"), download.dataset.fileName);
+      await API.downloadDocument(documentRecord.download_url, documentRecord.file_name);
     } catch (error) {
       const status = document.getElementById("review-action-status");
       if (status) {
