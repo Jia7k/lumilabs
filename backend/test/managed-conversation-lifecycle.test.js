@@ -528,3 +528,93 @@ test('automatic lifecycle helpers lock portfolio before conversation and fail cl
     });
   }
 });
+
+test('automatic lifecycle helpers fail closed when either assignment value is missing or null', async (t) => {
+  const helpers = [
+    [
+      'archive',
+      (connection) => archiveConversationForPortfolio(
+        connection,
+        1,
+        'portfolio_unapproved',
+        4,
+      ),
+    ],
+    [
+      'approval reconciliation',
+      (connection) => reconcileConversationAfterApproval(connection, 1, 4),
+    ],
+    [
+      'portfolio deletion',
+      (connection) => prepareConversationForPortfolioDeletion(connection, 1, 4),
+    ],
+  ];
+  const malformedAssignments = [
+    {
+      label: 'portfolio assignment omitted',
+      portfolioManager: undefined,
+      conversationManager: 8,
+    },
+    {
+      label: 'conversation assignment omitted',
+      portfolioManager: 8,
+      conversationManager: undefined,
+    },
+    {
+      label: 'both assignments omitted',
+      portfolioManager: undefined,
+      conversationManager: undefined,
+    },
+    {
+      label: 'both assignments null',
+      portfolioManager: null,
+      conversationManager: null,
+    },
+  ];
+
+  for (const [helperLabel, invoke] of helpers) {
+    for (const {
+      label,
+      portfolioManager,
+      conversationManager,
+    } of malformedAssignments) {
+      await t.test(`${helperLabel}: ${label}`, async () => {
+        const portfolio = {
+          id: 1,
+          owner_id: 3,
+          name: 'X3',
+          status: 'approved',
+        };
+        if (portfolioManager !== undefined) {
+          portfolio.relationship_manager_id = portfolioManager;
+        }
+        const conversation = {
+          id: 12,
+          portfolio_id: 1,
+          title: 'X3',
+          status: 'active',
+          archived_reason: null,
+        };
+        if (conversationManager !== undefined) {
+          conversation.relationship_manager_id = conversationManager;
+        }
+        const fake = scriptedConnection([[portfolio], [conversation]]);
+
+        await assert.rejects(
+          invoke(fake.connection),
+          (error) => (
+            error.status === 409
+            && error.code === 'ASSIGNMENT_STATE_MISMATCH'
+          ),
+        );
+        assert.match(fake.calls[0].sql, /^SELECT \* FROM portfolios/);
+        assert.match(fake.calls[1].sql, /FROM conversations/);
+        assert.equal(
+          fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)),
+          false,
+        );
+        fake.assertConsumed();
+      });
+    }
+  }
+});

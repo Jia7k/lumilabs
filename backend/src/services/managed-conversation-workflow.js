@@ -57,6 +57,7 @@ async function inTransaction(database, work) {
       try {
         await connection.rollback();
       } catch {
+        console.error('Managed conversation rollback failed');
         releaseConnection = false;
         if (typeof connection.destroy === 'function') {
           try {
@@ -147,14 +148,6 @@ function assertCanonicalAssignment(portfolio, conversation, managerId) {
 }
 
 function assertConsistentAssignment(portfolio, conversation) {
-  if (
-    portfolio.relationship_manager_id === undefined
-    && conversation?.relationship_manager_id === undefined
-  ) {
-    // Both columns are guaranteed by the live schema; minimal SQL test doubles
-    // may omit unobserved selected fields.
-    return;
-  }
   if (
     conversation
     && (

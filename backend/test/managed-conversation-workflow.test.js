@@ -618,8 +618,16 @@ test('manual removal rolls back membership and archive changes when notification
   fake.assertConsumed();
 });
 
-test('rollback failure destroys the uncertain connection without exposing or replacing the primary error', async (t) => {
+test('rollback failure logs only a fixed label, destroys the uncertain connection, and preserves the primary error', {
+  concurrency: false,
+}, async (t) => {
   const { createManagedConversation, ManagedConversationError } = loadService();
+  const logs = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => logs.push(args);
+  t.after(() => {
+    console.error = originalConsoleError;
+  });
   for (const [label, destroy] of [
     ['sync destroy', (state) => { state.destroys += 1; }],
     ['async destroy', async (state) => { state.destroys += 1; }],
@@ -688,4 +696,14 @@ test('rollback failure destroys the uncertain connection without exposing or rep
       });
     });
   }
+  assert.deepEqual(logs, [
+    ['Managed conversation rollback failed'],
+    ['Managed conversation rollback failed'],
+    ['Managed conversation rollback failed'],
+    ['Managed conversation rollback failed'],
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(logs),
+    /rollback sql|password|destroy secret|rejection secret/i,
+  );
 });

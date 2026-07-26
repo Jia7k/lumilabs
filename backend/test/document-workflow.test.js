@@ -50,6 +50,7 @@ function editablePortfolio() {
   return {
     id: 7,
     owner_id: 3,
+    relationship_manager_id: 8,
     status: 'approved',
     team_size: 3,
     founded_year: 2026,
@@ -252,6 +253,7 @@ test('approved document upload archives the room before resetting portfolio to d
       return [[{
         id: 12,
         portfolio_id: 7,
+        relationship_manager_id: 8,
         title: 'Flow Co',
         status: 'active',
         archived_reason: null,

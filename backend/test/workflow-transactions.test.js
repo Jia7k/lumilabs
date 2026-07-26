@@ -136,12 +136,19 @@ test('new interest and notification commit together', { concurrency: false }, as
 test('submitting an approved portfolio archives its managed room in the same transaction', { concurrency: false }, async (t) => {
   const connection = fakeConnection(async (sql, params) => {
     if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
-      return [[{ id: 7, owner_id: 4, name: 'Flow Co', status: 'approved' }], []];
+      return [[{
+        id: 7,
+        owner_id: 4,
+        name: 'Flow Co',
+        status: 'approved',
+        relationship_manager_id: 8,
+      }], []];
     }
     if (sql.includes('FROM conversations') && sql.includes('FOR UPDATE')) {
       return [[{
         id: 12,
         portfolio_id: 7,
+        relationship_manager_id: 8,
         title: 'Flow Co',
         status: 'active',
         archived_reason: null,
@@ -191,13 +198,19 @@ test('updating approved portfolio details archives before resetting to draft', {
     burn_rate: 50,
     runway_months: 12,
     status: 'approved',
+    relationship_manager_id: 8,
   };
   const connection = fakeConnection(async (sql) => {
     if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) return [[portfolio], []];
     if (sql.includes('COUNT(*) AS c')) return [[{ c: 1 }], []];
     if (sql.includes('FROM conversations') && sql.includes('FOR UPDATE')) {
       return [[{
-        id: 12, portfolio_id: 7, title: 'Flow Co', status: 'active', archived_reason: null,
+        id: 12,
+        portfolio_id: 7,
+        relationship_manager_id: 8,
+        title: 'Flow Co',
+        status: 'active',
+        archived_reason: null,
       }], []];
     }
     if (sql.includes('FROM conversation_members')) return [[{ user_id: 4 }, { user_id: 8 }], []];
