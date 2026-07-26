@@ -359,6 +359,28 @@ async function updatePortfolioAssignment(connection, portfolio, newManagerId) {
   await requireOneAffected(result);
 }
 
+async function requireSoleActiveManager(connection, conversationId, managerId) {
+  const managerMemberships = await queryRows(
+    connection,
+    `SELECT user_id,membership_status
+       FROM conversation_members
+      WHERE conversation_id=?
+        AND member_role='relationship_manager'
+      ORDER BY user_id
+      FOR UPDATE`,
+    [conversationId],
+  );
+  const activeManagers = managerMemberships.filter(
+    (member) => member.membership_status === 'active',
+  );
+  if (
+    activeManagers.length !== 1
+    || Number(activeManagers[0].user_id) !== managerId
+  ) {
+    throw assignmentStateError();
+  }
+}
+
 async function reassignConversation({
   connection,
   portfolio,
@@ -403,23 +425,11 @@ async function reassignConversation({
   );
   await requireOneAffected(result);
 
-  const activeManagers = await queryRows(
+  await requireSoleActiveManager(
     connection,
-    `SELECT user_id
-       FROM conversation_members
-      WHERE conversation_id=?
-        AND member_role='relationship_manager'
-        AND membership_status='active'
-      ORDER BY user_id
-      FOR UPDATE`,
-    [Number(conversation.id)],
+    Number(conversation.id),
+    Number(newManager.id),
   );
-  if (
-    activeManagers.length !== 1
-    || Number(activeManagers[0].user_id) !== Number(newManager.id)
-  ) {
-    throw assignmentStateError();
-  }
 }
 
 async function assignPortfolio({
@@ -460,6 +470,13 @@ async function assignPortfolio({
       : requireCurrentManager(locked.users, previousManagerId);
 
     if (previousManagerId === relationshipManagerId) {
+      if (conversation) {
+        await requireSoleActiveManager(
+          connection,
+          Number(conversation.id),
+          relationshipManagerId,
+        );
+      }
       return assignmentResult({
         changed: false,
         action: null,

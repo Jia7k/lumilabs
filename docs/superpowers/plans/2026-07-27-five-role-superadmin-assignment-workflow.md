@@ -716,8 +716,8 @@ WHERE conversation_id=? AND user_id=? AND member_role='relationship_manager'
 
 INSERT INTO conversation_members
   (conversation_id,user_id,member_role,membership_status,
-   visible_after_message_id,joined_at,left_at,last_read_at)
-VALUES (?,?,'relationship_manager','active',0,CURRENT_TIMESTAMP,NULL,NULL)
+   visible_after_message_id,joined_at,left_at,last_read_message_id)
+VALUES (?,?,'relationship_manager','active',0,CURRENT_TIMESTAMP,NULL,0)
 ON DUPLICATE KEY UPDATE
   member_role='relationship_manager',
   membership_status='active',

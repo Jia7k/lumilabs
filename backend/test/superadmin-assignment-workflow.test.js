@@ -178,17 +178,21 @@ function assignmentHarness(fixture, options = {}) {
       if (
         sql.includes('FROM conversation_members')
         && sql.includes("member_role='relationship_manager'")
-        && sql.includes("membership_status='active'")
       ) {
         const rows = options.activeManagerIds
-          ? options.activeManagerIds.map((user_id) => ({ user_id }))
+          ? options.activeManagerIds.map((user_id) => ({
+            user_id,
+            membership_status: 'active',
+          }))
           : state.members
             .filter((row) => (
               row.conversation_id === params[0]
               && row.member_role === 'relationship_manager'
-              && row.membership_status === 'active'
             ))
-            .map((row) => ({ user_id: row.user_id }));
+            .map((row) => ({
+              user_id: row.user_id,
+              membership_status: row.membership_status,
+            }));
         return [rows, []];
       }
 
@@ -401,6 +405,9 @@ function assignmentHarness(fixture, options = {}) {
     notificationFor(userId) {
       return clone(state.notifications.find((row) => row.user_id === userId));
     },
+    notificationRows() {
+      return clone(state.notifications);
+    },
     snapshot() {
       return clone(state);
     },
@@ -416,6 +423,37 @@ function isAssignmentError(status, code) {
     && error.status === status
     && error.code === code
   );
+}
+
+function expectedAudit(action, previousManagerId, newManagerId) {
+  const previousManager = users.find((user) => user.id === previousManagerId);
+  const newManager = users.find((user) => user.id === newManagerId);
+  return {
+    superadmin_id: 1,
+    superadmin_id_snapshot: 1,
+    superadmin_name_snapshot: 'Root Admin',
+    superadmin_email_snapshot: 'root@example.test',
+    action,
+    portfolio_id: 20,
+    portfolio_id_snapshot: 20,
+    portfolio_name_snapshot: 'Example',
+    previous_relationship_manager_id: previousManagerId ?? null,
+    previous_relationship_manager_id_snapshot: previousManagerId ?? null,
+    previous_relationship_manager_name_snapshot: previousManager?.name ?? null,
+    previous_relationship_manager_email_snapshot: previousManager?.email ?? null,
+    new_relationship_manager_id: newManagerId ?? null,
+    new_relationship_manager_id_snapshot: newManagerId ?? null,
+    new_relationship_manager_name_snapshot: newManager?.name ?? null,
+    new_relationship_manager_email_snapshot: newManager?.email ?? null,
+  };
+}
+
+function expectedAuditParams(action, previousManagerId, newManagerId) {
+  return Object.values(expectedAudit(action, previousManagerId, newManagerId));
+}
+
+function writeCalls(database) {
+  return database.calls.filter(({ sql }) => /^(UPDATE|INSERT) /.test(sql));
 }
 
 test('initial assignment changes only the canonical portfolio and records snapshots', async () => {
@@ -461,6 +499,17 @@ test('initial assignment changes only the canonical portfolio and records snapsh
   }]);
   assert.deepEqual(database.notificationRecipientIds(), [8, 9]);
   assert.equal(database.notificationFor(8).related_conversation_id, null);
+  assert.deepEqual(
+    database.notificationRows().map(({ user_id, type, related_user_id }) => ({
+      user_id,
+      type,
+      related_user_id,
+    })),
+    [
+      { user_id: 9, type: 'portfolio_assigned', related_user_id: 8 },
+      { user_id: 8, type: 'portfolio_assigned', related_user_id: 8 },
+    ],
+  );
   assert.equal(database.commits, 1);
   assert.equal(database.rollbacks, 0);
   assert.equal(database.releases, 1);
@@ -484,8 +533,23 @@ test('pre-chat reassignment changes the portfolio without creating chat state', 
     email: 'old@example.test',
   });
   assert.equal(database.portfolio(20).relationship_manager_id, 8);
-  assert.deepEqual(database.auditActions(), ['portfolio_reassigned']);
+  assert.deepEqual(
+    database.auditRows(),
+    [expectedAudit('portfolio_reassigned', 7, 8)],
+  );
   assert.deepEqual(database.notificationRecipientIds(), [7, 8, 9]);
+  assert.deepEqual(
+    database.notificationRows().map(({ user_id, type, related_user_id }) => ({
+      user_id,
+      type,
+      related_user_id,
+    })),
+    [
+      { user_id: 9, type: 'portfolio_reassigned', related_user_id: 8 },
+      { user_id: 7, type: 'portfolio_reassigned', related_user_id: 8 },
+      { user_id: 8, type: 'portfolio_reassigned', related_user_id: 8 },
+    ],
+  );
   assert.equal(database.calls.some(({ sql }) => sql.includes('conversation_members')), false);
   assert.equal(database.commits, 1);
 });
@@ -514,6 +578,18 @@ test('post-chat reassignment transfers only the manager and grants full history'
   assert.equal(database.notificationFor(7).related_portfolio_id, 20);
   assert.equal(database.notificationFor(8).related_conversation_id, 40);
   assert.equal(database.notificationFor(9).related_conversation_id, 40);
+  assert.deepEqual(
+    database.notificationRows().map(({ user_id, type, related_user_id }) => ({
+      user_id,
+      type,
+      related_user_id,
+    })),
+    [
+      { user_id: 9, type: 'portfolio_reassigned', related_user_id: 8 },
+      { user_id: 7, type: 'portfolio_reassigned', related_user_id: 8 },
+      { user_id: 8, type: 'portfolio_reassigned', related_user_id: 8 },
+    ],
+  );
   assert.equal(database.commits, 1);
 
   const portfolioLock = database.calls.findIndex(({ sql }) => sql.includes('FROM portfolios p'));
@@ -552,6 +628,151 @@ test('same-manager request is a no-op', async () => {
   });
   assert.equal(database.writeCount, 0);
   assert.equal(database.commits, 1);
+});
+
+test('post-chat same-manager request validates the locked active-manager invariant', async (t) => {
+  await t.test('valid sole active manager is an idempotent no-op', async () => {
+    const database = assignmentHarness(postChatFixture);
+    const result = await assignPortfolio({
+      database,
+      superadminId: 1,
+      portfolioId: 20,
+      relationshipManagerId: 7,
+    });
+
+    assert.deepEqual(result, {
+      changed: false,
+      action: null,
+      portfolio: { id: 20, name: 'Example', status: 'approved' },
+      previous_relationship_manager: {
+        id: 7,
+        name: 'Old Manager',
+        email: 'old@example.test',
+      },
+      relationship_manager: {
+        id: 7,
+        name: 'Old Manager',
+        email: 'old@example.test',
+      },
+      conversation_id: 40,
+    });
+    const membershipLock = database.calls.find(({ sql }) => (
+      sql.includes('FROM conversation_members')
+      && sql.includes("member_role='relationship_manager'")
+    ));
+    assert.ok(membershipLock);
+    assert.match(membershipLock.sql, /FOR UPDATE$/);
+    assert.doesNotMatch(membershipLock.sql, /membership_status='active'/);
+    assert.deepEqual(membershipLock.params, [40]);
+    assert.equal(database.writeCount, 0);
+    assert.deepEqual(database.auditRows(), []);
+    assert.deepEqual(database.notificationRows(), []);
+    assert.equal(database.commits, 1);
+  });
+
+  const corruptFixtures = [
+    {
+      name: 'requested manager membership is missing',
+      fixture: {
+        ...postChatFixture,
+        members: postChatFixture.members.filter((member) => member.user_id !== 7),
+      },
+    },
+    {
+      name: 'requested manager membership is removed',
+      fixture: {
+        ...postChatFixture,
+        members: postChatFixture.members.map((member) => (
+          member.user_id === 7
+            ? { ...member, membership_status: 'removed', left_at: 'CURRENT_TIMESTAMP' }
+            : member
+        )),
+      },
+    },
+    {
+      name: 'a different manager is the sole active membership',
+      fixture: {
+        ...postChatFixture,
+        members: postChatFixture.members.map((member) => {
+          if (member.user_id === 7) {
+            return { ...member, membership_status: 'removed', left_at: 'CURRENT_TIMESTAMP' };
+          }
+          if (member.user_id === 8) {
+            return { ...member, membership_status: 'active', left_at: null };
+          }
+          return member;
+        }),
+      },
+    },
+    {
+      name: 'an additional manager membership is active',
+      fixture: {
+        ...postChatFixture,
+        members: postChatFixture.members.map((member) => (
+          member.user_id === 8
+            ? { ...member, membership_status: 'active', left_at: null }
+            : member
+        )),
+      },
+    },
+  ];
+
+  for (const scenario of corruptFixtures) {
+    await t.test(scenario.name, async () => {
+      const database = assignmentHarness(scenario.fixture);
+      await assert.rejects(
+        () => assignPortfolio({
+          database,
+          superadminId: 1,
+          portfolioId: 20,
+          relationshipManagerId: 7,
+        }),
+        (error) => (
+          isAssignmentError(409, 'ASSIGNMENT_STATE_MISMATCH')(error)
+          && error.message
+            === 'Portfolio assignment and conversation manager are inconsistent'
+        ),
+      );
+      assert.equal(database.writeCount, 0);
+      assert.deepEqual(database.auditRows(), []);
+      assert.deepEqual(database.notificationRows(), []);
+      assert.equal(database.commits, 0);
+      assert.equal(database.rollbacks, 1);
+      assert.deepEqual(database.snapshot(), database.initialSnapshot());
+    });
+  }
+});
+
+test('assignment notification recipients are deduplicated before the insert', async () => {
+  const fixture = {
+    ...unassignedFixture,
+    portfolios: [{
+      ...unassignedFixture.portfolios[0],
+      owner_id: 8,
+    }],
+  };
+  const database = assignmentHarness(fixture);
+
+  await assignPortfolio({
+    database,
+    superadminId: 1,
+    portfolioId: 20,
+    relationshipManagerId: 8,
+  });
+
+  assert.deepEqual(database.notificationRecipientIds(), [8]);
+  assert.deepEqual(database.notificationRows().map((row) => ({
+    user_id: row.user_id,
+    type: row.type,
+    related_user_id: row.related_user_id,
+  })), [{
+    user_id: 8,
+    type: 'portfolio_assigned',
+    related_user_id: 8,
+  }]);
+  const notificationInsert = writeCalls(database).at(-1);
+  assert.match(notificationInsert.sql, /^INSERT INTO notifications/);
+  assert.equal(notificationInsert.params[0].length, 1);
 });
 
 test('assign and reassign reject a non-approved portfolio unless the request is a no-op', async (t) => {
@@ -765,10 +986,24 @@ test('pre-chat unassignment succeeds for a retained non-approved portfolio', asy
     conversation_id: null,
   });
   assert.equal(database.portfolio(20).relationship_manager_id, null);
-  assert.deepEqual(database.auditActions(), ['portfolio_unassigned']);
+  assert.deepEqual(
+    database.auditRows(),
+    [expectedAudit('portfolio_unassigned', 7, null)],
+  );
   assert.deepEqual(database.notificationRecipientIds(), [7, 9]);
   assert.equal(database.notificationFor(7).related_conversation_id, null);
   assert.equal(database.notificationFor(9).related_conversation_id, null);
+  assert.deepEqual(
+    database.notificationRows().map(({ user_id, type, related_user_id }) => ({
+      user_id,
+      type,
+      related_user_id,
+    })),
+    [
+      { user_id: 9, type: 'portfolio_unassigned', related_user_id: 7 },
+      { user_id: 7, type: 'portfolio_unassigned', related_user_id: 7 },
+    ],
+  );
   assert.equal(database.commits, 1);
 });
 
@@ -850,6 +1085,170 @@ test('post-chat reassignment rolls back after every write boundary', async (t) =
       assert.equal(database.releases, 1);
       assert.deepEqual(database.snapshot(), database.initialSnapshot());
     });
+  }
+});
+
+test('pre-chat assignment, reassignment, and unassignment roll back exact SQL effects', async (t) => {
+  const scenarios = [
+    {
+      name: 'initial assignment',
+      fixture: unassignedFixture,
+      invoke: (database) => assignPortfolio({
+        database,
+        superadminId: 1,
+        portfolioId: 20,
+        relationshipManagerId: 8,
+      }),
+      writes: [
+        {
+          sql: /^UPDATE portfolios SET relationship_manager_id=\?/,
+          params: [8, 20, null],
+        },
+        {
+          sql: /^INSERT INTO superadmin_audit_logs/,
+          params: expectedAuditParams('portfolio_assigned', null, 8),
+        },
+        {
+          sql: /^INSERT INTO notifications/,
+          params: [[
+            [
+              9,
+              'portfolio_assigned',
+              'Portfolio Assigned',
+              'New Manager was assigned to "Example"',
+              20,
+              null,
+              8,
+            ],
+            [
+              8,
+              'portfolio_assigned',
+              'Portfolio Assigned',
+              'New Manager was assigned to "Example"',
+              20,
+              null,
+              8,
+            ],
+          ]],
+        },
+      ],
+    },
+    {
+      name: 'pre-chat reassignment',
+      fixture: assignedFixture,
+      invoke: (database) => assignPortfolio({
+        database,
+        superadminId: 1,
+        portfolioId: 20,
+        relationshipManagerId: 8,
+      }),
+      writes: [
+        {
+          sql: /^UPDATE portfolios SET relationship_manager_id=\?/,
+          params: [8, 20, 7],
+        },
+        {
+          sql: /^INSERT INTO superadmin_audit_logs/,
+          params: expectedAuditParams('portfolio_reassigned', 7, 8),
+        },
+        {
+          sql: /^INSERT INTO notifications/,
+          params: [[
+            [
+              9,
+              'portfolio_reassigned',
+              'Portfolio Reassigned',
+              '"Example" was reassigned from Old Manager to New Manager',
+              20,
+              null,
+              8,
+            ],
+            [
+              7,
+              'portfolio_reassigned',
+              'Portfolio Reassigned',
+              '"Example" was reassigned from Old Manager to New Manager',
+              20,
+              null,
+              8,
+            ],
+            [
+              8,
+              'portfolio_reassigned',
+              'Portfolio Reassigned',
+              '"Example" was reassigned from Old Manager to New Manager',
+              20,
+              null,
+              8,
+            ],
+          ]],
+        },
+      ],
+    },
+    {
+      name: 'unassignment',
+      fixture: assignedFixture,
+      invoke: (database) => unassignPortfolio({
+        database,
+        superadminId: 1,
+        portfolioId: 20,
+      }),
+      writes: [
+        {
+          sql: /^UPDATE portfolios SET relationship_manager_id=NULL/,
+          params: [20, 7],
+        },
+        {
+          sql: /^INSERT INTO superadmin_audit_logs/,
+          params: expectedAuditParams('portfolio_unassigned', 7, null),
+        },
+        {
+          sql: /^INSERT INTO notifications/,
+          params: [[
+            [
+              9,
+              'portfolio_unassigned',
+              'Portfolio Unassigned',
+              'Old Manager was unassigned from "Example"',
+              20,
+              null,
+              7,
+            ],
+            [
+              7,
+              'portfolio_unassigned',
+              'Portfolio Unassigned',
+              'Old Manager was unassigned from "Example"',
+              20,
+              null,
+              7,
+            ],
+          ]],
+        },
+      ],
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    for (let boundary = 1; boundary <= scenario.writes.length; boundary += 1) {
+      await t.test(`${scenario.name} write ${boundary}`, async () => {
+        const database = assignmentHarness(scenario.fixture, {
+          failAfterWrite: boundary,
+        });
+        await assert.rejects(
+          () => scenario.invoke(database),
+          new RegExp(`injected write failure ${boundary}`),
+        );
+
+        const writes = writeCalls(database);
+        assert.equal(writes.length, boundary);
+        assert.match(writes.at(-1).sql, scenario.writes[boundary - 1].sql);
+        assert.deepEqual(writes.at(-1).params, scenario.writes[boundary - 1].params);
+        assert.equal(database.commits, 0);
+        assert.equal(database.rollbacks, 1);
+        assert.deepEqual(database.snapshot(), database.initialSnapshot());
+      });
+    }
   }
 });
 
