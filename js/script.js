@@ -6,12 +6,17 @@ const AUTH_LIMITS = Object.freeze({
 });
 
 const ROLE_MAP = {
-  business_owner: { dashboard: 'businessownerdashboard.html' },
-  investor: { dashboard: 'investordashboard.html' },
-  relationship_manager: { dashboard: 'relationshipmanagerdashboard.html' },
-  admin: { dashboard: 'moderatordashboard.html' },
-  superadmin: { dashboard: 'superadmindashboard.html' },
+  business_owner: { dashboard: 'businessownerdashboard.html', label: 'Business Owner' },
+  investor: { dashboard: 'investordashboard.html', label: 'Investor' },
+  relationship_manager: {
+    dashboard: 'relationshipmanagerdashboard.html',
+    label: 'Relationship Manager',
+  },
+  admin: { dashboard: 'moderatordashboard.html', label: 'Administrator' },
+  superadmin: { dashboard: 'superadmindashboard.html', label: 'Superadmin' },
 };
+
+const PUBLIC_REGISTRATION_ROLES = new Set(['business_owner', 'investor']);
 
 async function apiPost(path, body, token) {
   const headers = { 'Content-Type': 'application/json' };
@@ -113,7 +118,7 @@ function initSignupPage() {
   // default to Business Owner.
   const params = new URLSearchParams(window.location.search);
   const requestedRole = params.get('role');
-  setRole(requestedRole === 'investor' ? 'investor' : 'business_owner');
+  setRole(PUBLIC_REGISTRATION_ROLES.has(requestedRole) ? requestedRole : 'business_owner');
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -163,7 +168,9 @@ function initSignupPage() {
       return;
     }
 
-    const role = roleInput.value;
+    const role = PUBLIC_REGISTRATION_ROLES.has(roleInput.value)
+      ? roleInput.value
+      : 'business_owner';
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Creating account…';
@@ -196,6 +203,13 @@ function initSigninPage() {
 
   const submitBtn = document.getElementById('signin-submit-btn');
   const messageEl = document.getElementById('signin-message');
+  const roleContext = document.getElementById('signin-role-context');
+  const selectedRole = new URLSearchParams(window.location.search).get('role');
+  if (roleContext && ROLE_MAP[selectedRole]) {
+    roleContext.textContent =
+      `Signing in as ${ROLE_MAP[selectedRole].label}. Your account determines final access.`;
+    roleContext.hidden = false;
+  }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();

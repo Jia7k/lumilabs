@@ -46,6 +46,10 @@ html {
   overflow-y: scroll;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 /* SHARED NAV */
 .nav {
   background: var(--bg-card);
@@ -593,11 +597,16 @@ body.audit .table td {
   margin-bottom: 40px;
 }
 
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .roles-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 24px;
-  max-width: 1240px;
+  max-width: 1500px;
   margin: 0 auto;
 }
 
@@ -657,6 +666,10 @@ body.audit .table td {
 
 .role-icon--purple {
   background: #6c5ce7;
+}
+
+.role-icon--navy {
+  background: #25324b;
 }
 
 .role-name {
@@ -739,14 +752,18 @@ body.audit .table td {
   background: #6c5ce7;
 }
 
-@media (max-width: 1199px) {
+@media (max-width: 980px) {
+  .role-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .roles-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-width: 760px;
   }
 }
 
-@media (max-width: 699px) {
+@media (max-width: 520px) {
   .hero {
     padding: 52px 1.25rem 40px;
   }
@@ -763,8 +780,12 @@ body.audit .table td {
     padding: 32px 1.25rem 60px;
   }
 
+  .role-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .roles-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -772,6 +793,10 @@ body.audit .table td {
 .role-card a:focus-visible {
   outline: 3px solid rgba(67, 97, 238, 0.35);
   outline-offset: 3px;
+}
+
+.role-btn--navy {
+  background: #25324b;
 }
 
 /* ADMIN PAGES */

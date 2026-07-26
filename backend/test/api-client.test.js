@@ -194,6 +194,7 @@ for (const [role, dashboard] of Object.entries({
   investor: 'investordashboard.html',
   relationship_manager: 'relationshipmanagerdashboard.html',
   admin: 'moderatordashboard.html',
+  superadmin: 'superadmindashboard.html',
 })) {
   test(`wrong-role ${role} is routed to its dashboard without sign-out`, async () => {
     const client = clientHarness();
@@ -286,4 +287,78 @@ test('portfolio approval sends PUT without an unused notes body', async () => {
   assert.equal(request.url, '/api/admin/portfolios/42/approve');
   assert.equal(request.options.method, 'PUT');
   assert.equal(Object.hasOwn(request.options, 'body'), false);
+});
+
+test('five-role workflow API methods use the final routes, verbs, and payloads', async () => {
+  const client = clientHarness();
+  const requests = [];
+  client.context.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return response(200, {});
+  };
+
+  await client.run(`
+    Promise.all([
+      API.getSuperadminStats(),
+      API.getPortfolioAssignments(),
+      API.getAssignableRelationshipManagers(),
+      API.getStaff(),
+      API.createStaff({ name: 'Rae', email: 'rae@example.test', password: 'secret1', role: 'admin' }),
+      API.assignPortfolioManager(42, 9),
+      API.unassignPortfolioManager(42),
+      API.getSuperadminAuditLogs(2, 25),
+      API.getAssignedPortfolio(42),
+      API.removeManagedInvestor(7, 11),
+    ])
+  `);
+
+  assert.deepEqual(
+    requests.map(({ url, options }) => ({
+      url,
+      method: options.method || 'GET',
+      body: options.body,
+    })),
+    [
+      { url: '/api/superadmin/stats', method: 'GET', body: undefined },
+      { url: '/api/superadmin/portfolio-assignments', method: 'GET', body: undefined },
+      { url: '/api/superadmin/relationship-managers', method: 'GET', body: undefined },
+      { url: '/api/superadmin/staff', method: 'GET', body: undefined },
+      {
+        url: '/api/superadmin/staff',
+        method: 'POST',
+        body: '{"name":"Rae","email":"rae@example.test","password":"secret1","role":"admin"}',
+      },
+      {
+        url: '/api/superadmin/portfolios/42/assignment',
+        method: 'PUT',
+        body: '{"relationship_manager_id":9}',
+      },
+      {
+        url: '/api/superadmin/portfolios/42/assignment',
+        method: 'DELETE',
+        body: undefined,
+      },
+      { url: '/api/superadmin/audit-logs?page=2&limit=25', method: 'GET', body: undefined },
+      { url: '/api/relationship-manager/portfolios/42', method: 'GET', body: undefined },
+      {
+        url: '/api/relationship-manager/conversations/7/investors/11',
+        method: 'DELETE',
+        body: undefined,
+      },
+    ],
+  );
+});
+
+test('browser API exposes no obsolete admin staff or manual chat lifecycle methods', () => {
+  const client = clientHarness();
+  for (const method of [
+    'getRelationshipManagers',
+    'createRelationshipManager',
+    'archiveManagedConversation',
+    'reopenManagedConversation',
+    'assignPortfolioRM',
+    'getSuperAdminStats',
+  ]) {
+    assert.equal(client.run(`typeof API.${method}`), 'undefined', method);
+  }
 });

@@ -216,15 +216,27 @@ const API = {
   deleteDocument: (portfolioId, docId) =>
     apiFetch(`/portfolios/${portfolioId}/documents/${docId}`, { method: "DELETE" }),
 
-  // Super admin
-  getSuperAdminStats: () => apiFetch("/superadmin/stats"),
+  // Superadmin
+  getSuperadminStats: () => apiFetch("/superadmin/stats"),
   getPortfolioAssignments: () => apiFetch("/superadmin/portfolio-assignments"),
   getAssignableRelationshipManagers: () => apiFetch("/superadmin/relationship-managers"),
-  assignPortfolioRM: (portfolioId, relationshipManagerId) =>
-    apiFetch(`/superadmin/portfolios/${portfolioId}/assign`, {
+  getStaff: () => apiFetch("/superadmin/staff"),
+  createStaff: (payload) =>
+    apiFetch("/superadmin/staff", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  assignPortfolioManager: (portfolioId, relationshipManagerId) =>
+    apiFetch(`/superadmin/portfolios/${portfolioId}/assignment`, {
       method: "PUT",
       body: JSON.stringify({ relationship_manager_id: relationshipManagerId })
     }),
+  unassignPortfolioManager: (portfolioId) =>
+    apiFetch(`/superadmin/portfolios/${portfolioId}/assignment`, {
+      method: "DELETE"
+    }),
+  getSuperadminAuditLogs: (page = 1, limit = 50) =>
+    apiFetch(`/superadmin/audit-logs?page=${page}&limit=${limit}`),
 
   // Admin
   getQueue: () => apiFetch("/admin/queue"),
@@ -237,16 +249,12 @@ const API = {
     }),
   getAuditLogs: () => apiFetch("/admin/audit-logs"),
   getStats: () => apiFetch("/admin/stats"),
-  getRelationshipManagers: () => apiFetch("/admin/relationship-managers"),
-  createRelationshipManager: (payload) =>
-    apiFetch("/admin/relationship-managers", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
   downloadDocument: downloadDocument,
 
   // Relationship manager
   getRelationshipManagerDashboard: () => apiFetch("/relationship-manager/dashboard"),
+  getAssignedPortfolio: (portfolioId) =>
+    apiFetch(`/relationship-manager/portfolios/${portfolioId}`),
   createManagedConversation: (portfolioId, interestIds) =>
     apiFetch("/relationship-manager/conversations", {
       method: "POST",
@@ -257,10 +265,11 @@ const API = {
       method: "POST",
       body: JSON.stringify({ interest_ids: interestIds })
     }),
-  archiveManagedConversation: (conversationId) =>
-    apiFetch(`/relationship-manager/conversations/${conversationId}/archive`, { method: "PUT" }),
-  reopenManagedConversation: (conversationId) =>
-    apiFetch(`/relationship-manager/conversations/${conversationId}/reopen`, { method: "PUT" }),
+  removeManagedInvestor: (conversationId, investorId) =>
+    apiFetch(
+      `/relationship-manager/conversations/${conversationId}/investors/${investorId}`,
+      { method: "DELETE" }
+    ),
 
   // Business owner dashboard
   getBusinessOwnerDashboard: () => apiFetch("/dashboard/business-owner"),

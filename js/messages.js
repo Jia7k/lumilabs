@@ -3,6 +3,7 @@ const ROLE_LABELS = Object.freeze({
   investor: 'Investor',
   relationship_manager: 'Relationship Manager',
   admin: 'Administrator',
+  superadmin: 'Superadmin',
 });
 
 const MESSAGE_ROLES = new Set([
@@ -18,7 +19,7 @@ const ARCHIVE_REASON_LABELS = Object.freeze({
   portfolio_deleted: 'The portfolio was removed. This history is retained for reference.',
 });
 
-const MESSAGES_API_SCRIPT_SRC = 'js/api.js?v=20260724.1';
+const MESSAGES_API_SCRIPT_SRC = 'js/api.js?v=20260727.1';
 
 const state = {
   user: null,
@@ -93,9 +94,13 @@ async function loadMessagesWorkspace() {
     if (apiClientLoad) await apiClientLoad;
     const user = await apiFetch('/messages/me');
     if (!MESSAGE_ROLES.has(user.role)) {
-      window.location.href = user.role === 'admin'
-        ? 'moderatordashboard.html'
-        : 'index.html';
+      const fallbackDashboards = {
+        admin: 'moderatordashboard.html',
+        superadmin: 'superadmindashboard.html',
+      };
+      window.location.href = typeof dashboardForRole === 'function'
+        ? dashboardForRole(user.role)
+        : fallbackDashboards[user.role] || 'index.html';
       return false;
     }
     state.user = {

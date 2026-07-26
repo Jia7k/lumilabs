@@ -42,11 +42,20 @@ test('browser files use only the same-origin API namespace', () => {
 test('relationship-manager clients use same-origin API helper paths', () => {
   const source = fs.readFileSync(path.join(root, 'js/api.js'), 'utf8');
   for (const route of [
-    '/admin/relationship-managers',
+    '/superadmin/relationship-managers',
     '/relationship-manager/dashboard',
     '/relationship-manager/conversations',
+    '/relationship-manager/portfolios/',
   ]) assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   assert.doesNotMatch(source, /https?:\/\//);
+});
+
+test('browser API source contains no obsolete staff, direct-assignment, or lifecycle endpoints', () => {
+  const source = fs.readFileSync(path.join(root, 'js/api.js'), 'utf8');
+  for (const route of ['/admin/relationship-managers', '/archive', '/reopen']) {
+    assert.equal(source.includes(route), false, route);
+  }
+  assert.doesNotMatch(source, /\/superadmin\/portfolios\/\$\{portfolioId\}\/assign`/);
 });
 
 test('production server has no hard-coded local browser origin', () => {

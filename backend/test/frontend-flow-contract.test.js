@@ -238,29 +238,62 @@ test('portfolio editor mirrors database-backed form limits', () => {
   );
 });
 
-test('homepage offers four roles without public manager signup', () => {
+test('homepage offers all five roles without public staff signup', () => {
   const html = read('index.html');
-  assert.match(html, />Relationship Manager</);
-  assert.match(
-    html,
-    /href="signin\.html"[^>]*>\s*Sign In as Relationship Manager/s,
-  );
-  assert.doesNotMatch(html, /signup\.html\?role=relationship_manager/);
+  const roleCards = [...html.matchAll(/<div class=["'][^"']*\brole-card\b[^"']*["']/g)];
+  assert.equal(roleCards.length, 5);
+  for (const [role, label] of [
+    ['relationship_manager', 'Relationship Manager'],
+    ['admin', 'Administrator'],
+    ['superadmin', 'Superadmin'],
+  ]) {
+    assert.match(html, new RegExp(`>${label}<`));
+    assert.match(
+      html,
+      new RegExp(`href=["']signin\\.html\\?role=${role}["'][^>]*>[\\s\\S]*?Sign In as ${label}`),
+    );
+    assert.doesNotMatch(html, new RegExp(`signup\\.html\\?role=${role}`));
+  }
   assert.doesNotMatch(html, /Direct messaging|Message investors/);
 });
 
-test('homepage role grid has explicit four, two, and one-column breakpoints', () => {
+test('homepage role grid has explicit five, two, and one-column breakpoints', () => {
   const css = read('css/style.css');
-  assert.match(css, /\.roles-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
-  assert.match(css, /@media \(max-width:\s*1199px\)[\s\S]*?\.roles-grid\s*\{[^}]*repeat\(2,/);
-  assert.match(css, /@media \(max-width:\s*699px\)[\s\S]*?\.roles-grid\s*\{[^}]*1fr/);
+  assert.match(css, /\.roles-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /@media \(max-width:\s*980px\)[\s\S]*?\.roles-grid\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(css, /@media \(max-width:\s*520px\)[\s\S]*?\.roles-grid\s*\{[^}]*minmax\(0,\s*1fr\)/);
 });
 
-test('login maps relationship managers to their protected dashboard', () => {
+test('shared hidden attribute always overrides component display rules', () => {
+  assert.match(read('css/style.css'), /\[hidden\]\s*\{[^}]*display:\s*none\s*!important;/s);
+});
+
+test('login maps all five server-returned roles while public registration stays limited', () => {
+  const client = read('js/script.js');
+  for (const [role, dashboard] of Object.entries({
+    business_owner: 'businessownerdashboard.html',
+    investor: 'investordashboard.html',
+    relationship_manager: 'relationshipmanagerdashboard.html',
+    admin: 'moderatordashboard.html',
+    superadmin: 'superadmindashboard.html',
+  })) {
+    assert.match(
+      client,
+      new RegExp(`${role}:\\s*\\{\\s*dashboard:\\s*'${dashboard.replace('.', '\\.')}'`),
+    );
+  }
   assert.match(
-    read('js/script.js'),
-    /relationship_manager:\s*\{\s*dashboard:\s*'relationshipmanagerdashboard\.html'/,
+    client,
+    /const PUBLIC_REGISTRATION_ROLES\s*=\s*new Set\(\['business_owner',\s*'investor'\]\)/,
   );
+  assert.match(client, /const mapped\s*=\s*saveSession\(token,\s*user\)/);
+  assert.doesNotMatch(client, /saveSession\(token,\s*\{[^}]*role:\s*(?:requestedRole|selectedRole)/s);
+});
+
+test('portfolio editor guards its optional account menu before binding it', () => {
+  const client = read('js/createportfolio.js');
+  assert.match(client, /const menu\s*=\s*document\.getElementById\(["']role-menu["']\)/);
+  assert.match(client, /if\s*\(\s*!?menu[\s\S]*?button\.addEventListener/);
 });
 
 test('administrator dashboard provisions managers with accessible recoverable form state', () => {
@@ -324,9 +357,10 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260724.1';
+  const releaseKey = '20260727.1';
   const changedSharedClientPages = [
     'audit-logs.html',
+    'assignments.html',
     'browse.html',
     'businessownerdashboard.html',
     'createportfolio.html',
@@ -336,6 +370,7 @@ test('changed shared-client pages use one coherent frontend release key', () => 
     'my-interests.html',
     'mybusinesses.html',
     'relationshipmanagerdashboard.html',
+    'superadmindashboard.html',
     'index.html',
     'signin.html',
     'signup.html',
@@ -352,6 +387,19 @@ test('changed shared-client pages use one coherent frontend release key', () => 
       assert.match(asset, new RegExp(`\\?v=${releaseKey}$`), `${page}: ${asset}`);
     }
   }
+  assert.match(
+    read('js/messages.js'),
+    new RegExp(`MESSAGES_API_SCRIPT_SRC\\s*=\\s*['"]js/api\\.js\\?v=${releaseKey}['"]`),
+  );
+});
+
+test('Assignments is an actionable current section in the superadmin navigation', () => {
+  const html = read('assignments.html');
+  assert.match(
+    html,
+    /class=["'][^"']*\bnav-btn\b[^"']*\bactive\b[^"']*["'][^>]*>[\s\S]*?Assignments/,
+  );
+  assert.match(html, /aria-current=["']page["']/);
 });
 
 test('browser JavaScript passes node syntax checking', () => {

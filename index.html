@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lumi5 Labs – AI-Powered Investment Matchmaking</title>
-  <link rel="stylesheet" href="css/style.css?v=20260724.1" />
+  <link rel="stylesheet" href="css/style.css?v=20260727.1" />
 </head>
 <body>
 
@@ -46,7 +46,7 @@
     <h2 class="roles-title">Select Your Role to Begin</h2>
     <p class="roles-sub">This prototype demonstrates all user workflows and system behaviors</p>
 
-    <div class="roles-grid">
+    <div class="roles-grid role-grid">
 
       <!-- Business Owner -->
       <div class="role-card">
@@ -110,7 +110,7 @@
           <li><span class="check">✓</span> Guide group discussions</li>
           <li><span class="check">✓</span> Preserve a clear audit trail</li>
         </ul>
-        <a href="signin.html" class="role-btn role-btn--orange">
+        <a href="signin.html?role=relationship_manager" class="role-btn role-btn--orange">
           Sign In as Relationship Manager <span class="btn-arrow">→</span>
         </a>
       </div>
@@ -130,8 +130,29 @@
           <li><span class="check">✓</span> View audit logs</li>
           <li><span class="check">✓</span> Platform oversight</li>
         </ul>
-        <a href="signin.html" class="role-btn role-btn--purple">
+        <a href="signin.html?role=admin" class="role-btn role-btn--purple">
           Sign In as Administrator <span class="btn-arrow">→</span>
+        </a>
+      </div>
+
+      <!-- Superadmin -->
+      <div class="role-card">
+        <div class="role-icon role-icon--navy" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="m4 9 5 4 5-8 5 8 5-4-2 13H6L4 9Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M7 18h14" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="role-name">Superadmin</h3>
+        <p class="role-persona">For platform operations</p>
+        <ul class="role-features">
+          <li><span class="check">✓</span> Assign approved portfolios</li>
+          <li><span class="check">✓</span> Create staff accounts</li>
+          <li><span class="check">✓</span> Monitor manager workload</li>
+          <li><span class="check">✓</span> Review assignment history</li>
+        </ul>
+        <a href="signin.html?role=superadmin" class="role-btn role-btn--navy">
+          Sign In as Superadmin <span class="btn-arrow">→</span>
         </a>
       </div>
 
@@ -142,6 +163,6 @@
     </p>
   </section>
 
-  <script src="js/script.js?v=20260724.1"></script>
+  <script src="js/script.js?v=20260727.1"></script>
 </body>
 </html>

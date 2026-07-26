@@ -582,11 +582,14 @@ function renderFileList() {
 function initRoleMenu() {
   const menu = document.getElementById("role-menu");
   const button = document.getElementById("role-menu-button");
+  if (!menu || !button) return;
   button.addEventListener("click", (e) => {
     e.stopPropagation();
     menu.classList.toggle("open");
   });
-  document.addEventListener("click", () => menu.classList.remove("open"));
+  if (typeof document.addEventListener === "function") {
+    document.addEventListener("click", () => menu.classList.remove("open"));
+  }
 }
 
 initRoleMenu();
