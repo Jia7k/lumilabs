@@ -1000,7 +1000,7 @@ test('room management adapters preserve workflow status and do not leak particip
   assert.equal('participants' in payload, false);
 });
 
-test('archive and reopen adapters pass the authenticated manager and conversation', { concurrency: false }, async (t) => {
+test('manual archive and reopen routes are removed', { concurrency: false }, async (t) => {
   const calls = [];
   const workflow = {
     async archiveManagedConversation(options) {
@@ -1028,12 +1028,106 @@ test('archive and reopen adapters pass the authenticated manager and conversatio
     '/api/relationship-manager/conversations/12/reopen',
   );
 
-  assert.equal(archived.response.status, 200);
-  assert.equal(reopened.response.status, 200);
-  assert.deepEqual(calls, [
-    ['archive', { database, managerId: 8, conversationId: 12 }],
-    ['reopen', { database, managerId: 8, conversationId: 12 }],
-  ]);
+  assert.equal(archived.response.status, 404);
+  assert.equal(reopened.response.status, 404);
+  assert.deepEqual(calls, []);
+});
+
+test('remove-investor adapter validates safe IDs and delegates to the authenticated manager', {
+  concurrency: false,
+}, async (t) => {
+  const calls = [];
+  const database = { marker: 'database' };
+  const app = testApp({
+    database,
+    workflow: {
+      async removeManagedInvestor(options) {
+        calls.push(options);
+        return { changed: true, investor_id: options.investorId, archived: false };
+      },
+    },
+  });
+
+  for (const path of [
+    '/api/relationship-manager/conversations/0/investors/9',
+    '/api/relationship-manager/conversations/12junk/investors/9',
+    `/api/relationship-manager/conversations/${Number.MAX_SAFE_INTEGER + 1}/investors/9`,
+    '/api/relationship-manager/conversations/12/investors/0',
+    '/api/relationship-manager/conversations/12/investors/9junk',
+    `/api/relationship-manager/conversations/12/investors/${Number.MAX_SAFE_INTEGER + 1}`,
+  ]) {
+    const invalid = await request(t, app, 'DELETE', path);
+    assert.equal(invalid.response.status, 400, path);
+  }
+  assert.equal(calls.length, 0);
+
+  const removed = await request(
+    t,
+    app,
+    'DELETE',
+    '/api/relationship-manager/conversations/12/investors/9',
+  );
+  assert.equal(removed.response.status, 200);
+  assert.deepEqual(removed.payload, {
+    changed: true,
+    investor_id: 9,
+    archived: false,
+  });
+  assert.deepEqual(calls, [{
+    database,
+    managerId: 8,
+    conversationId: 12,
+    investorId: 9,
+  }]);
+});
+
+test('remove-investor route preserves stable workflow errors and sanitizes unknown failures', {
+  concurrency: false,
+}, async (t) => {
+  const originalError = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = originalError;
+  });
+  const app = testApp({
+    database: {},
+    workflow: {
+      async removeManagedInvestor({ investorId }) {
+        if (investorId === 9) {
+          throw new ManagedConversationError(
+            403,
+            'Only the assigned relationship manager can manage this conversation',
+            'NOT_ASSIGNED_MANAGER',
+          );
+        }
+        const error = new Error('private database failure');
+        error.sql = 'SELECT secret FROM hidden';
+        throw error;
+      },
+    },
+  });
+
+  const forbidden = await request(
+    t,
+    app,
+    'DELETE',
+    '/api/relationship-manager/conversations/12/investors/9',
+  );
+  assert.equal(forbidden.response.status, 403);
+  assert.deepEqual(forbidden.payload, {
+    error: 'Only the assigned relationship manager can manage this conversation',
+    code: 'NOT_ASSIGNED_MANAGER',
+  });
+
+  const failed = await request(
+    t,
+    app,
+    'DELETE',
+    '/api/relationship-manager/conversations/12/investors/10',
+  );
+  assert.equal(failed.response.status, 500);
+  assert.deepEqual(failed.payload, { error: 'Server error' });
+  assert.doesNotMatch(JSON.stringify(failed.payload), /private|secret|hidden/);
 });
 
 test('empty interest selection is rejected before calling the workflow', { concurrency: false }, async (t) => {

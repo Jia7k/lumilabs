@@ -43,9 +43,16 @@ function scriptedDatabase(responses) {
 test('create derives owner and multiple investors from an approved portfolio and interests', async () => {
   const { createManagedConversation } = loadService();
   const fake = scriptedDatabase([
-    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
-    [{ id: 1, owner_id: 3, name: 'X3', status: 'approved', owner_name: 'Beta' }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+      owner_name: 'Beta',
+    }],
     [],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
     [
       { interest_id: 1, investor_id: 6, investor_name: 'testing1' },
       { interest_id: 2, investor_id: 9, investor_name: 'leticia l' },
@@ -68,8 +75,16 @@ test('create derives owner and multiple investors from an approved portfolio and
   assert.deepEqual(result.owner, { id: 3, name: 'Beta' });
   assert.deepEqual(result.manager, { id: 8, name: 'Rachel Manager' });
   assert.deepEqual(result.investors.map(({ id }) => id), [6, 9]);
+  assert.match(fake.calls[0].sql, /FROM portfolios p/);
+  assert.match(fake.calls[0].sql, /FOR UPDATE/);
+  assert.match(fake.calls[1].sql, /FROM conversations/);
+  assert.match(fake.calls[2].sql, /FROM users/);
   assert.match(fake.calls[5].sql, /INSERT INTO conversation_members/);
   assert.equal(fake.calls[5].params[0].length, 4);
+  assert.deepEqual(fake.calls[5].params[0].slice(0, 2), [
+    [12, 8, 'relationship_manager', 0, 0],
+    [12, 3, 'business_owner', 0, 0],
+  ]);
   assert.deepEqual(
     fake.calls[6].params[0].map((row) => row[0]),
     [3, 6, 9],
@@ -80,12 +95,54 @@ test('create derives owner and multiple investors from an approved portfolio and
   fake.assertConsumed();
 });
 
+test('create accepts one current investor and adds manager and owner with full history', async () => {
+  const { createManagedConversation } = loadService();
+  const fake = scriptedDatabase([
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+      owner_name: 'Beta',
+    }],
+    [],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ interest_id: 1, investor_id: 6, investor_name: 'testing1' }],
+    { insertId: 12, affectedRows: 1 },
+    { affectedRows: 3 },
+    { affectedRows: 2 },
+  ]);
+
+  await createManagedConversation({
+    database: fake.database,
+    managerId: 8,
+    portfolioId: 1,
+    interestIds: [1],
+  });
+
+  assert.deepEqual(fake.calls[5].params[0], [
+    [12, 8, 'relationship_manager', 0, 0],
+    [12, 3, 'business_owner', 0, 0],
+    [12, 6, 'investor', 0, 0],
+  ]);
+  assert.deepEqual(fake.calls[6].params[0].map((row) => row[0]), [3, 6]);
+  fake.assertConsumed();
+});
+
 test('one invalid interest rolls back the complete room creation', async () => {
   const { createManagedConversation } = loadService();
   const fake = scriptedDatabase([
-    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
-    [{ id: 1, owner_id: 3, name: 'X3', status: 'approved', owner_name: 'Beta' }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+      owner_name: 'Beta',
+    }],
     [],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
     [{ interest_id: 1, investor_id: 6, investor_name: 'testing1' }],
   ]);
 
@@ -107,8 +164,14 @@ test('one invalid interest rolls back the complete room creation', async () => {
 test('a portfolio already claimed by another manager returns a conflict', async () => {
   const { createManagedConversation } = loadService();
   const fake = scriptedDatabase([
-    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
-    [{ id: 1, owner_id: 3, name: 'X3', status: 'approved', owner_name: 'Beta' }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+      owner_name: 'Beta',
+    }],
     [{ id: 12, relationship_manager_id: 10 }],
   ]);
 
@@ -125,9 +188,78 @@ test('a portfolio already claimed by another manager returns a conflict', async 
   fake.assertConsumed();
 });
 
+test('a concurrent duplicate room insert maps to the stable room conflict and rolls back', async () => {
+  const { createManagedConversation } = loadService();
+  const duplicate = new Error('duplicate');
+  duplicate.code = 'ER_DUP_ENTRY';
+  const fake = scriptedDatabase([
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+      owner_name: 'Beta',
+    }],
+    [],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ interest_id: 1, investor_id: 6, investor_name: 'testing1' }],
+    duplicate,
+  ]);
+
+  await assert.rejects(
+    createManagedConversation({
+      database: fake.database,
+      managerId: 8,
+      portfolioId: 1,
+      interestIds: [1],
+    }),
+    (error) => error.status === 409 && error.code === 'ROOM_ALREADY_CLAIMED',
+  );
+  assert.equal(fake.state.commits, 0);
+  assert.equal(fake.state.rollbacks, 1);
+  fake.assertConsumed();
+});
+
+test('only the canonical portfolio assignment can create its one chat', async () => {
+  const { createManagedConversation } = loadService();
+  const fake = scriptedDatabase([[
+    {
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 10,
+      owner_name: 'Beta',
+    },
+  ]]);
+
+  await assert.rejects(
+    createManagedConversation({
+      database: fake.database,
+      managerId: 8,
+      portfolioId: 1,
+      interestIds: [1],
+    }),
+    (error) => error.status === 403 && error.code === 'NOT_ASSIGNED_MANAGER',
+  );
+  assert.equal(fake.calls.length, 1);
+  assert.equal(fake.state.commits, 0);
+  assert.equal(fake.state.rollbacks, 1);
+  fake.assertConsumed();
+});
+
 test('reactivating an investor uses the latest message as both visibility cursors', async () => {
   const { addManagedInvestors } = loadService();
   const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
     [{
       id: 12,
       portfolio_id: 1,
@@ -137,6 +269,7 @@ test('reactivating an investor uses the latest message as both visibility cursor
       archived_reason: 'no_active_investors',
       portfolio_status: 'approved',
     }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
     [{ interest_id: 2, investor_id: 9, investor_name: 'leticia l' }],
     [{ user_id: 9, membership_status: 'removed' }],
     [{ latest_message_id: 41 }],
@@ -144,6 +277,7 @@ test('reactivating an investor uses the latest message as both visibility cursor
       { user_id: 8, member_role: 'relationship_manager' },
       { user_id: 3, member_role: 'business_owner' },
     ],
+    { affectedRows: 1 },
     { affectedRows: 1 },
     { affectedRows: 2 },
     [
@@ -161,13 +295,15 @@ test('reactivating an investor uses the latest message as both visibility cursor
   });
 
   assert.deepEqual(result.added_investor_ids, [9]);
-  assert.match(fake.calls[5].sql, /UPDATE conversation_members/);
-  assert.deepEqual(fake.calls[5].params.slice(0, 2), [41, 41]);
-  assert.deepEqual(fake.calls[6].params[0].map((row) => row[0]), [9, 3]);
-  assert.equal(
-    fake.calls.some(({ sql }) => /UPDATE conversations SET status='active'/.test(sql)),
-    false,
-  );
+  const membershipUpdate = fake.calls.find(({ sql }) => /UPDATE conversation_members/.test(sql));
+  assert.deepEqual(membershipUpdate.params.slice(0, 2), [41, 41]);
+  const roomUpdate = fake.calls.find(({ sql }) => (
+    /UPDATE conversations/.test(sql) && /status='active'/.test(sql)
+  ));
+  assert.ok(roomUpdate);
+  assert.deepEqual(roomUpdate.params, [12]);
+  const notification = fake.calls.find(({ sql }) => /INSERT INTO notifications/.test(sql));
+  assert.deepEqual(notification.params[0].map((row) => row[0]), [9, 3]);
   assert.equal(fake.state.commits, 1);
   fake.assertConsumed();
 });
@@ -175,6 +311,14 @@ test('reactivating an investor uses the latest message as both visibility cursor
 test('adding an already-active investor is idempotent and creates no notification', async () => {
   const { addManagedInvestors } = loadService();
   const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
     [{
       id: 12,
       portfolio_id: 1,
@@ -184,6 +328,7 @@ test('adding an already-active investor is idempotent and creates no notificatio
       archived_reason: null,
       portfolio_status: 'approved',
     }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
     [{ interest_id: 1, investor_id: 6, investor_name: 'testing1' }],
     [{ user_id: 6, membership_status: 'active' }],
     [
@@ -207,92 +352,268 @@ test('adding an already-active investor is idempotent and creates no notificatio
   fake.assertConsumed();
 });
 
-test('assigned manager can archive once and repeat archive is idempotent', async () => {
-  const { archiveManagedConversation } = loadService();
-  const first = scriptedDatabase([
+test('adding an investor never reactivates a stronger archived state', async () => {
+  const { addManagedInvestors } = loadService();
+  const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
     [{
       id: 12,
       portfolio_id: 1,
       relationship_manager_id: 8,
-      status: 'active',
-      archived_reason: null,
       title: 'X3',
+      status: 'archived',
+      archived_reason: 'portfolio_unapproved',
     }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ interest_id: 2, investor_id: 9, investor_name: 'leticia l' }],
+    [{ user_id: 9, member_role: 'investor', membership_status: 'removed' }],
+    [{ latest_message_id: 103 }],
     [
-      { user_id: 8 },
-      { user_id: 3 },
-      { user_id: 6 },
+      { user_id: 8, member_role: 'relationship_manager' },
+      { user_id: 3, member_role: 'business_owner' },
     ],
     { affectedRows: 1 },
     { affectedRows: 2 },
+    [
+      { id: 8, name: 'Rachel Manager', role: 'relationship_manager' },
+      { id: 3, name: 'Beta', role: 'business_owner' },
+      { id: 9, name: 'leticia l', role: 'investor' },
+    ],
   ]);
-  const archived = await archiveManagedConversation({
-    database: first.database,
+
+  await addManagedInvestors({
+    database: fake.database,
     managerId: 8,
     conversationId: 12,
+    interestIds: [2],
   });
-  assert.deepEqual(archived, {
-    conversation_id: 12,
-    status: 'archived',
-    archived_reason: 'manual',
-    changed: true,
-  });
-  assert.deepEqual(first.calls[3].params[0].map((row) => row[0]), [3, 6]);
 
-  const repeated = scriptedDatabase([[
-    {
+  assert.equal(
+    fake.calls.some(({ sql }) => (
+      /UPDATE conversations/.test(sql) && /status='active'/.test(sql)
+    )),
+    false,
+  );
+  fake.assertConsumed();
+});
+
+test('an old conversation manager cannot add investors after reassignment', async () => {
+  const { addManagedInvestors } = loadService();
+  const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 10,
+    }],
+  ]);
+
+  await assert.rejects(
+    addManagedInvestors({
+      database: fake.database,
+      managerId: 8,
+      conversationId: 12,
+      interestIds: [1],
+    }),
+    (error) => error.status === 403 && error.code === 'NOT_ASSIGNED_MANAGER',
+  );
+  assert.equal(fake.state.rollbacks, 1);
+  fake.assertConsumed();
+});
+
+test('manual lifecycle functions are not exported', () => {
+  const service = loadService();
+  assert.equal(Object.hasOwn(service, 'archiveManagedConversation'), false);
+  assert.equal(Object.hasOwn(service, 'reopenManagedConversation'), false);
+});
+
+test('manual removal preserves interest and history, notifies safely, and archives the last investor', async () => {
+  const { removeManagedInvestor } = loadService();
+  assert.equal(typeof removeManagedInvestor, 'function');
+  const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
       id: 12,
       portfolio_id: 1,
       relationship_manager_id: 8,
-      status: 'archived',
-      archived_reason: 'manual',
+      status: 'active',
+      archived_reason: null,
       title: 'X3',
-    },
-  ]]);
-  assert.deepEqual(
-    await archiveManagedConversation({
-      database: repeated.database,
-      managerId: 8,
-      conversationId: 12,
-    }),
-    {
-      conversation_id: 12,
-      status: 'archived',
-      archived_reason: 'manual',
-      changed: false,
-    },
-  );
-  assert.equal(repeated.calls.length, 1);
+    }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ id: 31, investor_id: 9, portfolio_id: 1 }],
+    [{ user_id: 9, member_role: 'investor', membership_status: 'active' }],
+    [{ user_id: 9 }],
+    [{ user_id: 3 }],
+    { affectedRows: 1 },
+    { affectedRows: 1 },
+    { affectedRows: 2 },
+  ]);
+
+  const result = await removeManagedInvestor({
+    database: fake.database,
+    managerId: 8,
+    conversationId: 12,
+    investorId: 9,
+  });
+
+  assert.deepEqual(result, {
+    changed: true,
+    investor_id: 9,
+    archived: true,
+  });
+  assert.equal(fake.calls.some(({ sql }) => /DELETE FROM investor_interests/.test(sql)), false);
+  assert.equal(fake.calls.some(({ sql }) => /DELETE FROM messages/.test(sql)), false);
+  assert.equal(fake.calls.some(({ sql }) => /DELETE FROM notifications/.test(sql)), false);
+  const notification = fake.calls.find(({ sql }) => /INSERT INTO notifications/.test(sql));
+  assert.deepEqual(notification.params[0].map((row) => row[0]), [9, 3]);
+  assert.equal(notification.params[0][0][5], null);
+  assert.equal(notification.params[0][1][5], 12);
+  assert.ok(fake.calls.some(({ sql, params }) => (
+    /UPDATE conversations/.test(sql)
+    && /archived_reason=\?/.test(sql)
+    && params[0] === 'no_active_investors'
+  )));
+  assert.equal(fake.state.commits, 1);
+  fake.assertConsumed();
 });
 
-test('reopen requires an approved portfolio and an active eligible investor', async () => {
-  const { reopenManagedConversation } = loadService();
+test('manual removal is idempotent and emits no writes or notifications', async () => {
+  const { removeManagedInvestor } = loadService();
   const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
     [{
       id: 12,
       portfolio_id: 1,
       relationship_manager_id: 8,
       status: 'archived',
-      archived_reason: 'manual',
-      portfolio_status: 'approved',
+      archived_reason: 'no_active_investors',
+      title: 'X3',
     }],
-    [{ eligible_count: 1 }],
-    { affectedRows: 1 },
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ id: 31, investor_id: 9, portfolio_id: 1 }],
+    [{ user_id: 9, member_role: 'investor', membership_status: 'removed' }],
+    [],
+    [{ user_id: 3 }],
   ]);
 
   assert.deepEqual(
-    await reopenManagedConversation({
+    await removeManagedInvestor({
       database: fake.database,
       managerId: 8,
       conversationId: 12,
+      investorId: 9,
     }),
-    {
-      conversation_id: 12,
+    { changed: false, investor_id: 9, archived: true },
+  );
+  assert.equal(fake.calls.some(({ sql }) => /^(UPDATE|INSERT|DELETE)/.test(sql)), false);
+  assert.equal(fake.state.commits, 1);
+  fake.assertConsumed();
+});
+
+test('manual removal keeps the room active when another eligible investor remains', async () => {
+  const { removeManagedInvestor } = loadService();
+  const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
+      id: 12,
+      portfolio_id: 1,
+      relationship_manager_id: 8,
       status: 'active',
       archived_reason: null,
-      changed: true,
-    },
+      title: 'X3',
+    }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ id: 31, investor_id: 9, portfolio_id: 1 }],
+    [{ user_id: 9, member_role: 'investor', membership_status: 'active' }],
+    [{ user_id: 9 }, { user_id: 11 }],
+    [{ user_id: 3 }],
+    { affectedRows: 1 },
+    { affectedRows: 2 },
+  ]);
+
+  assert.deepEqual(
+    await removeManagedInvestor({
+      database: fake.database,
+      managerId: 8,
+      conversationId: 12,
+      investorId: 9,
+    }),
+    { changed: true, investor_id: 9, archived: false },
   );
-  assert.equal(fake.state.commits, 1);
+  assert.equal(fake.calls.some(({ sql }) => /UPDATE conversations/.test(sql)), false);
+  fake.assertConsumed();
+});
+
+test('manual removal rolls back membership and archive changes when notification insertion fails', async () => {
+  const { removeManagedInvestor } = loadService();
+  const fake = scriptedDatabase([
+    [{ id: 12, portfolio_id: 1 }],
+    [{
+      id: 1,
+      owner_id: 3,
+      name: 'X3',
+      status: 'approved',
+      relationship_manager_id: 8,
+    }],
+    [{
+      id: 12,
+      portfolio_id: 1,
+      relationship_manager_id: 8,
+      status: 'active',
+      archived_reason: null,
+      title: 'X3',
+    }],
+    [{ id: 8, name: 'Rachel Manager', role: 'relationship_manager' }],
+    [{ id: 31, investor_id: 9, portfolio_id: 1 }],
+    [{ user_id: 9, member_role: 'investor', membership_status: 'active' }],
+    [{ user_id: 9 }],
+    [{ user_id: 3 }],
+    { affectedRows: 1 },
+    { affectedRows: 1 },
+    new Error('notification insertion failed'),
+  ]);
+
+  await assert.rejects(
+    removeManagedInvestor({
+      database: fake.database,
+      managerId: 8,
+      conversationId: 12,
+      investorId: 9,
+    }),
+    /notification insertion failed/,
+  );
+  assert.equal(fake.state.commits, 0);
+  assert.equal(fake.state.rollbacks, 1);
   fake.assertConsumed();
 });

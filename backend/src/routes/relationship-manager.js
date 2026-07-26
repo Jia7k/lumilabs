@@ -10,6 +10,16 @@ const interestIdsValidation = [
   body('interest_ids.*').isInt({ min: 1 }).toInt(),
 ];
 
+function positiveSafeIntegerParam(name, label) {
+  return param(name)
+    .custom((value) => (
+      /^[1-9]\d*$/.test(String(value))
+      && Number.isSafeInteger(Number(value))
+    ))
+    .withMessage(`${label} must be a positive integer`)
+    .toInt();
+}
+
 function sendValidationErrors(req, res) {
   const errors = validationResult(req);
   if (errors.isEmpty()) return false;
@@ -57,13 +67,7 @@ function createRelationshipManagerRouter({
 
   router.get(
     '/portfolios/:portfolioId',
-    param('portfolioId')
-      .custom((value) => (
-        /^[1-9]\d*$/.test(String(value))
-        && Number.isSafeInteger(Number(value))
-      ))
-      .withMessage('Portfolio ID must be a positive integer')
-      .toInt(),
+    positiveSafeIntegerParam('portfolioId', 'Portfolio ID'),
     async (req, res) => {
       if (sendValidationErrors(req, res)) return;
       try {
@@ -125,27 +129,26 @@ function createRelationshipManagerRouter({
     },
   );
 
-  for (const [action, handlerName] of [
-    ['archive', 'archiveManagedConversation'],
-    ['reopen', 'reopenManagedConversation'],
-  ]) {
-    router.put(
-      `/conversations/:conversationId/${action}`,
-      param('conversationId').isInt({ min: 1 }).toInt(),
-      async (req, res) => {
-        if (sendValidationErrors(req, res)) return;
-        try {
-          return res.json(await conversationWorkflows[handlerName]({
-            database,
-            managerId: Number(req.user.id),
-            conversationId: req.params.conversationId,
-          }));
-        } catch (error) {
-          return sendWorkflowError(error, res);
-        }
-      },
-    );
-  }
+  router.delete(
+    '/conversations/:conversationId/investors/:investorId',
+    [
+      positiveSafeIntegerParam('conversationId', 'Conversation ID'),
+      positiveSafeIntegerParam('investorId', 'Investor ID'),
+    ],
+    async (req, res) => {
+      if (sendValidationErrors(req, res)) return;
+      try {
+        return res.json(await conversationWorkflows.removeManagedInvestor({
+          database,
+          managerId: Number(req.user.id),
+          conversationId: req.params.conversationId,
+          investorId: req.params.investorId,
+        }));
+      } catch (error) {
+        return sendWorkflowError(error, res);
+      }
+    },
+  );
 
   return router;
 }

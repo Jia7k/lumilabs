@@ -175,6 +175,90 @@ test('nonmember receives 403 without participant or message queries', async () =
   fake.assertConsumed();
 });
 
+test('removed investor and replaced manager immediately receive 403', async () => {
+  const { loadConversationThread } = loadService();
+  for (const [userId, memberRole] of [
+    [9, 'investor'],
+    [8, 'relationship_manager'],
+  ]) {
+    const fake = scriptedDatabase([[
+      {
+        id: 12,
+        portfolio_id: 1,
+        title: 'X3',
+        status: 'active',
+        user_id: userId,
+        member_role: memberRole,
+        membership_status: 'removed',
+      },
+    ]]);
+
+    await assert.rejects(
+      loadConversationThread({
+        database: fake.database,
+        userId,
+        conversationId: 12,
+      }),
+      (error) => error.status === 403 && error.code === 'ROOM_ACCESS_DENIED',
+    );
+    assert.equal(fake.poolCalls.length, 1);
+    fake.assertConsumed();
+  }
+});
+
+test('manager full-history membership boundary loads the complete thread', async () => {
+  const { loadConversationThread } = loadService();
+  const fake = scriptedDatabase([
+    [{
+      id: 12,
+      portfolio_id: 1,
+      title: 'X3',
+      status: 'active',
+      archived_reason: null,
+      user_id: 10,
+      member_role: 'relationship_manager',
+      membership_status: 'active',
+      visible_after_message_id: 0,
+      last_read_message_id: 0,
+      unread_count: 3,
+    }],
+    [
+      { id: 10, name: 'New Manager', role: 'relationship_manager' },
+      { id: 3, name: 'Beta', role: 'business_owner' },
+      { id: 9, name: 'Investor', role: 'investor' },
+    ],
+    [
+      {
+        id: 1,
+        conversation_id: 12,
+        sender_id: 8,
+        sender_name: 'Old Manager',
+        sender_role: 'relationship_manager',
+        content: 'Historical context',
+        created_at: '2026-07-20T13:00:00.000Z',
+      },
+      {
+        id: 103,
+        conversation_id: 12,
+        sender_id: 3,
+        sender_name: 'Beta',
+        sender_role: 'business_owner',
+        content: 'Current state',
+        created_at: '2026-07-27T13:00:00.000Z',
+      },
+    ],
+  ]);
+
+  const thread = await loadConversationThread({
+    database: fake.database,
+    userId: 10,
+    conversationId: 12,
+  });
+  assert.deepEqual(thread.messages.map(({ id }) => id), [1, 103]);
+  assert.deepEqual(fake.poolCalls[2].params, [12, 0]);
+  fake.assertConsumed();
+});
+
 test('send inserts one message and notifies every other active member', async () => {
   const { sendConversationMessage } = loadService();
   const fake = scriptedDatabase([], [
