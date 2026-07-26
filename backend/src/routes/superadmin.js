@@ -1,122 +1,190 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
-const db = require('../config/db');
+const {
+  body,
+  param,
+  query: queryParameter,
+  validationResult,
+} = require('express-validator');
 const { authenticate, requireRole } = require('../middleware/auth');
+const {
+  SuperadminAssignmentError,
+} = require('../services/superadmin-assignment-workflow');
+const {
+  StaffProvisioningError,
+} = require('../services/staff-provisioning-workflow');
 
-const router = express.Router();
+function isPositiveSafeInteger(value) {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return false;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0;
+}
 
-// GET /api/superadmin/stats
-router.get('/stats', authenticate, requireRole('superadmin'), async (req, res) => {
-  try {
-    const [[{ business_owners }]] = await db.query(
-      "SELECT COUNT(*) AS business_owners FROM users WHERE role='business_owner'"
-    );
-    const [[{ investors }]] = await db.query(
-      "SELECT COUNT(*) AS investors FROM users WHERE role='investor'"
-    );
-    const [[{ admins }]] = await db.query(
-      "SELECT COUNT(*) AS admins FROM users WHERE role='admin'"
-    );
-    const [[{ relationship_managers }]] = await db.query(
-      "SELECT COUNT(*) AS relationship_managers FROM users WHERE role='relationship_manager'"
-    );
+function positiveSafeInteger(location, field) {
+  return location(field)
+    .custom(isPositiveSafeInteger)
+    .toInt();
+}
 
-    // Number of portfolios each RM currently manages
-    const [workload] = await db.query(
-      `SELECT u.id, u.name, u.email,
-              COUNT(p.id) AS portfolio_count
-       FROM users u
-       LEFT JOIN portfolios p ON p.relationship_manager_id = u.id
-       WHERE u.role = 'relationship_manager'
-       GROUP BY u.id, u.name, u.email
-       ORDER BY portfolio_count DESC`
-    );
+function sendValidationErrors(req, res) {
+  const errors = validationResult(req);
+  if (errors.isEmpty()) return false;
+  res.status(400).json({ errors: errors.array() });
+  return true;
+}
 
-    res.json({
-      business_owners,
-      investors,
-      admins,
-      relationship_managers,
-      rm_workload: workload,
+function sendWorkflowError(error, res, ErrorClass) {
+  if (error instanceof ErrorClass) {
+    return res.status(error.status).json({
+      error: error.message,
+      code: error.code,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
   }
-});
+  console.error(error);
+  return res.status(500).json({ error: 'Server error' });
+}
 
-// GET /api/superadmin/portfolio-assignments
-// Approved portfolios with their currently assigned RM, if any
-router.get('/portfolio-assignments', authenticate, requireRole('superadmin'), async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT p.id, p.name, u.name AS owner_name,
-              rm.id AS rm_id, rm.name AS rm_name
-       FROM portfolios p
-       JOIN users u ON u.id = p.owner_id
-       LEFT JOIN users rm ON rm.id = p.relationship_manager_id
-       WHERE p.status = 'approved'
-       ORDER BY p.name ASC`
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
- 
-// GET /api/superadmin/relationship-managers
-// For the assign/change dropdown
-router.get('/relationship-managers', authenticate, requireRole('superadmin'), async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      "SELECT id, name, email FROM users WHERE role='relationship_manager' ORDER BY name ASC"
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
- 
-// PUT /api/superadmin/portfolios/:id/assign
-router.put(
-  '/portfolios/:id/assign',
-  authenticate,
-  requireRole('superadmin'),
-  [body('relationship_manager_id').isInt()],
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
- 
+function sendReadError(error, res) {
+  console.error(error);
+  return res.status(500).json({ error: 'Server error' });
+}
+
+function createSuperadminRouter({
+  database,
+  assignmentWorkflow = require('../services/superadmin-assignment-workflow'),
+  provisioningWorkflow = require('../services/staff-provisioning-workflow'),
+  readModel = require('../services/superadmin-read-model'),
+} = {}) {
+  const router = express.Router();
+  router.use(authenticate, requireRole('superadmin'));
+
+  router.get('/stats', async (req, res) => {
     try {
-      const [portfolioRows] = await db.query(
-        "SELECT * FROM portfolios WHERE id = ? AND status = 'approved'",
-        [req.params.id]
-      );
-      if (portfolioRows.length === 0) {
-        return res.status(404).json({ error: 'Approved portfolio not found' });
-      }
- 
-      const [rmRows] = await db.query(
-        "SELECT * FROM users WHERE id = ? AND role = 'relationship_manager'",
-        [req.body.relationship_manager_id]
-      );
-      if (rmRows.length === 0) {
-        return res.status(404).json({ error: 'Relationship manager not found' });
-      }
- 
-      await db.query(
-        'UPDATE portfolios SET relationship_manager_id = ? WHERE id = ?',
-        [req.body.relationship_manager_id, req.params.id]
-      );
- 
-      res.json({ message: 'Portfolio assigned' });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      return res.json(await readModel.loadSuperadminStats(database));
+    } catch (error) {
+      return sendReadError(error, res);
     }
-  }
-);
+  });
 
-module.exports = router;
+  router.get('/portfolio-assignments', async (req, res) => {
+    try {
+      return res.json(await readModel.listPortfolioAssignments(database));
+    } catch (error) {
+      return sendReadError(error, res);
+    }
+  });
+
+  router.get('/relationship-managers', async (req, res) => {
+    try {
+      return res.json(await readModel.listRelationshipManagers(database));
+    } catch (error) {
+      return sendReadError(error, res);
+    }
+  });
+
+  router.get('/staff', async (req, res) => {
+    try {
+      return res.json(await readModel.listStaff(database));
+    } catch (error) {
+      return sendReadError(error, res);
+    }
+  });
+
+  router.post('/staff', async (req, res) => {
+    try {
+      const staff = await provisioningWorkflow.createStaffAccount({
+        database,
+        superadminId: Number(req.user.id),
+        name: req.body.name,
+        email: req.body.email,
+        password: req.body.password,
+        role: req.body.role,
+      });
+      return res.status(201).json(staff);
+    } catch (error) {
+      return sendWorkflowError(
+        error,
+        res,
+        StaffProvisioningError,
+      );
+    }
+  });
+
+  router.put(
+    '/portfolios/:id/assignment',
+    [
+      positiveSafeInteger(param, 'id'),
+      positiveSafeInteger(body, 'relationship_manager_id'),
+    ],
+    async (req, res) => {
+      if (sendValidationErrors(req, res)) return;
+      try {
+        return res.json(await assignmentWorkflow.assignPortfolio({
+          database,
+          superadminId: Number(req.user.id),
+          portfolioId: req.params.id,
+          relationshipManagerId: req.body.relationship_manager_id,
+        }));
+      } catch (error) {
+        return sendWorkflowError(
+          error,
+          res,
+          SuperadminAssignmentError,
+        );
+      }
+    },
+  );
+
+  router.delete(
+    '/portfolios/:id/assignment',
+    positiveSafeInteger(param, 'id'),
+    async (req, res) => {
+      if (sendValidationErrors(req, res)) return;
+      try {
+        return res.json(await assignmentWorkflow.unassignPortfolio({
+          database,
+          superadminId: Number(req.user.id),
+          portfolioId: req.params.id,
+        }));
+      } catch (error) {
+        return sendWorkflowError(
+          error,
+          res,
+          SuperadminAssignmentError,
+        );
+      }
+    },
+  );
+
+  router.get(
+    '/audit-logs',
+    [
+      positiveSafeInteger(queryParameter, 'page').optional(),
+      queryParameter('limit')
+        .optional()
+        .custom((value) => isPositiveSafeInteger(value) && Number(value) <= 100)
+        .toInt(),
+    ],
+    async (req, res) => {
+      if (sendValidationErrors(req, res)) return;
+      const page = req.query.page === undefined ? 1 : req.query.page;
+      const limit = req.query.limit === undefined ? 50 : req.query.limit;
+      try {
+        return res.json(await readModel.listSuperadminAuditLogs(
+          database,
+          { page, limit },
+        ));
+      } catch (error) {
+        return sendReadError(error, res);
+      }
+    },
+  );
+
+  return router;
+}
+
+module.exports = {
+  createSuperadminRouter,
+};

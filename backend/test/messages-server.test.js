@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const jwt = require('jsonwebtoken');
 const db = require('../src/config/db');
 const { createApp } = require('../server');
+
+process.env.JWT_SECRET = 'messages-server-test-secret';
 
 async function listen(app) {
   const server = await new Promise((resolve, reject) => {
@@ -106,6 +109,71 @@ test('mounts the relationship-manager API behind authentication', async (t) => {
   const response = await fetch(`${server.origin}/api/relationship-manager/dashboard`);
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: 'Access token required' });
+});
+
+test('mounts the superadmin API with the application-factory database', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  let globalCalls = 0;
+  db.query = async () => {
+    globalCalls += 1;
+    throw new Error('Global database must not serve the injected app');
+  };
+  t.after(() => {
+    db.query = originalQuery;
+  });
+
+  const calls = [];
+  const responses = [
+    [{
+      business_owners: 2,
+      investors: 3,
+      relationship_managers: 1,
+      admins: 1,
+      superadmins: 1,
+    }],
+    [{
+      approved_portfolios: 4,
+      unassigned_portfolios: 2,
+      assigned_portfolios: 2,
+    }],
+    [],
+  ];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql: String(sql).replace(/\s+/g, ' ').trim(), params });
+      assert.ok(responses.length, `Unexpected query: ${sql}`);
+      return [responses.shift(), []];
+    },
+  };
+  const server = await listen(createApp({ database }));
+  t.after(server.close);
+  const accessToken = jwt.sign({
+    id: 1,
+    email: 'root@example.test',
+    name: 'Root Admin',
+    role: 'superadmin',
+  }, process.env.JWT_SECRET);
+
+  const response = await fetch(`${server.origin}/api/superadmin/stats`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    business_owners: 2,
+    investors: 3,
+    relationship_managers: 1,
+    admins: 1,
+    superadmins: 1,
+    approved_portfolios: 4,
+    unassigned_portfolios: 2,
+    assigned_portfolios: 2,
+    rm_workload: [],
+  });
+  assert.equal(calls.length, 3);
+  assert.equal(globalCalls, 0);
 });
 
 test('oversized JSON returns a safe 413 response before database access', {
