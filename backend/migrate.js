@@ -2,7 +2,9 @@ require('dotenv').config();
 
 const mysql = require('mysql2/promise');
 const { createTunnel } = require('tunnel-ssh');
-const { migrateManagedChat } = require('./scripts/migrate-managed-chat');
+const {
+  migrateFiveRoleWorkflow,
+} = require('./scripts/migrate-five-role-workflow');
 
 function requireEnvironment(environment) {
   const names = ['DB_USER', 'DB_PASSWORD', 'DB_NAME'];
@@ -81,8 +83,8 @@ async function main(environment = process.env) {
       password: environment.DB_PASSWORD,
       database: environment.DB_NAME,
     });
-    const result = await migrateManagedChat(connection, environment);
-    console.log(JSON.stringify({ status: 'managed chat migration complete', ...result }));
+    const result = await migrateFiveRoleWorkflow(connection, environment);
+    console.log(JSON.stringify(result));
     return result;
   } finally {
     await releaseMigrationResources({ connection, tunnel });
