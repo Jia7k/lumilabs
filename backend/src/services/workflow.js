@@ -120,7 +120,7 @@ async function moderatePortfolio({ portfolioId, adminId, action, reason }) {
     const [rows] = await connection.query(
       `SELECT id,owner_id,name,status,relationship_manager_id
          FROM portfolios
-        WHERE id=? AND status='pending'
+        WHERE id=?
         FOR UPDATE`,
       [canonicalPortfolioId],
     );
@@ -129,6 +129,13 @@ async function moderatePortfolio({ portfolioId, adminId, action, reason }) {
         404,
         'Pending portfolio not found',
         'PENDING_PORTFOLIO_NOT_FOUND',
+      );
+    }
+    if (rows[0].status !== 'pending') {
+      throw new WorkflowError(
+        409,
+        'Portfolio has already been moderated',
+        'MODERATION_CONFLICT',
       );
     }
 

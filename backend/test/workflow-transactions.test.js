@@ -30,6 +30,14 @@ function useConnection(t, connection) {
   t.after(() => { db.getConnection = original; });
 }
 
+function isModerationLock(sql) {
+  return (
+    sql.includes('FROM portfolios')
+    && sql.includes('FOR UPDATE')
+    && !sql.startsWith('SELECT * FROM portfolios')
+  );
+}
+
 test('submission rolls back when admin notification insert fails', { concurrency: false }, async (t) => {
   const connection = fakeConnection(async (sql) => {
     if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
@@ -89,12 +97,86 @@ test('moderation changes status, audit, and notification in one commit', { concu
   assert.equal(connection.calls.commit, 1);
   assert.equal(connection.calls.rollback, 0);
   assert.equal(connection.calls.release, 1);
-  assert.ok(connection.calls.queries.some(({ sql }) => /WHERE id=\? AND status='pending'/.test(sql)));
+  assert.ok(connection.calls.queries.some(({ sql }) => (
+    /WHERE id=\?\s+FOR UPDATE/.test(sql)
+    && !/WHERE id=\? AND status='pending'/.test(sql)
+  )));
   assert.ok(connection.calls.queries.some(({ sql }) => sql.startsWith('INSERT INTO audit_logs')));
   assert.ok(connection.calls.queries.some(({ sql }) => sql.startsWith('INSERT INTO notifications')));
 });
 
-test('a concurrent second moderation receives a conflict without inserts', { concurrency: false }, async (t) => {
+test('an already-moderated locked portfolio returns conflict without mutation', {
+  concurrency: false,
+}, async (t) => {
+  for (const status of ['approved', 'rejected']) {
+    await t.test(status, async (subtest) => {
+      const connection = fakeConnection(async (sql) => {
+        if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
+          if (/WHERE id=\? AND status='pending'/.test(sql)) return [[], []];
+          return [[{
+            id: 7,
+            owner_id: 4,
+            name: 'Flow Co',
+            status,
+            relationship_manager_id: 8,
+          }], []];
+        }
+        throw new Error(`Unexpected mutation after conflict: ${sql}`);
+      });
+      useConnection(subtest, connection);
+
+      await assert.rejects(
+        () => moderatePortfolio({
+          portfolioId: 7,
+          adminId: 9,
+          action: 'rejected',
+          reason: 'No fit',
+        }),
+        (error) => (
+          error instanceof WorkflowError
+          && error.status === 409
+          && error.code === 'MODERATION_CONFLICT'
+        ),
+      );
+      assert.equal(connection.calls.commit, 0);
+      assert.equal(connection.calls.rollback, 1);
+      assert.equal(connection.calls.queries.length, 1);
+    });
+  }
+});
+
+test('a missing portfolio returns not found without mutation', {
+  concurrency: false,
+}, async (t) => {
+  const connection = fakeConnection(async (sql) => {
+    if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
+      return [[], []];
+    }
+    throw new Error(`Unexpected mutation after missing portfolio: ${sql}`);
+  });
+  useConnection(t, connection);
+
+  await assert.rejects(
+    () => moderatePortfolio({
+      portfolioId: 404,
+      adminId: 9,
+      action: 'approved',
+      reason: null,
+    }),
+    (error) => (
+      error instanceof WorkflowError
+      && error.status === 404
+      && error.code === 'PENDING_PORTFOLIO_NOT_FOUND'
+    ),
+  );
+  assert.equal(connection.calls.commit, 0);
+  assert.equal(connection.calls.rollback, 1);
+  assert.equal(connection.calls.queries.length, 1);
+});
+
+test('a defensive zero-row moderation update receives a conflict without inserts', {
+  concurrency: false,
+}, async (t) => {
   const connection = fakeConnection(async (sql) => {
     if (sql.includes('FROM portfolios') && sql.includes('FOR UPDATE')) {
       return [[{ id: 7, owner_id: 4, name: 'Flow Co', status: 'pending' }], []];
@@ -335,7 +417,7 @@ test('approval restores a room only when an active investor still has interest',
     archived_reason: 'portfolio_unapproved',
   };
   const connection = fakeConnection(async (sql, params) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -410,7 +492,7 @@ test('approval leaves a room archived when no active investor still has interest
     archived_reason: 'portfolio_unapproved',
   };
   const connection = fakeConnection(async (sql, params) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -472,7 +554,7 @@ test('rejection archives the room without clearing its assignment or memberships
   let portfolioStatus = 'pending';
   let relationshipManagerId = 7;
   const connection = fakeConnection(async (sql, params) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -540,7 +622,7 @@ test('moderation notification failure rolls back status, reconciliation, and aud
 }, async (t) => {
   let notificationWrites = 0;
   const connection = fakeConnection(async (sql) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -592,7 +674,7 @@ test('approval reconciliation failure rolls back before audit and owner notice',
   concurrency: false,
 }, async (t) => {
   const connection = fakeConnection(async (sql) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -632,7 +714,7 @@ test('rejection archive failure rolls back before audit and owner notice', {
   concurrency: false,
 }, async (t) => {
   const connection = fakeConnection(async (sql) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
@@ -672,7 +754,7 @@ test('moderation audit failure rolls back before the owner notice', {
   concurrency: false,
 }, async (t) => {
   const connection = fakeConnection(async (sql) => {
-    if (sql.includes("status='pending'") && sql.includes('FOR UPDATE')) {
+    if (isModerationLock(sql)) {
       return [[{
         id: 20,
         owner_id: 9,
