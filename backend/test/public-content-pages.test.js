@@ -5,6 +5,37 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..', '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const cssRule = (css, selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
+  assert.ok(match, `missing CSS rule: ${selector}`);
+  return match[1];
+};
+const cssHexVariable = (css, name) => {
+  const match = css.match(new RegExp(`${name}:\\s*(#[\\da-f]{6})`, 'i'));
+  assert.ok(match, `missing CSS variable: ${name}`);
+  return match[1];
+};
+const cssResolvedColor = (css, selector) => {
+  const declarations = cssRule(css, selector);
+  const match = declarations.match(/(?:^|;)\s*color:\s*(#[\da-f]{6}|var\((--[\w-]+)\))/i);
+  assert.ok(match, `missing color declaration: ${selector}`);
+  return match[2] ? cssHexVariable(css, match[2]) : match[1];
+};
+const relativeLuminance = (hex) => {
+  const channels = hex.match(/[\da-f]{2}/gi).map((value) => parseInt(value, 16) / 255);
+  const [red, green, blue] = channels.map((value) => (
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  ));
+  return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+};
+const contrastRatio = (foreground, background) => {
+  const [lighter, darker] = [
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  ].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+};
 const decodeEntities = (value) => value
   .replace(/&amp;/g, '&')
   .replace(/&quot;/g, '"')
@@ -519,4 +550,73 @@ test('Contact preserves its details, map fallback and accessible form contract',
     ['js/api.js?v=20260727.2', 'js/contact.js?v=20260727.1'],
     'Contact scripts load in API-then-form order',
   );
+});
+
+test('public content CSS is scoped, responsive, keyboard visible and motion safe', () => {
+  const css = read('css/style.css');
+  assert.match(css, /\/\* PUBLIC CONTENT PAGES \(ABOUT \/ CONTACT\) \*\//);
+  for (const selector of [
+    'body.public-content-page',
+    '.public-content-page .public-header',
+    '.public-content-page .public-nav',
+    '.public-content-page .public-menu',
+    '.public-content-page .public-hero',
+    '.public-content-page .story-orbit',
+    '.public-content-page .about-journey',
+    '.public-content-page .about-vision',
+    '.public-content-page .vision-grid',
+    '.public-content-page .leadership-grid',
+    '.public-content-page .contact-layout',
+    '.public-content-page .contact-map',
+    '.public-content-page .contact-form',
+    '.public-content-page .public-footer',
+  ]) {
+    assert.ok(css.includes(selector), selector);
+  }
+  assert.match(css, /\.public-content-page :focus-visible\s*\{[^}]*outline:/s);
+  assert.match(css, /\.public-content-page \.contact-honeypot\s*\{[^}]*position:\s*absolute[^}]*clip:/s);
+  assert.match(
+    css,
+    /@media \(max-width:\s*979px\)[\s\S]*?\.public-content-page \.public-nav\s*\{[^}]*display:\s*none[\s\S]*?\.public-content-page \.public-menu\s*\{[^}]*display:\s*block/s,
+  );
+  assert.match(
+    css,
+    /\.public-content-page \.about-vision\s*\{[^}]*grid-template-columns:\s*minmax\(250px,\s*0\.75fr\)\s+minmax\(0,\s*1\.25fr\)/s,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*660px\)[\s\S]*?\.public-content-page \.leadership-grid\s*\{[^}]*grid-template-columns:\s*1fr/s,
+  );
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.public-content-page \.story-orbit-node\s*\{[^}]*animation:\s*none/s,
+  );
+  assert.match(css, /min-height:\s*44px/);
+});
+
+test('public content eyebrow text meets AA contrast on light and dark surfaces', () => {
+  const css = read('css/style.css');
+  const lightEyebrow = cssResolvedColor(css, '.public-content-page .section-eyebrow');
+  const heroEyebrow = cssResolvedColor(
+    css,
+    '.public-content-page .public-hero .section-eyebrow',
+  );
+  const connectEyebrow = cssResolvedColor(
+    css,
+    '.public-content-page .about-connect .section-eyebrow',
+  );
+
+  assert.ok(contrastRatio(lightEyebrow, '#ffffff') >= 4.5, 'eyebrow on white');
+  assert.ok(contrastRatio(lightEyebrow, '#eef1fb') >= 4.5, 'eyebrow on vision wash');
+  assert.ok(contrastRatio(heroEyebrow, '#0b1024') >= 4.5, 'eyebrow on hero navy');
+  assert.ok(contrastRatio(connectEyebrow, '#0b1024') >= 4.5, 'eyebrow on connect navy');
+});
+
+test('public content focus indicator has 3:1 contrast on light and dark surfaces', () => {
+  const css = read('css/style.css');
+  const focusRule = cssRule(css, '.public-content-page :focus-visible');
+  const outline = focusRule.match(/outline:\s*\d+px\s+solid\s+(#[\da-f]{6})/i);
+  assert.ok(outline, 'focus indicator uses a solid hex outline');
+  assert.ok(contrastRatio(outline[1], '#ffffff') >= 3, 'focus outline on white');
+  assert.ok(contrastRatio(outline[1], '#0b1024') >= 3, 'focus outline on navy');
 });
