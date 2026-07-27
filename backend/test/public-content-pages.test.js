@@ -1461,6 +1461,58 @@ const footerFacts = [
   'v26.02.13.1',
 ];
 
+function assertCompletePublicFooter(body, file) {
+  const footer = findOne(body, (node) => (
+    node.tagName === 'footer' && hasClass(node, 'public-footer')
+  ), `${file}: footer`);
+  const footerNav = findOne(footer, (node) => (
+    node.tagName === 'nav' && node.attributes['aria-label'] === 'Footer navigation'
+  ), `${file}: footer navigation`);
+  assertExactLinks(
+    footerNav,
+    footerRoutes.map(([label, href]) => ({ label, href, current: null })),
+    `${file}: footer navigation links`,
+  );
+  const socials = findOne(footer, (node) => (
+    node.tagName === 'section' && hasClass(node, 'public-socials')
+  ), `${file}: footer social links`);
+  assertExactLinks(
+    socials,
+    socialRoutes.map(([label, href]) => ({ label, href, current: null })),
+    `${file}: exact social links`,
+  );
+  const footerContact = findOne(footer, (node) => (
+    node.tagName === 'div' && hasClass(node, 'public-footer-contact')
+  ), `${file}: footer contact group`);
+  assert.equal(
+    visibleTextContent(findOne(
+      footerContact,
+      (node) => node.tagName === 'h2',
+      `${file}: footer contact heading`,
+    )),
+    'Visit & contact',
+  );
+  const address = findOne(
+    footerContact,
+    (node) => node.tagName === 'address',
+    `${file}: footer address`,
+  );
+  assert.equal(findAll(address, (node) => /^h[1-6]$/.test(node.tagName)).length, 0);
+  assertExactLinks(address, [
+    {
+      label: '1 Fullerton Rd, #02-01 One Fullerton Singapore 049213',
+      href: 'https://www.google.com/maps/search/?api=1&query=1%20Fullerton%20Rd%20Singapore%20049213',
+      current: null,
+    },
+    { label: 'business@lumi5labs.com', href: 'mailto:business@lumi5labs.com', current: null },
+    { label: '+65-6599-1991', href: 'tel:+6565991991', current: null },
+  ], `${file}: footer contact links`);
+  const footerText = visibleTextContent(footer);
+  for (const fact of footerFacts) {
+    assert.ok(footerText.includes(fact), `${file}: ${fact}`);
+  }
+}
+
 test('visible body copy excludes head, hidden and non-rendered subtrees', () => {
   const document = parseHtml(`
     <html>
@@ -1544,50 +1596,20 @@ test('About and Contact share the homepage navbar and reduced footer navigation'
       `${file}: compact navigation links`,
     );
 
-    const footer = findOne(body, (node) => (
-      node.tagName === 'footer' && hasClass(node, 'public-footer')
-    ), `${file}: footer`);
-    const footerNav = findOne(footer, (node) => (
-      node.tagName === 'nav' && node.attributes['aria-label'] === 'Footer navigation'
-    ), `${file}: footer navigation`);
-    assertExactLinks(
-      footerNav,
-      footerRoutes.map(([label, href]) => ({ label, href, current: null })),
-      `${file}: footer navigation links`,
-    );
-    const socials = findOne(footer, (node) => (
-      node.tagName === 'section' && hasClass(node, 'public-socials')
-    ), `${file}: footer social links`);
-    assertExactLinks(
-      socials,
-      socialRoutes.map(([label, href]) => ({ label, href, current: null })),
-      `${file}: exact social links`,
-    );
-    const footerContact = findOne(footer, (node) => (
-      node.tagName === 'div' && hasClass(node, 'public-footer-contact')
-    ), `${file}: footer contact group`);
-    const footerContactHeading = findOne(
-      footerContact,
-      (node) => node.tagName === 'h2',
-      `${file}: footer contact heading`,
-    );
-    assert.equal(visibleTextContent(footerContactHeading), 'Visit & contact');
-    const address = findOne(footerContact, (node) => node.tagName === 'address', `${file}: footer address`);
-    assert.equal(findAll(address, (node) => /^h[1-6]$/.test(node.tagName)).length, 0);
-    assertExactLinks(address, [
-      {
-        label: '1 Fullerton Rd, #02-01 One Fullerton Singapore 049213',
-        href: 'https://www.google.com/maps/search/?api=1&query=1%20Fullerton%20Rd%20Singapore%20049213',
-        current: null,
-      },
-      { label: 'business@lumi5labs.com', href: 'mailto:business@lumi5labs.com', current: null },
-      { label: '+65-6599-1991', href: 'tel:+6565991991', current: null },
-    ], `${file}: footer contact links`);
-    const footerText = visibleTextContent(footer);
-    for (const fact of footerFacts) assert.ok(footerText.includes(fact), `${file}: ${fact}`);
+    assertCompletePublicFooter(body, file);
     assert.doesNotMatch(source, /href="[^"]*\/(?:portfolio|blog|faq)\/?"/i);
     assert.doesNotMatch(source, /ai\.webp|artificial intelligence hero/i);
   }
+});
+
+test('homepage exposes the same complete public footer', () => {
+  const source = read('index.html');
+  const document = parseHtml(source);
+  const body = findOne(document, (node) => node.tagName === 'body', 'index.html: body');
+
+  assert.equal(body.attributes.class, 'landing-page');
+  assertCompletePublicFooter(body, 'index.html');
+  assert.doesNotMatch(source, /href="[^"]*\/(?:portfolio|blog|faq)\/?"/i);
 });
 
 test('public content pages receive the homepage desktop navbar styling', () => {
