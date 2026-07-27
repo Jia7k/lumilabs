@@ -45,6 +45,12 @@ function visibleText(markup) {
   return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function anchorRoutes(markup) {
+  return [...markup.matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )].map((match) => [visibleText(match[2]), match[1]]);
+}
+
 function elementTag(source, id) {
   const match = source.match(
     new RegExp(`<(?:input|textarea|select)\\b[^>]*\\bid=["']${id}["'][^>]*>`, 'i'),
@@ -320,9 +326,37 @@ test('portfolio editor mirrors database-backed form limits', () => {
 
 test('homepage exposes only the two public audience journeys', () => {
   const html = read('index.html');
-  const nav = html.match(/<nav\b[\s\S]*?<\/nav>/i)?.[0];
+  const desktopNav = html.match(
+    /<nav\b[^>]*class=["'][^"']*\blanding-page-links\b[^"']*["'][^>]*aria-label=["']Primary navigation["'][^>]*>[\s\S]*?<\/nav>/i,
+  )?.[0];
+  const compactMenu = html.match(
+    /<details\b[^>]*class=["'][^"']*\blanding-menu\b[^"']*["'][^>]*>[\s\S]*?<\/details>/i,
+  )?.[0];
+  const compactNav = compactMenu?.match(
+    /<nav\b[^>]*aria-label=["']Compact primary navigation["'][^>]*>[\s\S]*?<\/nav>/i,
+  )?.[0];
+  const authActions = html.match(
+    /<div\b[^>]*class=["'][^"']*\blanding-nav-actions\b[^"']*["'][^>]*>[\s\S]*?<\/div>/i,
+  )?.[0];
 
-  assert.ok(nav, 'missing homepage navigation');
+  assert.ok(desktopNav, 'missing homepage desktop navigation');
+  assert.ok(compactMenu, 'missing homepage compact menu');
+  assert.match(compactMenu, /<summary>\s*Menu\s*<\/summary>/i);
+  assert.ok(compactNav, 'missing homepage compact navigation');
+  assert.ok(authActions, 'missing homepage authentication actions');
+  assert.deepEqual(anchorRoutes(desktopNav), [
+    ['About', 'about.html'],
+    ['Contact', 'contact.html'],
+  ]);
+  assert.deepEqual(anchorRoutes(compactNav), [
+    ['About', 'about.html'],
+    ['Contact', 'contact.html'],
+    ['Sign in', 'signin.html'],
+  ]);
+  assert.deepEqual(anchorRoutes(authActions), [
+    ['Sign in', 'signin.html'],
+    ['Sign up', 'signup.html'],
+  ]);
   assert.doesNotMatch(
     html,
     /Relationship Manager|Administrator|Superadmin/i,
@@ -331,10 +365,7 @@ test('homepage exposes only the two public audience journeys', () => {
     html,
     /signin\.html\?role=(?:relationship_manager|admin|superadmin)/i,
   );
-  assert.doesNotMatch(nav, /How it works/i);
-
-  assert.match(nav, /href=["']signin\.html["'][^>]*>\s*Sign in\s*</i);
-  assert.match(nav, /href=["']signup\.html["'][^>]*>\s*Sign up\s*</i);
+  assert.doesNotMatch(desktopNav, /How it works/i);
   assert.match(
     html,
     /href=["']signup\.html\?role=business_owner["'][^>]*>\s*Raise capital/i,
@@ -404,6 +435,22 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
   );
   assert.match(
     css,
+    /\.landing-page \.landing-menu\s*\{[^}]*display:\s*none/s,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-page-links\s*\{[^}]*display:\s*none/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-menu\s*\{[^}]*display:\s*block/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-nav-signin\s*\{[^}]*display:\s*none/,
+  );
+  assert.match(
+    css,
     /\.landing-page [^{]*:focus-visible\s*\{[^}]*outline:/s,
   );
   assert.match(
@@ -422,6 +469,24 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
   assert.match(
     css,
     /\.landing-page \.landing-audience-card a\s*\{[^}]*min-height:\s*44px/s,
+  );
+  for (const selector of [
+    '\\.landing-page-links a',
+    '\\.landing-menu summary',
+    '\\.landing-menu nav a',
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.landing-page ${selector}\\s*\\{[^}]*min-height:\\s*44px`, 's'),
+    );
+  }
+  assert.match(
+    css,
+    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*32px;[^}]*right:\s*32px;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*16px;[^}]*right:\s*16px;/,
   );
   assert.match(
     css,

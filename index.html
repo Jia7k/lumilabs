@@ -12,7 +12,7 @@
 </head>
 <body class="landing-page">
   <header class="landing-header">
-    <nav class="landing-nav" aria-label="Primary navigation">
+    <div class="landing-nav">
       <a class="landing-brand" href="index.html" aria-label="Lumi5 Labs home">
         <span class="landing-brand-mark" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -34,13 +34,25 @@
         </span>
         <span>Lumi5 Labs</span>
       </a>
+      <nav class="landing-page-links" aria-label="Primary navigation">
+        <a href="about.html">About</a>
+        <a href="contact.html">Contact</a>
+      </nav>
+      <details class="landing-menu">
+        <summary>Menu</summary>
+        <nav aria-label="Compact primary navigation">
+          <a href="about.html">About</a>
+          <a href="contact.html">Contact</a>
+          <a href="signin.html">Sign in</a>
+        </nav>
+      </details>
       <div class="landing-nav-actions">
-        <a class="landing-nav-link" href="signin.html">Sign in</a>
+        <a class="landing-nav-link landing-nav-signin" href="signin.html">Sign in</a>
         <a class="landing-nav-link landing-nav-link--primary" href="signup.html">
           Sign up
         </a>
       </div>
-    </nav>
+    </div>
   </header>
 
   <main>
