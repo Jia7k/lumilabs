@@ -3,165 +3,199 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lumi5 Labs – AI-Powered Investment Matchmaking</title>
+  <meta
+    name="description"
+    content="Lumi5 Labs connects promising businesses with investors through focused discovery and meaningful conversations."
+  />
+  <title>Lumi5 Labs – Focused Investment Connections</title>
   <link rel="stylesheet" href="css/style.css?v=20260727.1" />
 </head>
-<body>
-
-  <!-- NAV -->
-  <nav class="nav">
-    <div class="nav-logo">
-      <div class="logo-icon">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <polyline points="2,14 7,9 11,12 18,5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <polyline points="14,5 18,5 18,9" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <span class="logo-text">Lumi5 Labs</span>
-    </div>
-    <div class="nav-auth-buttons">
-      <a href="signin.html" class="btn-nav btn-nav-outline">Sign In</a>
-      <a href="signup.html" class="btn-nav btn-nav-primary">Sign Up</a>
-    </div>
-  </nav>
-
-  <!-- HERO -->
-  <section class="hero">
-    <div class="hero-badge">
-      <span class="badge-star">✦</span>
-      AI-Powered Investment Matchmaking
-    </div>
-    <h1 class="hero-title">
-      Connect Visionary Startups<br />
-      with <span class="hero-accent">Strategic Investors</span>
-    </h1>
-    <p class="hero-sub">
-      Lumi5 Labs is the intelligent platform that matches promising startups with<br />
-      the right investors through AI-driven insights and seamless communication.
-    </p>
-  </section>
-
-  <!-- ROLE SELECT -->
-  <section class="roles-section">
-    <h2 class="roles-title">Select Your Role to Begin</h2>
-    <p class="roles-sub">This prototype demonstrates all user workflows and system behaviors</p>
-
-    <div class="roles-grid role-grid">
-
-      <!-- Business Owner -->
-      <div class="role-card">
-        <div class="role-icon role-icon--blue">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="4" y="10" width="20" height="14" rx="2" stroke="white" stroke-width="2" fill="none"/>
-            <path d="M9 10V7a5 5 0 0 1 10 0v3" stroke="white" stroke-width="2" stroke-linecap="round"/>
+<body class="landing-page">
+  <header class="landing-header">
+    <nav class="landing-nav" aria-label="Primary navigation">
+      <a class="landing-brand" href="index.html" aria-label="Lumi5 Labs home">
+        <span class="landing-brand-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <polyline
+              points="2,14 7,9 11,12 18,5"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <polyline
+              points="14,5 18,5 18,9"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
-        </div>
-        <h3 class="role-name">Business Owner</h3>
-        <p class="role-persona">For startup founders</p>
-        <ul class="role-features">
-          <li><span class="check">✓</span> Create &amp; manage portfolio</li>
-          <li><span class="check">✓</span> Upload pitch documents</li>
-          <li><span class="check">✓</span> Receive investor interest</li>
-          <li><span class="check">✓</span> Join managed conversations</li>
-        </ul>
-        <a href="signup.html?role=business_owner" class="role-btn role-btn--blue">
-          Sign Up as Business Owner <span class="btn-arrow">→</span>
+        </span>
+        <span>Lumi5 Labs</span>
+      </a>
+      <div class="landing-nav-actions">
+        <a class="landing-nav-link" href="signin.html">Sign in</a>
+        <a class="landing-nav-link landing-nav-link--primary" href="signup.html">
+          Sign up
         </a>
       </div>
+    </nav>
+  </header>
 
-      <!-- Investor -->
-      <div class="role-card">
-        <div class="role-icon role-icon--green">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="10" cy="10" r="4" stroke="white" stroke-width="2" fill="none"/>
-            <circle cx="18" cy="10" r="4" stroke="white" stroke-width="2" fill="none"/>
-            <path d="M2 22c0-4 3.6-7 8-7" stroke="white" stroke-width="2" stroke-linecap="round"/>
-            <path d="M18 15c4.4 0 8 3 8 7" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          </svg>
+  <main>
+    <section class="landing-hero" aria-labelledby="landing-title">
+      <div class="landing-hero-copy">
+        <p class="landing-eyebrow">Focused investment connections</p>
+        <h1 id="landing-title" class="landing-title">
+          Funding, found <span>with focus.</span>
+        </h1>
+        <p class="landing-summary">
+          Connect promising businesses with investors who understand their
+          potential—through clearer discovery and meaningful conversations.
+        </p>
+        <div class="landing-actions" aria-label="Choose how to begin">
+          <a
+            class="landing-cta landing-cta--primary"
+            href="signup.html?role=business_owner"
+          >
+            Raise capital <span aria-hidden="true">→</span>
+          </a>
+          <a
+            class="landing-cta landing-cta--secondary"
+            href="signup.html?role=investor"
+          >
+            Explore opportunities
+          </a>
         </div>
-        <h3 class="role-name">Investor</h3>
-        <p class="role-persona">For investors</p>
-        <ul class="role-features">
-          <li><span class="check">✓</span> Browse approved startups</li>
-          <li><span class="check">✓</span> AI recommendations</li>
-          <li><span class="check">✓</span> Express interest</li>
-          <li><span class="check">✓</span> Join managed conversations</li>
-        </ul>
-        <a href="signup.html?role=investor" class="role-btn role-btn--green">
-          Sign Up as Investor <span class="btn-arrow">→</span>
-        </a>
+        <p class="landing-support">
+          <span class="landing-support-avatars" aria-hidden="true">
+            <span>B</span><span>I</span><span>✦</span>
+          </span>
+          Built for ambitious businesses and thoughtful investors
+        </p>
       </div>
 
-      <!-- Relationship Manager -->
-      <div class="role-card role-card--manager">
-        <div class="role-icon role-icon--orange" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="8" r="4" stroke="white" stroke-width="2"/>
-            <circle cx="6" cy="19" r="3" stroke="white" stroke-width="2"/>
-            <circle cx="22" cy="19" r="3" stroke="white" stroke-width="2"/>
-            <path d="M11 11.5 8 16M17 11.5l3 4.5M9 19h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          </svg>
+      <div
+        class="landing-orbit-card"
+        role="img"
+        aria-label="Lumi5 Labs connects businesses and investors around shared sector, stage, geography, and capital priorities."
+      >
+        <div class="landing-orbit-heading" aria-hidden="true">
+          <span>Focused connections</span>
+          <span class="landing-orbit-status">Aligned</span>
         </div>
-        <h3 class="role-name">Relationship Manager</h3>
-        <p class="role-persona">For managed introductions</p>
-        <ul class="role-features">
-          <li><span class="check">✓</span> Oversee portfolio conversations</li>
-          <li><span class="check">✓</span> Connect eligible investors</li>
-          <li><span class="check">✓</span> Guide group discussions</li>
-          <li><span class="check">✓</span> Preserve a clear audit trail</li>
-        </ul>
-        <a href="signin.html?role=relationship_manager" class="role-btn role-btn--orange">
-          Sign In as Relationship Manager <span class="btn-arrow">→</span>
-        </a>
-      </div>
-
-      <!-- Administrator -->
-      <div class="role-card">
-        <div class="role-icon role-icon--purple">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14 3L5 7v7c0 5.25 3.85 10.15 9 11.35C19.15 24.15 23 19.25 23 14V7L14 3z" stroke="white" stroke-width="2" fill="none" stroke-linejoin="round"/>
-          </svg>
+        <div class="landing-orbit-art" aria-hidden="true">
+          <div class="landing-orbit-ring">
+            <span class="landing-orbit-core">✦</span>
+            <span class="landing-orbit-chip landing-orbit-chip--sector">
+              HealthTech
+            </span>
+            <span class="landing-orbit-chip landing-orbit-chip--stage">
+              Series A
+            </span>
+            <span class="landing-orbit-chip landing-orbit-chip--capital">
+              Strategic capital
+            </span>
+            <span class="landing-orbit-chip landing-orbit-chip--market">
+              Southeast Asia
+            </span>
+            <span class="landing-orbit-dot landing-orbit-dot--one"></span>
+            <span class="landing-orbit-dot landing-orbit-dot--two"></span>
+            <span class="landing-orbit-dot landing-orbit-dot--three"></span>
+          </div>
         </div>
-        <h3 class="role-name">Administrator</h3>
-        <p class="role-persona">For platform admins</p>
-        <ul class="role-features">
-          <li><span class="check">✓</span> Review portfolios</li>
-          <li><span class="check">✓</span> Approve or reject</li>
-          <li><span class="check">✓</span> View audit logs</li>
-          <li><span class="check">✓</span> Platform oversight</li>
-        </ul>
-        <a href="signin.html?role=admin" class="role-btn role-btn--purple">
-          Sign In as Administrator <span class="btn-arrow">→</span>
-        </a>
       </div>
+    </section>
 
-      <!-- Superadmin -->
-      <div class="role-card">
-        <div class="role-icon role-icon--navy" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="m4 9 5 4 5-8 5 8 5-4-2 13H6L4 9Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
-            <path d="M7 18h14" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <h3 class="role-name">Superadmin</h3>
-        <p class="role-persona">For platform operations</p>
-        <ul class="role-features">
-          <li><span class="check">✓</span> Assign approved portfolios</li>
-          <li><span class="check">✓</span> Create staff accounts</li>
-          <li><span class="check">✓</span> Monitor manager workload</li>
-          <li><span class="check">✓</span> Review assignment history</li>
-        </ul>
-        <a href="signin.html?role=superadmin" class="role-btn role-btn--navy">
-          Sign In as Superadmin <span class="btn-arrow">→</span>
-        </a>
+    <section class="landing-trust" aria-label="Platform qualities">
+      <ul class="landing-trust-grid">
+        <li><span aria-hidden="true">✓</span> Reviewed opportunities</li>
+        <li><span aria-hidden="true">↗</span> Relevant introductions</li>
+        <li><span aria-hidden="true">◌</span> Focused conversations</li>
+      </ul>
+    </section>
+
+    <section class="landing-audiences" aria-labelledby="audience-title">
+      <div class="landing-section-heading">
+        <p class="landing-section-kicker">Choose your path</p>
+        <h2 id="audience-title">One platform, two ambitions</h2>
+        <p>
+          Whether you are building what comes next or investing in it,
+          Lumi5 Labs helps you reach the right people.
+        </p>
       </div>
+      <div class="landing-audience-grid">
+        <article class="landing-audience-card landing-audience-card--business">
+          <span class="landing-audience-icon" aria-hidden="true">↗</span>
+          <h3>For business owners</h3>
+          <p>
+            Showcase your company, present your opportunity clearly and connect
+            with investors aligned to your ambitions.
+          </p>
+          <a href="signup.html?role=business_owner">
+            Start raising <span aria-hidden="true">→</span>
+          </a>
+        </article>
+        <article class="landing-audience-card landing-audience-card--investor">
+          <span class="landing-audience-icon" aria-hidden="true">◎</span>
+          <h3>For investors</h3>
+          <p>
+            Discover reviewed businesses, evaluate relevant opportunities and
+            express interest with confidence.
+          </p>
+          <a href="signup.html?role=investor">
+            Start exploring <span aria-hidden="true">→</span>
+          </a>
+        </article>
+      </div>
+    </section>
 
-    </div>
+    <section class="landing-process" aria-labelledby="process-title">
+      <div class="landing-section-heading">
+        <p class="landing-section-kicker">A focused journey</p>
+        <h2 id="process-title">A clearer path to the right connection</h2>
+      </div>
+      <ol class="landing-steps-grid">
+        <li>
+          <span class="landing-step-number">01</span>
+          <h3>Build or browse</h3>
+          <p>
+            Present your business or explore opportunities matched to your
+            interests.
+          </p>
+        </li>
+        <li>
+          <span class="landing-step-number">02</span>
+          <h3>Signal interest</h3>
+          <p>
+            Move promising opportunities forward with a clear expression of
+            interest.
+          </p>
+        </li>
+        <li>
+          <span class="landing-step-number">03</span>
+          <h3>Start a conversation</h3>
+          <p>
+            Connect in one focused space and build the relationship from there.
+          </p>
+        </li>
+      </ol>
+    </section>
 
-    <p class="roles-footer-note">
-      Already have an account? <a href="signin.html">Sign in</a>
-    </p>
-  </section>
+    <section class="landing-final-cta" aria-labelledby="final-cta-title">
+      <h2 id="final-cta-title">Find your next meaningful connection.</h2>
+      <p>Join Lumi5 Labs and take the next step with greater focus.</p>
+      <a class="landing-cta landing-cta--light" href="signup.html">
+        Sign up <span aria-hidden="true">→</span>
+      </a>
+    </section>
+  </main>
+
+  <footer class="landing-footer">
+    <span>Lumi5 Labs</span>
+    <span>Focused investment connections</span>
+  </footer>
 
   <script src="js/script.js?v=20260727.1"></script>
 </body>

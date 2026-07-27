@@ -302,30 +302,57 @@ test('portfolio editor mirrors database-backed form limits', () => {
   );
 });
 
-test('homepage offers all five roles without public staff signup', () => {
+test('homepage exposes only the two public audience journeys', () => {
   const html = read('index.html');
-  const roleCards = [...html.matchAll(/<div class=["'][^"']*\brole-card\b[^"']*["']/g)];
-  assert.equal(roleCards.length, 5);
-  for (const [role, label] of [
-    ['relationship_manager', 'Relationship Manager'],
-    ['admin', 'Administrator'],
-    ['superadmin', 'Superadmin'],
-  ]) {
-    assert.match(html, new RegExp(`>${label}<`));
-    assert.match(
-      html,
-      new RegExp(`href=["']signin\\.html\\?role=${role}["'][^>]*>[\\s\\S]*?Sign In as ${label}`),
-    );
-    assert.doesNotMatch(html, new RegExp(`signup\\.html\\?role=${role}`));
-  }
-  assert.doesNotMatch(html, /Direct messaging|Message investors/);
+  const nav = html.match(/<nav\b[\s\S]*?<\/nav>/i)?.[0];
+
+  assert.ok(nav, 'missing homepage navigation');
+  assert.doesNotMatch(
+    html,
+    /Relationship Manager|Administrator|Superadmin/i,
+  );
+  assert.doesNotMatch(
+    html,
+    /signin\.html\?role=(?:relationship_manager|admin|superadmin)/i,
+  );
+  assert.doesNotMatch(nav, /How it works/i);
+
+  assert.match(nav, /href=["']signin\.html["'][^>]*>\s*Sign in\s*</i);
+  assert.match(nav, /href=["']signup\.html["'][^>]*>\s*Sign up\s*</i);
+  assert.match(
+    html,
+    /href=["']signup\.html\?role=business_owner["'][^>]*>\s*Raise capital/i,
+  );
+  assert.match(
+    html,
+    /href=["']signup\.html\?role=business_owner["'][^>]*>\s*Start raising/i,
+  );
+  assert.match(
+    html,
+    /href=["']signup\.html\?role=investor["'][^>]*>\s*Explore opportunities/i,
+  );
+  assert.match(
+    html,
+    /href=["']signup\.html\?role=investor["'][^>]*>\s*Start exploring/i,
+  );
 });
 
-test('homepage role grid has explicit five, two, and one-column breakpoints', () => {
-  const css = read('css/style.css');
-  assert.match(css, /\.roles-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/s);
-  assert.match(css, /@media \(max-width:\s*980px\)[\s\S]*?\.roles-grid\s*\{[^}]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(css, /@media \(max-width:\s*520px\)[\s\S]*?\.roles-grid\s*\{[^}]*minmax\(0,\s*1fr\)/);
+test('homepage contains the approved semantic content and orbit description', () => {
+  const html = read('index.html');
+
+  assert.match(html, /<body class=["']landing-page["']/i);
+  assert.equal([...html.matchAll(/<h1\b/gi)].length, 1);
+  assert.match(html, /<main\b[^>]*>/i);
+  assert.match(html, /<footer\b[^>]*>/i);
+  assert.match(html, /Funding,\s*found[\s\S]*with focus\./i);
+  assert.match(html, /One platform,\s*two ambitions/i);
+  assert.match(html, /A clearer path to the right connection/i);
+  assert.match(html, /Find your next meaningful connection\./i);
+  assert.match(
+    html,
+    /role=["']img["'][^>]*aria-label=["']Lumi5 Labs connects businesses and investors around shared sector, stage, geography, and capital priorities\.["']/i,
+  );
+  assert.match(html, /<script src=["']js\/script\.js\?v=20260727\.1["']/i);
 });
 
 test('shared hidden attribute always overrides component display rules', () => {
