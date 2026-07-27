@@ -544,7 +544,8 @@ body.landing-page {
   color: #12192B;
 }
 
-.landing-page .landing-header {
+.landing-page .landing-header,
+.public-content-page .landing-header {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -554,7 +555,8 @@ body.landing-page {
   backdrop-filter: blur(14px);
 }
 
-.landing-page .landing-nav {
+.landing-page .landing-nav,
+.public-content-page .landing-nav {
   width: min(1180px, 100%);
   min-height: 72px;
   margin: 0 auto;
@@ -565,7 +567,8 @@ body.landing-page {
   gap: 24px;
 }
 
-.landing-page .landing-brand {
+.landing-page .landing-brand,
+.public-content-page .landing-brand {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -577,7 +580,8 @@ body.landing-page {
   text-decoration: none;
 }
 
-.landing-page .landing-brand-mark {
+.landing-page .landing-brand-mark,
+.public-content-page .landing-brand-mark {
   width: 36px;
   height: 36px;
   display: grid;
@@ -588,7 +592,8 @@ body.landing-page {
   box-shadow: 0 9px 20px rgba(84, 87, 221, 0.24);
 }
 
-.landing-page .landing-page-links {
+.landing-page .landing-page-links,
+.public-content-page .landing-page-links {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -597,7 +602,10 @@ body.landing-page {
 
 .landing-page .landing-page-links a,
 .landing-page .landing-menu summary,
-.landing-page .landing-menu nav a {
+.landing-page .landing-menu nav a,
+.public-content-page .landing-page-links a,
+.public-content-page .landing-menu summary,
+.public-content-page .landing-menu nav a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -607,18 +615,21 @@ body.landing-page {
   text-decoration: none;
 }
 
-.landing-page .landing-page-links a {
+.landing-page .landing-page-links a,
+.public-content-page .landing-page-links a {
   min-height: 44px;
   padding: 0 15px;
   border-radius: 10px;
 }
 
-.landing-page .landing-menu {
+.landing-page .landing-menu,
+.public-content-page .landing-menu {
   display: none;
   position: static;
 }
 
-.landing-page .landing-menu summary {
+.landing-page .landing-menu summary,
+.public-content-page .landing-menu summary {
   min-height: 44px;
   padding: 0 12px;
   border-radius: 10px;
@@ -626,21 +637,25 @@ body.landing-page {
   list-style: none;
 }
 
-.landing-page .landing-menu summary::-webkit-details-marker {
+.landing-page .landing-menu summary::-webkit-details-marker,
+.public-content-page .landing-menu summary::-webkit-details-marker {
   display: none;
 }
 
-.landing-page .landing-menu summary::after {
+.landing-page .landing-menu summary::after,
+.public-content-page .landing-menu summary::after {
   content: "＋";
   margin-left: 7px;
   color: #5558DE;
 }
 
-.landing-page .landing-menu[open] summary::after {
+.landing-page .landing-menu[open] summary::after,
+.public-content-page .landing-menu[open] summary::after {
   content: "−";
 }
 
-.landing-page .landing-menu nav {
+.landing-page .landing-menu nav,
+.public-content-page .landing-menu nav {
   position: absolute;
   top: calc(100% + 8px);
   z-index: 40;
@@ -652,7 +667,8 @@ body.landing-page {
   box-shadow: 0 18px 44px rgba(18, 25, 43, 0.16);
 }
 
-.landing-page .landing-menu nav a {
+.landing-page .landing-menu nav a,
+.public-content-page .landing-menu nav a {
   min-height: 44px;
   justify-content: flex-start;
   padding: 0 14px;
@@ -661,18 +677,23 @@ body.landing-page {
 
 .landing-page .landing-page-links a:hover,
 .landing-page .landing-menu summary:hover,
-.landing-page .landing-menu nav a:hover {
+.landing-page .landing-menu nav a:hover,
+.public-content-page .landing-page-links a:hover,
+.public-content-page .landing-menu summary:hover,
+.public-content-page .landing-menu nav a:hover {
   color: #3437A8;
   background: #F0F0FF;
 }
 
-.landing-page .landing-nav-actions {
+.landing-page .landing-nav-actions,
+.public-content-page .landing-nav-actions {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.landing-page .landing-nav-link {
+.landing-page .landing-nav-link,
+.public-content-page .landing-nav-link {
   min-height: 44px;
   padding: 0 15px;
   display: inline-flex;
@@ -686,7 +707,8 @@ body.landing-page {
   transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-.landing-page .landing-nav-link--primary {
+.landing-page .landing-nav-link--primary,
+.public-content-page .landing-nav-link--primary {
   color: #FFFFFF;
   background: #5558DE;
   box-shadow: 0 8px 18px rgba(84, 87, 221, 0.18);
@@ -1197,6 +1219,7 @@ body.landing-page {
 }
 
 .landing-page .landing-nav-link:hover,
+.public-content-page .landing-nav-link:hover,
 .landing-page .landing-cta:hover {
   transform: translateY(-2px);
 }
@@ -1211,7 +1234,12 @@ body.landing-page {
 .landing-page .landing-menu nav a:focus-visible,
 .landing-page .landing-nav-link:focus-visible,
 .landing-page .landing-cta:focus-visible,
-.landing-page .landing-audience-card a:focus-visible {
+.landing-page .landing-audience-card a:focus-visible,
+.public-content-page .landing-brand:focus-visible,
+.public-content-page .landing-page-links a:focus-visible,
+.public-content-page .landing-menu summary:focus-visible,
+.public-content-page .landing-menu nav a:focus-visible,
+.public-content-page .landing-nav-link:focus-visible {
   outline: 3px solid #1F2A44;
   outline-offset: 3px;
   box-shadow: 0 0 0 6px #FFFFFF;

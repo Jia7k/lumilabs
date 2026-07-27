@@ -1590,6 +1590,24 @@ test('About and Contact share the homepage navbar and reduced footer navigation'
   }
 });
 
+test('public content pages receive the homepage desktop navbar styling', () => {
+  const css = read('css/style.css');
+  const sharedSelectors = [
+    '.public-content-page .landing-header',
+    '.public-content-page .landing-nav',
+    '.public-content-page .landing-brand',
+    '.public-content-page .landing-brand-mark',
+    '.public-content-page .landing-page-links',
+    '.public-content-page .landing-nav-actions',
+    '.public-content-page .landing-nav-link',
+    '.public-content-page .landing-nav-link--primary',
+  ];
+
+  for (const selector of sharedSelectors) {
+    assert.ok(css.includes(`${selector} {`), `${selector}: styled`);
+  }
+});
+
 test('About preserves the complete story, vision, leadership and connect copy', () => {
   const source = read('about.html');
   const text = visibleBodyText(parseHtml(source));

@@ -465,7 +465,7 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
   );
   assert.match(
     css,
-    /\.landing-page \.landing-menu\s*\{[^}]*display:\s*none/s,
+    /\.landing-page \.landing-menu\s*,[^{}]*\{[^}]*display:\s*none/s,
   );
   assert.match(
     compactStyles,
@@ -521,7 +521,7 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
 
   assert.match(
     css,
-    /\.landing-page \.landing-brand\s*\{[^}]*min-height:\s*44px/s,
+    /\.landing-page \.landing-brand\s*,[^{}]*\{[^}]*min-height:\s*44px/s,
   );
   assert.match(
     css,
@@ -534,7 +534,7 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
   ]) {
     assert.match(
       css,
-      new RegExp(`\\.landing-page ${selector}\\s*\\{[^}]*min-height:\\s*44px`, 's'),
+      new RegExp(`\\.landing-page ${selector}\\s*,[^{}]*\\{[^}]*min-height:\\s*44px`, 's'),
     );
   }
   assert.match(
