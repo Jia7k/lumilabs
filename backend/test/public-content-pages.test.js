@@ -102,8 +102,7 @@ function publicContentCss(css) {
   return css.slice(start + startMarker.length, end);
 }
 
-const cssSelectors = (block) => block.prelude
-  .split(',')
+const cssSelectors = (block) => splitSelectorArguments(block.prelude)
   .map(normalizeCssWhitespace);
 const cssRuleBlocks = (source) => parseCssBlocks(source)
   .filter(({ prelude }) => !prelude.startsWith('@'));
@@ -153,17 +152,68 @@ const cssResolvedColor = (css, rules, selector, property = 'color') => {
   assert.ok(match, `missing color value for ${property}: ${selector}`);
   return match[2] ? cssHexVariable(css, match[2]) : match[1];
 };
-const relativeLuminance = (hex) => {
-  const channels = hex.match(/[\da-f]{2}/gi).map((value) => parseInt(value, 16) / 255);
-  const [red, green, blue] = channels.map((value) => (
+function cssColorChannels(value) {
+  const hex = value.match(/^#([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i);
+  if (hex) {
+    const expanded = hex[1].length <= 4
+      ? [...hex[1]].map((channel) => channel.repeat(2)).join('')
+      : hex[1];
+    return {
+      channels: expanded.slice(0, 6)
+        .match(/[\da-f]{2}/gi)
+        .map((channel) => parseInt(channel, 16)),
+      alpha: expanded.length === 8 ? parseInt(expanded.slice(6), 16) / 255 : 1,
+    };
+  }
+  if (value.toLowerCase() === 'transparent') {
+    return { channels: [0, 0, 0], alpha: 0 };
+  }
+
+  const functional = value.match(/^rgba?\(([\s\S]*)\)$/i);
+  assert.ok(functional, `unsupported CSS color: ${value}`);
+  const body = functional[1].trim();
+  const pieces = body.includes(',')
+    ? body.split(',').map((piece) => piece.trim())
+    : body.replace(/\s*\/\s*/, ' / ').split(/\s+/);
+  const slash = pieces.indexOf('/');
+  const channelPieces = slash === -1 ? pieces.slice(0, 3) : pieces.slice(0, slash);
+  const alphaPiece = slash === -1 ? pieces[3] : pieces[slash + 1];
+  assert.equal(channelPieces.length, 3, `invalid CSS color channels: ${value}`);
+
+  const channels = channelPieces.map((piece) => {
+    const channel = piece.endsWith('%')
+      ? (Number(piece.slice(0, -1)) * 255) / 100
+      : Number(piece);
+    assert.ok(Number.isFinite(channel) && channel >= 0 && channel <= 255, value);
+    return channel;
+  });
+  const alpha = alphaPiece === undefined
+    ? 1
+    : alphaPiece.endsWith('%')
+      ? Number(alphaPiece.slice(0, -1)) / 100
+      : Number(alphaPiece);
+  assert.ok(Number.isFinite(alpha) && alpha >= 0 && alpha <= 1, value);
+  return { channels, alpha };
+}
+
+const relativeLuminance = (channels) => {
+  const normalized = channels.map((value) => value / 255);
+  const [red, green, blue] = normalized.map((value) => (
     value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
   ));
   return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
 };
 const contrastRatio = (foreground, background) => {
+  const foregroundColor = cssColorChannels(foreground);
+  const backgroundColor = cssColorChannels(background);
+  assert.equal(backgroundColor.alpha, 1, 'contrast background must be opaque');
+  const compositedForeground = foregroundColor.channels.map((channel, index) => (
+    (channel * foregroundColor.alpha)
+    + (backgroundColor.channels[index] * (1 - foregroundColor.alpha))
+  ));
   const [lighter, darker] = [
-    relativeLuminance(foreground),
-    relativeLuminance(background),
+    relativeLuminance(compositedForeground),
+    relativeLuminance(backgroundColor.channels),
   ].sort((left, right) => right - left);
   return (lighter + 0.05) / (darker + 0.05);
 };
@@ -211,59 +261,306 @@ function cssMediaApplies(conditions, viewportWidth) {
   });
 }
 
-function parseSimpleSelector(selector) {
-  if (/[>+~:[\]]/.test(selector)) return null;
-  const compounds = selector.trim().split(/\s+/).map((source) => {
-    const tag = source.match(/^[a-z][\w-]*/i)?.[0].toLowerCase() || null;
-    const ids = [...source.matchAll(/#([\w-]+)/g)].map((match) => match[1]);
-    const classes = [...source.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
-    const consumed = [
-      tag || '',
-      ...ids.map((id) => `#${id}`),
-      ...classes.map((className) => `.${className}`),
-    ].join('');
-    if (source.replace(/\*/g, '') !== consumed) return null;
-    return { tag, ids, classes };
-  });
-  return compounds.some((compound) => compound === null) ? null : compounds;
+function splitCssSelector(selector) {
+  const compounds = [];
+  const combinators = [];
+  let buffer = '';
+  let quote = null;
+  let squareDepth = 0;
+  let roundDepth = 0;
+  let pendingDescendant = false;
+
+  const flush = () => {
+    const value = buffer.trim();
+    if (value) compounds.push(value);
+    buffer = '';
+  };
+
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (quote) {
+      buffer += character;
+      if (character === '\\') {
+        index += 1;
+        buffer += selector[index] || '';
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      buffer += character;
+      continue;
+    }
+    if (character === '[') squareDepth += 1;
+    if (character === ']') squareDepth -= 1;
+    if (character === '(') roundDepth += 1;
+    if (character === ')') roundDepth -= 1;
+    assert.ok(squareDepth >= 0 && roundDepth >= 0, `invalid selector: ${selector}`);
+
+    if (squareDepth === 0 && roundDepth === 0 && /\s/.test(character)) {
+      flush();
+      pendingDescendant = compounds.length > combinators.length;
+      continue;
+    }
+    if (squareDepth === 0 && roundDepth === 0 && ['>', '+', '~'].includes(character)) {
+      flush();
+      assert.equal(compounds.length, combinators.length + 1, `invalid selector: ${selector}`);
+      combinators.push(character);
+      pendingDescendant = false;
+      continue;
+    }
+    if (pendingDescendant) {
+      if (compounds.length === combinators.length + 1) combinators.push(' ');
+      pendingDescendant = false;
+    }
+    buffer += character;
+  }
+  flush();
+  assert.equal(squareDepth, 0, `unclosed attribute selector: ${selector}`);
+  assert.equal(roundDepth, 0, `unclosed functional selector: ${selector}`);
+  if (compounds.length !== combinators.length + 1) return null;
+  return { compounds, combinators };
 }
 
-function cssSelectorSpecificity(selector) {
-  const compounds = parseSimpleSelector(selector);
-  if (!compounds) return null;
-  return compounds.reduce(
-    ([ids, classes, tags], compound) => [
-      ids + compound.ids.length,
-      classes + compound.classes.length,
-      tags + Number(Boolean(compound.tag)),
-    ],
-    [0, 0, 0],
-  );
+function matchingDelimiter(source, start, open, close) {
+  let depth = 1;
+  let quote = null;
+  for (let index = start + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === open) depth += 1;
+    else if (character === close) depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
 }
 
-function cssCompoundMatches(compound, element) {
-  return (
-    (!compound.tag || compound.tag === element.tag)
-    && compound.ids.every((id) => id === element.id)
-    && compound.classes.every((className) => element.classes.includes(className))
-  );
+function splitSelectorArguments(source) {
+  const argumentsList = [];
+  let start = 0;
+  let quote = null;
+  let squareDepth = 0;
+  let roundDepth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === '[') squareDepth += 1;
+    else if (character === ']') squareDepth -= 1;
+    else if (character === '(') roundDepth += 1;
+    else if (character === ')') roundDepth -= 1;
+    else if (character === ',' && squareDepth === 0 && roundDepth === 0) {
+      argumentsList.push(source.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  argumentsList.push(source.slice(start).trim());
+  return argumentsList;
+}
+
+function compareSpecificity(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+const supportedSimplePseudos = new Set([
+  'active',
+  'checked',
+  'disabled',
+  'first-child',
+  'first-of-type',
+  'focus',
+  'focus-visible',
+  'hover',
+  'invalid',
+  'last-child',
+  'last-of-type',
+  'link',
+  'only-child',
+  'only-of-type',
+  'open',
+  'optional',
+  'placeholder-shown',
+  'required',
+  'root',
+  'valid',
+  'visited',
+]);
+
+function parseCssCompound(source) {
+  let cursor = 0;
+  const tests = [];
+  const specificity = [0, 0, 0];
+  const tag = source.slice(cursor).match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
+  if (tag) {
+    tests.push((candidate) => candidate.tag === tag);
+    specificity[2] += 1;
+    cursor += tag.length;
+  } else if (source[cursor] === '*') {
+    cursor += 1;
+  }
+
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (character === '.' || character === '#') {
+      const name = source.slice(cursor + 1).match(/^[\w-]+/)?.[0];
+      if (!name) return null;
+      if (character === '.') {
+        tests.push((candidate) => candidate.classes.includes(name));
+        specificity[1] += 1;
+      } else {
+        tests.push((candidate) => candidate.id === name);
+        specificity[0] += 1;
+      }
+      cursor += name.length + 1;
+      continue;
+    }
+    if (character === '[') {
+      const close = matchingDelimiter(source, cursor, '[', ']');
+      if (close === -1) return null;
+      const attribute = source.slice(cursor + 1, close).trim().match(
+        /^([\w:-]+)(?:\s*(=|~=|\|=|\^=|\$=|\*=)\s*(?:"([^"]*)"|'([^']*)'|([^\s]+)))?(?:\s+([is]))?$/i,
+      );
+      if (!attribute) return null;
+      const [, name, operator, doubleQuoted, singleQuoted, bare, flag] = attribute;
+      const normalizedName = name.toLowerCase();
+      const expected = doubleQuoted ?? singleQuoted ?? bare;
+      tests.push((candidate) => {
+        const actual = candidate.attributes[normalizedName];
+        if (actual === undefined) return false;
+        if (!operator) return true;
+        const comparableActual = flag?.toLowerCase() === 'i' ? actual.toLowerCase() : actual;
+        const comparableExpected = flag?.toLowerCase() === 'i'
+          ? expected.toLowerCase()
+          : expected;
+        if (operator === '=') return comparableActual === comparableExpected;
+        if (operator === '~=') {
+          return comparableActual.split(/\s+/).includes(comparableExpected);
+        }
+        if (operator === '|=') {
+          return comparableActual === comparableExpected
+            || comparableActual.startsWith(`${comparableExpected}-`);
+        }
+        if (operator === '^=') return comparableActual.startsWith(comparableExpected);
+        if (operator === '$=') return comparableActual.endsWith(comparableExpected);
+        return comparableActual.includes(comparableExpected);
+      });
+      specificity[1] += 1;
+      cursor = close + 1;
+      continue;
+    }
+    if (character === ':') {
+      if (source[cursor + 1] === ':') return null;
+      const name = source.slice(cursor + 1).match(/^[\w-]+/)?.[0]?.toLowerCase();
+      if (!name) return null;
+      cursor += name.length + 1;
+      if (source[cursor] !== '(') {
+        if (!supportedSimplePseudos.has(name)) return null;
+        tests.push((candidate) => candidate.pseudos.includes(name));
+        specificity[1] += 1;
+        continue;
+      }
+
+      const close = matchingDelimiter(source, cursor, '(', ')');
+      if (close === -1 || !['is', 'not', 'where'].includes(name)) return null;
+      const alternatives = splitSelectorArguments(source.slice(cursor + 1, close))
+        .map(parseCssCompound);
+      if (alternatives.some((alternative) => alternative === null)) return null;
+      if (name === 'not') {
+        tests.push((candidate) => alternatives.every((alternative) => !alternative.matches(candidate)));
+      } else {
+        tests.push((candidate) => alternatives.some((alternative) => alternative.matches(candidate)));
+      }
+      if (name !== 'where') {
+        const maximum = alternatives
+          .map((alternative) => alternative.specificity)
+          .sort((left, right) => compareSpecificity(right, left))[0];
+        maximum.forEach((value, index) => {
+          specificity[index] += value;
+        });
+      }
+      cursor = close + 1;
+      continue;
+    }
+    return null;
+  }
+
+  return {
+    matches: (candidate) => tests.every((testMatch) => testMatch(candidate)),
+    specificity,
+  };
+}
+
+function parseCssSelector(selector) {
+  const split = splitCssSelector(selector);
+  if (!split || split.combinators.some((combinator) => ['+', '~'].includes(combinator))) {
+    return null;
+  }
+  const compounds = split.compounds.map(parseCssCompound);
+  if (compounds.some((compound) => compound === null)) return null;
+  return {
+    compounds,
+    combinators: split.combinators,
+    specificity: compounds.reduce(
+      (total, compound) => total.map((value, index) => (
+        value + compound.specificity[index]
+      )),
+      [0, 0, 0],
+    ),
+  };
+}
+
+function selectorMayTargetLeaf(selector, ancestry) {
+  const split = splitCssSelector(selector);
+  if (!split) return true;
+  const source = split.compounds.at(-1);
+  const leaf = ancestry.at(-1);
+  const tag = source.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
+  const id = source.match(/#([\w-]+)/)?.[1];
+  const classes = [...source.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
+  if (tag && tag !== leaf.tag) return false;
+  if (id && id !== leaf.id) return false;
+  if (classes.some((className) => !leaf.classes.includes(className))) return false;
+  return true;
 }
 
 function cssSelectorMatches(selector, ancestry) {
-  const compounds = parseSimpleSelector(selector);
-  if (!compounds || compounds.length === 0) return false;
+  const parsed = parseCssSelector(selector);
+  if (!parsed) return null;
+  const { compounds, combinators } = parsed;
   let ancestryIndex = ancestry.length - 1;
-  if (!cssCompoundMatches(compounds.at(-1), ancestry[ancestryIndex])) return false;
+  if (!compounds.at(-1).matches(ancestry[ancestryIndex])) return false;
 
   for (let index = compounds.length - 2; index >= 0; index -= 1) {
-    ancestryIndex -= 1;
-    while (
-      ancestryIndex >= 0
-      && !cssCompoundMatches(compounds[index], ancestry[ancestryIndex])
-    ) {
+    if (combinators[index] === '>') {
       ancestryIndex -= 1;
+      if (
+        ancestryIndex < 0
+        || !compounds[index].matches(ancestry[ancestryIndex])
+      ) return false;
+    } else {
+      ancestryIndex -= 1;
+      while (
+        ancestryIndex >= 0
+        && !compounds[index].matches(ancestry[ancestryIndex])
+      ) {
+        ancestryIndex -= 1;
+      }
+      if (ancestryIndex < 0) return false;
     }
-    if (ancestryIndex < 0) return false;
   }
   return true;
 }
@@ -279,14 +576,25 @@ function compareCssCandidates(left, right) {
   return left.declarationOrder - right.declarationOrder;
 }
 
-function cssCascadeCandidates(css, ancestry, viewportWidth) {
+function cssCascadeCandidates(css, ancestry, viewportWidth, auditedProperties) {
   const candidates = [];
   for (const rule of cssStyleRules(css)) {
     if (!cssMediaApplies(rule.media, viewportWidth)) continue;
+    const declarations = cssDeclarationList(rule)
+      .filter((declaration) => auditedProperties.includes(declaration.property));
+    if (declarations.length === 0) continue;
     for (const selector of cssSelectors(rule)) {
-      if (!cssSelectorMatches(selector, ancestry)) continue;
-      const specificity = cssSelectorSpecificity(selector);
-      for (const declaration of cssDeclarationList(rule)) {
+      const matches = cssSelectorMatches(selector, ancestry);
+      if (matches === null) {
+        assert.ok(
+          !selectorMayTargetLeaf(selector, ancestry),
+          `unsupported selector can affect audited CSS: ${selector}`,
+        );
+        continue;
+      }
+      if (!matches) continue;
+      const specificity = parseCssSelector(selector).specificity;
+      for (const declaration of declarations) {
         candidates.push({
           ...declaration,
           selector,
@@ -309,14 +617,15 @@ function winningCssCandidate(candidates, label) {
 
 function effectiveCssProperty(css, ancestry, property, viewportWidth = 1024) {
   return winningCssCandidate(
-    cssCascadeCandidates(css, ancestry, viewportWidth)
-      .filter((candidate) => candidate.property === property),
+    cssCascadeCandidates(css, ancestry, viewportWidth, [property]),
     property,
   ).value;
 }
 
 function cssColorFromValue(css, value, label) {
-  const match = value.match(/(#[\da-f]{6}|var\((--[\w-]+)\))/i);
+  const match = value.match(
+    /(#[\da-f]{8}(?![\da-f])|#[\da-f]{6}(?![\da-f])|#[\da-f]{4}(?![\da-f])|#[\da-f]{3}(?![\da-f])|var\((--[\w-]+)\)|rgba?\([^)]*\)|transparent)/i,
+  );
   assert.ok(match, `missing color value for ${label}`);
   return match[2] ? cssHexVariable(css, match[2]) : match[1];
 }
@@ -336,15 +645,25 @@ const borderStyles = new Set([
 
 function parseBorderShorthand(value) {
   const tokens = value.split(/\s+/);
+  const color = value.match(
+    /(?:#[\da-f]{8}(?![\da-f])|#[\da-f]{6}(?![\da-f])|#[\da-f]{4}(?![\da-f])|#[\da-f]{3}(?![\da-f])|var\(--[\w-]+\)|rgba?\([^)]*\)|\btransparent\b)/i,
+  )?.[0];
   return {
-    width: tokens.find((token) => /^(?:\d*\.)?\d+(?:px|rem|em)?$/i.test(token)),
-    style: tokens.find((token) => borderStyles.has(token.toLowerCase())),
-    color: tokens.find((token) => /^(?:#[\da-f]{6}|var\(--[\w-]+\))$/i.test(token)),
+    width: tokens.find((token) => /^(?:\d*\.)?\d+(?:px|rem|em)?$/i.test(token))
+      || 'medium',
+    style: tokens.find((token) => borderStyles.has(token.toLowerCase()))
+      || 'none',
+    color: color || 'currentcolor',
   };
 }
 
 function effectiveControlBorder(css, ancestry) {
-  const candidates = cssCascadeCandidates(css, ancestry, 1024);
+  const candidates = cssCascadeCandidates(
+    css,
+    ancestry,
+    1024,
+    ['border', 'border-width', 'border-style', 'border-color'],
+  );
   const componentCandidates = (component) => candidates.flatMap((candidate) => {
     if (candidate.property === `border-${component}`) return [candidate];
     if (candidate.property !== 'border') return [];
@@ -358,11 +677,29 @@ function effectiveControlBorder(css, ancestry) {
   };
 }
 
-const element = (tag, classes = [], id = null) => ({ tag, classes, id });
+const element = (
+  tag,
+  classes = [],
+  id = null,
+  attributes = {},
+  pseudos = [],
+) => ({
+  tag,
+  classes,
+  id,
+  attributes,
+  pseudos,
+});
 const publicNavAncestry = [
   element('body', ['public-content-page', 'contact-page']),
   element('header', ['public-header']),
-  element('nav', ['public-nav']),
+  element(
+    'nav',
+    ['public-nav'],
+    null,
+    { 'aria-label': 'Primary navigation' },
+    ['first-of-type', 'last-of-type', 'only-of-type'],
+  ),
 ];
 const publicMenuAncestry = [
   element('body', ['public-content-page', 'contact-page']),
@@ -375,7 +712,20 @@ const contactControlAncestry = (tag) => [
   element('section', ['public-section', 'contact-layout']),
   element('form', ['contact-form'], 'contact-form'),
   element('div', ['form-group']),
-  element(tag),
+  element(
+    tag,
+    [],
+    null,
+    tag === 'input' ? { required: '' } : {},
+    tag === 'label'
+      ? ['first-child', 'first-of-type', 'last-of-type', 'only-of-type']
+      : [
+        'first-of-type',
+        'last-of-type',
+        'only-of-type',
+        tag === 'input' ? 'required' : 'optional',
+      ],
+  ),
 ];
 
 function publicClassNames(publicCss) {
@@ -1164,6 +1514,46 @@ test('public CSS contracts reject selector leakage and responsive declarations m
       /979px hides full public nav/,
     );
   });
+
+  await t.test('important child-combinator override reveals full nav below 980px', () => {
+    const mutated = `${css}
+@media (max-width:979px) {
+  body.public-content-page .public-header > .public-nav { display:flex!important; }
+}
+`;
+    assert.throws(
+      () => assertPublicStylesheetContract(mutated),
+      /979px hides full public nav/,
+    );
+  });
+
+  await t.test('matching attribute selector reveals full nav below 980px', () => {
+    const mutated = `${css}
+@media (max-width: 979px) {
+  body.public-content-page .public-header > nav.public-nav[aria-label="Primary navigation"] {
+    display: flex !important;
+  }
+}
+`;
+    assert.throws(
+      () => assertPublicStylesheetContract(mutated),
+      /979px hides full public nav/,
+    );
+  });
+
+  await t.test('matching functional pseudo selector reveals full nav below 980px', () => {
+    const mutated = `${css}
+@media (max-width: 979px) {
+  body.public-content-page .public-header > .public-nav:not([hidden]) {
+    display: flex !important;
+  }
+}
+`;
+    assert.throws(
+      () => assertPublicStylesheetContract(mutated),
+      /979px hides full public nav/,
+    );
+  });
 });
 
 test('compact header anchors its popup to viewport-safe header insets at 320px', () => {
@@ -1234,6 +1624,26 @@ body.public-content-page .contact-form .form-group label { color: #9ca3af; }
   await t.test('later, more-specific border-color override', () => {
     const mutated = `${css}
 body.public-content-page .contact-form .form-group input { border-color: #cdd3df; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('important RGBA border override', () => {
+    const mutated = `${css}
+.form-group input { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('fully transparent border override', () => {
+    const mutated = `${css}
+.form-group input { border: 1px solid rgba(123,135,158,0) !important; }
 `;
     assert.throws(
       () => assertContactContrastContract(mutated),
