@@ -1749,11 +1749,16 @@ body.public-content-page {
   font-weight: 800;
 }
 
-.public-content-page .leader-links,
-.public-content-page .public-socials {
+.public-content-page .leader-links {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 18px;
+}
+
+.public-content-page .public-socials {
+  display: grid;
+  align-content: start;
+  gap: 10px;
 }
 
 .public-content-page .leader-links a,
@@ -1840,7 +1845,10 @@ body.public-content-page {
 .public-content-page .contact-form label {
   display: block;
   margin-bottom: 8px;
+  color: #38435a;
+  font-size: 0.95rem;
   font-weight: 750;
+  line-height: 1.4;
 }
 
 .public-content-page .contact-form label span {
@@ -1855,7 +1863,7 @@ body.public-content-page {
   padding: 12px 14px;
   color: var(--public-ink);
   background: #fff;
-  border: 1px solid #cdd3df;
+  border: 1px solid #7b879e;
   border-radius: 12px;
   font: inherit;
 }
@@ -1959,7 +1967,7 @@ body.public-content-page {
 
 @media (max-width: 979px) {
   .public-content-page .public-header {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 14px;
     padding-inline: 24px;
   }
@@ -1970,8 +1978,15 @@ body.public-content-page {
 
   .public-content-page .public-menu {
     display: block;
+    position: static;
     grid-column: 2;
     grid-row: 1;
+  }
+
+  .public-content-page .public-menu nav {
+    right: 24px;
+    left: 24px;
+    width: auto;
   }
 
   .public-content-page .public-auth-actions {
@@ -2006,7 +2021,26 @@ body.public-content-page {
 @media (max-width: 660px) {
   .public-content-page .public-header {
     grid-template-columns: minmax(0, 1fr) auto auto;
-    padding: 12px 16px;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .public-content-page .public-brand {
+    min-width: 0;
+    width: auto;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .public-content-page .public-brand-copy {
+    min-width: 0;
+  }
+
+  .public-content-page .public-brand-copy strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .public-content-page .public-brand-copy span {
@@ -2014,12 +2048,17 @@ body.public-content-page {
   }
 
   .public-content-page .public-brand svg {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
   }
 
   .public-content-page .public-auth-actions .btn {
-    padding-inline: 12px;
+    padding-inline: 10px;
+  }
+
+  .public-content-page .public-menu nav {
+    right: 12px;
+    left: 12px;
   }
 
   .public-content-page .public-hero,

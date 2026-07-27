@@ -5,21 +5,152 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..', '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
-const cssRule = (css, selector) => {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
-  assert.ok(match, `missing CSS rule: ${selector}`);
-  return match[1];
+
+const normalizeCssWhitespace = (value) => value.replace(/\s+/g, ' ').trim();
+const stripCssComments = (value) => value.replace(/\/\*[\s\S]*?\*\//g, '');
+
+function findCssOpenBrace(source, start) {
+  let quote = null;
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '/' && source[index + 1] === '*') {
+      const commentEnd = source.indexOf('*/', index + 2);
+      assert.notEqual(commentEnd, -1, 'unclosed CSS comment');
+      index = commentEnd + 1;
+      continue;
+    }
+    if (character === '{') return index;
+  }
+  return -1;
+}
+
+function findCssCloseBrace(source, open) {
+  let depth = 1;
+  let quote = null;
+  for (let index = open + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '/' && source[index + 1] === '*') {
+      const commentEnd = source.indexOf('*/', index + 2);
+      assert.notEqual(commentEnd, -1, 'unclosed CSS comment');
+      index = commentEnd + 1;
+      continue;
+    }
+    if (character === '{') depth += 1;
+    if (character === '}') depth -= 1;
+    if (depth === 0) return index;
+  }
+  assert.fail('unclosed CSS block');
+}
+
+function parseCssBlocks(source) {
+  const blocks = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    while (/\s/.test(source[cursor] || '')) cursor += 1;
+    if (source[cursor] === '/' && source[cursor + 1] === '*') {
+      const commentEnd = source.indexOf('*/', cursor + 2);
+      assert.notEqual(commentEnd, -1, 'unclosed CSS comment');
+      cursor = commentEnd + 2;
+      continue;
+    }
+    const open = findCssOpenBrace(source, cursor);
+    if (open === -1) {
+      assert.equal(stripCssComments(source.slice(cursor)).trim(), '', 'unexpected CSS tail');
+      break;
+    }
+    const close = findCssCloseBrace(source, open);
+    const prelude = normalizeCssWhitespace(stripCssComments(source.slice(cursor, open)));
+    assert.notEqual(prelude, '', 'CSS block has an empty prelude');
+    blocks.push({
+      prelude,
+      body: source.slice(open + 1, close),
+      start: cursor,
+      open,
+      close,
+      end: close + 1,
+    });
+    cursor = close + 1;
+  }
+  return blocks;
+}
+
+function publicContentCss(css) {
+  const startMarker = '/* PUBLIC CONTENT PAGES (ABOUT / CONTACT) */';
+  const endMarker = '/* ADMIN PAGES */';
+  const start = css.indexOf(startMarker);
+  const end = css.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(start, -1, 'public content CSS start marker');
+  assert.notEqual(end, -1, 'public content CSS end marker');
+  return css.slice(start + startMarker.length, end);
+}
+
+const cssSelectors = (block) => block.prelude
+  .split(',')
+  .map(normalizeCssWhitespace);
+const cssRuleBlocks = (source) => parseCssBlocks(source)
+  .filter(({ prelude }) => !prelude.startsWith('@'));
+const cssDeclarations = (block) => new Map(
+  block.body
+    .split(';')
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .map((declaration) => {
+      const separator = declaration.indexOf(':');
+      assert.notEqual(separator, -1, `invalid CSS declaration: ${declaration}`);
+      return [
+        declaration.slice(0, separator).trim().toLowerCase(),
+        normalizeCssWhitespace(declaration.slice(separator + 1)),
+      ];
+    }),
+);
+const cssRule = (rules, selector) => {
+  const matches = rules.filter((rule) => cssSelectors(rule).includes(selector));
+  assert.notEqual(matches.length, 0, `missing CSS rule: ${selector}`);
+  return matches;
+};
+const cssProperty = (rules, selector, property) => {
+  let value;
+  for (const rule of cssRule(rules, selector)) {
+    const candidate = cssDeclarations(rule).get(property);
+    if (candidate !== undefined) value = candidate;
+  }
+  assert.notEqual(value, undefined, `missing ${property}: ${selector}`);
+  return value;
+};
+const cssMediaRules = (publicCss, condition) => {
+  const expected = `@media ${condition}`;
+  const matches = parseCssBlocks(publicCss)
+    .filter(({ prelude }) => prelude === expected);
+  assert.equal(matches.length, 1, `expected one ${expected} block`);
+  return cssRuleBlocks(matches[0].body);
 };
 const cssHexVariable = (css, name) => {
   const match = css.match(new RegExp(`${name}:\\s*(#[\\da-f]{6})`, 'i'));
   assert.ok(match, `missing CSS variable: ${name}`);
   return match[1];
 };
-const cssResolvedColor = (css, selector) => {
-  const declarations = cssRule(css, selector);
-  const match = declarations.match(/(?:^|;)\s*color:\s*(#[\da-f]{6}|var\((--[\w-]+)\))/i);
-  assert.ok(match, `missing color declaration: ${selector}`);
+const cssResolvedColor = (css, rules, selector, property = 'color') => {
+  const value = cssProperty(rules, selector, property);
+  const match = value.match(/(#[\da-f]{6}|var\((--[\w-]+)\))/i);
+  assert.ok(match, `missing color value for ${property}: ${selector}`);
   return match[2] ? cssHexVariable(css, match[2]) : match[1];
 };
 const relativeLuminance = (hex) => {
@@ -36,6 +167,80 @@ const contrastRatio = (foreground, background) => {
   ].sort((left, right) => right - left);
   return (lighter + 0.05) / (darker + 0.05);
 };
+
+function assertPublicSelectorsScoped(publicCss) {
+  function walk(blocks, context) {
+    for (const block of blocks) {
+      if (block.prelude.startsWith('@keyframes ')) continue;
+      if (block.prelude.startsWith('@')) {
+        walk(parseCssBlocks(block.body), block.prelude);
+        continue;
+      }
+      for (const selector of cssSelectors(block)) {
+        assert.ok(
+          selector.startsWith('.public-content-page ')
+          || selector === 'body.public-content-page',
+          `unscoped public selector in ${context}: ${selector}`,
+        );
+      }
+    }
+  }
+  walk(parseCssBlocks(publicCss), 'public block');
+}
+
+function assertPublicResponsiveContract(publicCss) {
+  const compact = cssMediaRules(publicCss, '(max-width: 979px)');
+  assert.equal(
+    cssProperty(compact, '.public-content-page .public-nav', 'display'),
+    'none',
+    '979px hides full public nav',
+  );
+  assert.equal(
+    cssProperty(compact, '.public-content-page .public-menu', 'display'),
+    'block',
+    '979px shows compact public menu',
+  );
+  for (const selector of [
+    '.public-content-page .public-hero',
+    '.public-content-page .about-journey',
+    '.public-content-page .about-vision',
+    '.public-content-page .contact-layout',
+  ]) {
+    assert.equal(cssProperty(compact, selector, 'grid-template-columns'), '1fr', selector);
+  }
+
+  const narrow = cssMediaRules(publicCss, '(max-width: 660px)');
+  for (const selector of [
+    '.public-content-page .vision-grid',
+    '.public-content-page .leadership-grid',
+    '.public-content-page .public-footer-grid',
+  ]) {
+    assert.equal(cssProperty(narrow, selector, 'grid-template-columns'), '1fr', selector);
+  }
+}
+
+function moveCssRuleOutsideMedia(publicCss, condition, selector) {
+  const mediaPrelude = `@media ${condition}`;
+  const media = parseCssBlocks(publicCss)
+    .find(({ prelude }) => prelude === mediaPrelude);
+  assert.ok(media, `missing mutation source: ${mediaPrelude}`);
+  const rule = parseCssBlocks(media.body)
+    .find((candidate) => cssSelectors(candidate).includes(selector));
+  assert.ok(rule, `missing mutation rule: ${selector}`);
+
+  const ruleSource = media.body.slice(rule.start, rule.end);
+  const mediaBodyWithoutRule = (
+    media.body.slice(0, rule.start) + media.body.slice(rule.end)
+  );
+  const rebuiltMedia = `${media.prelude} {${mediaBodyWithoutRule}}`;
+  return (
+    publicCss.slice(0, media.start)
+    + rebuiltMedia
+    + publicCss.slice(media.end)
+    + `\n${ruleSource}\n`
+  );
+}
+
 const decodeEntities = (value) => value
   .replace(/&amp;/g, '&')
   .replace(/&quot;/g, '"')
@@ -554,7 +759,9 @@ test('Contact preserves its details, map fallback and accessible form contract',
 
 test('public content CSS is scoped, responsive, keyboard visible and motion safe', () => {
   const css = read('css/style.css');
-  assert.match(css, /\/\* PUBLIC CONTENT PAGES \(ABOUT \/ CONTACT\) \*\//);
+  const publicCss = publicContentCss(css);
+  const base = cssRuleBlocks(publicCss);
+  assertPublicSelectorsScoped(publicCss);
   for (const selector of [
     'body.public-content-page',
     '.public-content-page .public-header',
@@ -571,38 +778,161 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
     '.public-content-page .contact-form',
     '.public-content-page .public-footer',
   ]) {
-    assert.ok(css.includes(selector), selector);
+    cssRule(base, selector);
   }
-  assert.match(css, /\.public-content-page :focus-visible\s*\{[^}]*outline:/s);
-  assert.match(css, /\.public-content-page \.contact-honeypot\s*\{[^}]*position:\s*absolute[^}]*clip:/s);
+
   assert.match(
-    css,
-    /@media \(max-width:\s*979px\)[\s\S]*?\.public-content-page \.public-nav\s*\{[^}]*display:\s*none[\s\S]*?\.public-content-page \.public-menu\s*\{[^}]*display:\s*block/s,
+    cssProperty(base, '.public-content-page :focus-visible', 'outline'),
+    /^\d+px solid #[\da-f]{6}$/i,
   );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-honeypot', 'position'),
+    'absolute',
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-honeypot', 'clip'),
+    'rect(0 0 0 0)',
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .about-vision', 'grid-template-columns'),
+    'minmax(250px, 0.75fr) minmax(0, 1.25fr)',
+  );
+  assertPublicResponsiveContract(publicCss);
+
+  const reducedMotion = cssMediaRules(publicCss, '(prefers-reduced-motion: reduce)');
+  assert.equal(
+    cssProperty(reducedMotion, '.public-content-page .story-orbit-node', 'animation'),
+    'none',
+  );
+
+  for (const [selector, expected] of [
+    ['.public-content-page .public-menu summary', '44px'],
+    ['.public-content-page .public-menu nav a', '44px'],
+    ['.public-content-page .contact-form input', '48px'],
+    ['.public-content-page .contact-form textarea', '150px'],
+    ['.public-content-page .contact-form .btn', '44px'],
+  ]) {
+    assert.equal(cssProperty(base, selector, 'min-height'), expected, selector);
+  }
+});
+
+test('public CSS contracts reject selector leakage and responsive declarations moved to base', async (t) => {
+  const publicCss = publicContentCss(read('css/style.css'));
+
+  await t.test('unscoped selector leakage', () => {
+    assert.throws(
+      () => assertPublicSelectorsScoped(`${publicCss}\n.public-header { color: red; }\n`),
+      /unscoped public selector.*\.public-header/,
+    );
+  });
+
+  await t.test('compact navigation moved outside 979px', () => {
+    const mutated = moveCssRuleOutsideMedia(
+      publicCss,
+      '(max-width: 979px)',
+      '.public-content-page .public-nav',
+    );
+    assert.throws(
+      () => assertPublicResponsiveContract(mutated),
+      /missing CSS rule: \.public-content-page \.public-nav/,
+    );
+  });
+
+  await t.test('leadership stacking moved outside 660px', () => {
+    const mutated = moveCssRuleOutsideMedia(
+      publicCss,
+      '(max-width: 660px)',
+      '.public-content-page .leadership-grid',
+    );
+    assert.throws(
+      () => assertPublicResponsiveContract(mutated),
+      /missing CSS rule: \.public-content-page \.leadership-grid/,
+    );
+  });
+});
+
+test('compact header anchors its popup to viewport-safe header insets at 320px', () => {
+  const publicCss = publicContentCss(read('css/style.css'));
+  const compact = cssMediaRules(publicCss, '(max-width: 979px)');
+  const narrow = cssMediaRules(publicCss, '(max-width: 660px)');
+
+  assert.equal(
+    cssProperty(compact, '.public-content-page .public-header', 'grid-template-columns'),
+    'minmax(0, 1fr) auto auto',
+  );
+  assert.equal(cssProperty(compact, '.public-content-page .public-menu', 'position'), 'static');
+  assert.equal(cssProperty(compact, '.public-content-page .public-menu nav', 'left'), '24px');
+  assert.equal(cssProperty(compact, '.public-content-page .public-menu nav', 'right'), '24px');
+  assert.equal(cssProperty(compact, '.public-content-page .public-menu nav', 'width'), 'auto');
+
+  assert.equal(cssProperty(narrow, '.public-content-page .public-header', 'gap'), '8px');
+  assert.equal(cssProperty(narrow, '.public-content-page .public-header', 'padding'), '12px');
+  assert.equal(cssProperty(narrow, '.public-content-page .public-brand', 'min-width'), '0');
+  assert.equal(cssProperty(narrow, '.public-content-page .public-brand', 'width'), 'auto');
+  assert.equal(cssProperty(narrow, '.public-content-page .public-brand-copy', 'min-width'), '0');
+  assert.equal(
+    cssProperty(narrow, '.public-content-page .public-brand-copy strong', 'text-overflow'),
+    'ellipsis',
+  );
+  assert.equal(cssProperty(narrow, '.public-content-page .public-menu nav', 'left'), '12px');
+  assert.equal(cssProperty(narrow, '.public-content-page .public-menu nav', 'right'), '12px');
+});
+
+test('contact labels and default control boundaries meet contrast requirements', () => {
+  const css = read('css/style.css');
+  const base = cssRuleBlocks(publicContentCss(css));
+  const wash = cssHexVariable(css, '--public-wash');
+  const label = cssResolvedColor(
+    css,
+    base,
+    '.public-content-page .contact-form label',
+  );
+  const controlBorder = cssResolvedColor(
+    css,
+    base,
+    '.public-content-page .contact-form input',
+    'border',
+  );
+
+  assert.ok(contrastRatio(label, wash) >= 4.5, 'form label on form wash');
+  assert.ok(contrastRatio(controlBorder, wash) >= 3, 'control border on form wash');
+  assert.ok(contrastRatio(controlBorder, '#ffffff') >= 3, 'control border on input fill');
   assert.match(
-    css,
-    /\.public-content-page \.about-vision\s*\{[^}]*grid-template-columns:\s*minmax\(250px,\s*0\.75fr\)\s+minmax\(0,\s*1\.25fr\)/s,
+    cssProperty(base, '.public-content-page .contact-form label', 'font-size'),
+    /^(?:0\.\d+rem|1rem)$/,
   );
-  assert.match(
-    css,
-    /@media \(max-width:\s*660px\)[\s\S]*?\.public-content-page \.leadership-grid\s*\{[^}]*grid-template-columns:\s*1fr/s,
+  assert.notEqual(
+    cssProperty(base, '.public-content-page .contact-form label', 'line-height'),
+    'normal',
   );
-  assert.match(
-    css,
-    /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.public-content-page \.story-orbit-node\s*\{[^}]*animation:\s*none/s,
+});
+
+test('footer social heading and links use a coherent column layout', () => {
+  const base = cssRuleBlocks(publicContentCss(read('css/style.css')));
+  assert.equal(cssProperty(base, '.public-content-page .public-socials', 'display'), 'grid');
+  assert.equal(
+    cssProperty(base, '.public-content-page .public-socials', 'align-content'),
+    'start',
   );
-  assert.match(css, /min-height:\s*44px/);
+  assert.equal(cssProperty(base, '.public-content-page .leader-links', 'display'), 'flex');
 });
 
 test('public content eyebrow text meets AA contrast on light and dark surfaces', () => {
   const css = read('css/style.css');
-  const lightEyebrow = cssResolvedColor(css, '.public-content-page .section-eyebrow');
+  const base = cssRuleBlocks(publicContentCss(css));
+  const lightEyebrow = cssResolvedColor(
+    css,
+    base,
+    '.public-content-page .section-eyebrow',
+  );
   const heroEyebrow = cssResolvedColor(
     css,
+    base,
     '.public-content-page .public-hero .section-eyebrow',
   );
   const connectEyebrow = cssResolvedColor(
     css,
+    base,
     '.public-content-page .about-connect .section-eyebrow',
   );
 
@@ -614,8 +944,12 @@ test('public content eyebrow text meets AA contrast on light and dark surfaces',
 
 test('public content focus indicator has 3:1 contrast on light and dark surfaces', () => {
   const css = read('css/style.css');
-  const focusRule = cssRule(css, '.public-content-page :focus-visible');
-  const outline = focusRule.match(/outline:\s*\d+px\s+solid\s+(#[\da-f]{6})/i);
+  const base = cssRuleBlocks(publicContentCss(css));
+  const outline = cssProperty(
+    base,
+    '.public-content-page :focus-visible',
+    'outline',
+  ).match(/^\d+px solid (#[\da-f]{6})$/i);
   assert.ok(outline, 'focus indicator uses a solid hex outline');
   assert.ok(contrastRatio(outline[1], '#ffffff') >= 3, 'focus outline on white');
   assert.ok(contrastRatio(outline[1], '#0b1024') >= 3, 'focus outline on navy');
