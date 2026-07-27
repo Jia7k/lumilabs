@@ -721,12 +721,17 @@ const publicMenuAncestry = [
   element('details', ['public-menu']),
 ];
 
-function elementFromHtmlNode(node, pseudos = []) {
+function elementFromHtmlNode(node, pseudos = [], attributeOverrides = {}) {
+  const attributes = { ...node.attributes };
+  for (const [name, value] of Object.entries(attributeOverrides)) {
+    if (value === undefined) delete attributes[name];
+    else attributes[name] = value;
+  }
   return element(
     node.tagName,
     (node.attributes.class || '').split(/\s+/).filter(Boolean),
     node.attributes.id || null,
-    { ...node.attributes },
+    attributes,
     pseudos,
   );
 }
@@ -765,7 +770,17 @@ function contactControlStateVariants(control) {
       group.map((states) => [...variant, ...states])
     ));
   }
-  return variants.map((states) => [...staticPseudos, ...states]);
+  return variants.flatMap((states) => {
+    const pseudos = [...staticPseudos, ...states];
+    const ariaInvalidValues = states.includes('invalid')
+      ? [undefined, 'true']
+      // Client length validation can set aria-invalid while native :valid remains true.
+      : [undefined, 'false', 'true'];
+    return ariaInvalidValues.map((ariaInvalid) => ({
+      attributeOverrides: { 'aria-invalid': ariaInvalid },
+      pseudos,
+    }));
+  });
 }
 
 function contactFormFieldTargets() {
@@ -803,8 +818,11 @@ function contactFormFieldTargets() {
     ];
     return {
       controlId: control.attributes.id,
-      controlAncestries: contactControlStateVariants(control).map((pseudos) => (
-        [...groupAncestry, elementFromHtmlNode(control, pseudos)]
+      controlAncestries: contactControlStateVariants(control).map((state) => (
+        [
+          ...groupAncestry,
+          elementFromHtmlNode(control, state.pseudos, state.attributeOverrides),
+        ]
       )),
       labelAncestries: labelStates.map((pseudos) => (
         [...groupAncestry, elementFromHtmlNode(label, pseudos)]
@@ -1683,6 +1701,32 @@ test('contact labels and default control boundaries meet contrast requirements',
   assertContactContrastContract(css);
 });
 
+test('runtime aria-invalid states keep contrast-safe control boundaries', () => {
+  const css = read('css/style.css');
+  const wash = cssHexVariable(css, '--public-wash');
+  const styleRules = cssStyleRules(css);
+  const coveredControls = new Set();
+
+  for (const field of contactFormFieldTargets()) {
+    for (const ancestry of field.controlAncestries) {
+      if (ancestry.at(-1).attributes['aria-invalid'] !== 'true') continue;
+      coveredControls.add(field.controlId);
+      const border = effectiveControlBorder(css, ancestry, styleRules);
+      const color = cssColorFromValue(css, border.color, `${field.controlId} invalid border`);
+      assert.ok(contrastRatio(color, wash) >= 3, `${field.controlId} invalid border on wash`);
+      assert.ok(
+        contrastRatio(color, '#ffffff') >= 3,
+        `${field.controlId} invalid border on fill`,
+      );
+    }
+  }
+
+  assert.deepEqual(
+    [...coveredControls].sort(),
+    ['contact-email', 'contact-message', 'contact-name'],
+  );
+});
+
 test('contact contrast contract rejects effective overrides and invisible borders', async (t) => {
   const css = read('css/style.css');
 
@@ -1769,6 +1813,30 @@ input[placeholder="Your name"] { border: 1px solid rgba(205,211,223,1) !importan
   await t.test('reachable invalid state override', () => {
     const mutated = `${css}
 input:invalid { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('low-contrast existing aria-invalid border', () => {
+    const mutated = css.replace(
+      '.public-content-page .contact-form [aria-invalid="true"] {\n  border-color: #b42318;\n}',
+      '.public-content-page .contact-form [aria-invalid="true"] {\n  border-color: #cdd3df;\n}',
+    );
+    assert.notEqual(mutated, css, 'existing aria-invalid border mutation applied');
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('important runtime aria-invalid border override', () => {
+    const mutated = `${css}
+input[aria-invalid="true"] {
+  border: 1px solid rgba(205,211,223,1) !important;
+}
 `;
     assert.throws(
       () => assertContactContrastContract(mutated),
