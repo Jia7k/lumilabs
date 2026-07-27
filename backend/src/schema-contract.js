@@ -225,6 +225,13 @@ const COLUMN_CONTRACT = {
     ],
     ['created_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
   ]),
+  contact_submissions: defineColumns([
+    ['id', 'bigint unsigned', 'NO', null, 'auto_increment'],
+    ['name', 'varchar(100)', 'NO', null],
+    ['email', 'varchar(255)', 'NO', null],
+    ['message', 'text', 'YES', null],
+    ['created_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
+  ]),
 };
 
 const PRIMARY_INDEX_CONTRACT = [
@@ -238,6 +245,7 @@ const PRIMARY_INDEX_CONTRACT = [
   ['notifications', ['id']],
   ['audit_logs', ['id']],
   ['superadmin_audit_logs', ['id']],
+  ['contact_submissions', ['id']],
 ];
 
 const UNIQUE_INDEX_CONTRACT = [
@@ -269,6 +277,7 @@ const ACCESS_INDEX_CONTRACT = [
   ['superadmin_audit_logs', ['previous_relationship_manager_id']],
   ['superadmin_audit_logs', ['new_relationship_manager_id']],
   ['superadmin_audit_logs', ['created_user_id']],
+  ['contact_submissions', ['created_at']],
 ];
 
 const FOREIGN_KEY_CONTRACT = [

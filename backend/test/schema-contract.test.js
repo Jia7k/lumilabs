@@ -90,7 +90,7 @@ test('exports only the complete and preserved-core production verifiers', () => 
   ]);
 });
 
-test('canonical metadata has ten tables and the exact final five-role contract', () => {
+test('canonical metadata has eleven tables and the exact final five-role contract', () => {
   const metadata = cloneProductionSchemaMetadata();
   const tableNames = metadata.tables.map(({ table_name }) => table_name);
   const role = row(metadata, 'users', 'role');
@@ -109,6 +109,7 @@ test('canonical metadata has ten tables and the exact final five-role contract',
     'notifications',
     'audit_logs',
     'superadmin_audit_logs',
+    'contact_submissions',
   ]);
   assert.deepEqual(enumValues(role.column_type), FINAL_ROLES);
   assert.equal(role.is_nullable, 'NO');
@@ -147,6 +148,93 @@ test('canonical metadata has ten tables and the exact final five-role contract',
     )).length,
     5,
   );
+});
+
+test('complete schema requires the exact contact submissions table', async () => {
+  const metadata = cloneProductionSchemaMetadata();
+  assert.equal(metadata.tables.length, 11);
+
+  const columns = metadata.columns
+    .filter(({ table_name }) => table_name === 'contact_submissions')
+    .map((row) => ({
+      name: row.column_name,
+      type: row.column_type,
+      nullable: row.is_nullable,
+      defaultValue: row.column_default,
+      extra: row.extra,
+    }));
+
+  assert.deepEqual(columns, [
+    {
+      name: 'id',
+      type: 'bigint unsigned',
+      nullable: 'NO',
+      defaultValue: null,
+      extra: 'auto_increment',
+    },
+    {
+      name: 'name',
+      type: 'varchar(100)',
+      nullable: 'NO',
+      defaultValue: null,
+      extra: '',
+    },
+    {
+      name: 'email',
+      type: 'varchar(255)',
+      nullable: 'NO',
+      defaultValue: null,
+      extra: '',
+    },
+    {
+      name: 'message',
+      type: 'text',
+      nullable: 'YES',
+      defaultValue: null,
+      extra: '',
+    },
+    {
+      name: 'created_at',
+      type: 'timestamp',
+      nullable: 'NO',
+      defaultValue: 'CURRENT_TIMESTAMP',
+      extra: 'DEFAULT_GENERATED',
+    },
+  ]);
+
+  assert.equal(
+    metadata.indexes.some((row) => (
+      row.table_name === 'contact_submissions'
+      && row.index_name === 'PRIMARY'
+      && row.column_name === 'id'
+      && Number(row.non_unique) === 0
+    )),
+    true,
+  );
+  assert.equal(
+    metadata.indexes.some((row) => (
+      row.table_name === 'contact_submissions'
+      && row.index_name === 'idx_contact_submissions_created_at'
+      && row.column_name === 'created_at'
+      && Number(row.non_unique) === 1
+    )),
+    true,
+  );
+
+  const { database } = createSchemaMetadataDatabase(metadata);
+  await assert.doesNotReject(verifySchema(database));
+});
+
+test('complete schema rejects a missing or non-null contact submission message', async () => {
+  await expectInvariant((metadata) => {
+    metadata.columns = metadata.columns.filter((candidate) => (
+      !(candidate.table_name === 'contact_submissions' && candidate.column_name === 'message')
+    ));
+  }, /Missing schema invariants/);
+
+  await expectInvariant((metadata) => {
+    row(metadata, 'contact_submissions', 'message').is_nullable = 'NO';
+  }, /Missing schema invariants/);
 });
 
 test('exports the exact final enum strings and expected schema', () => {
