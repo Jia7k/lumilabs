@@ -136,9 +136,9 @@ test('GET conversations returns only room summaries exposed by membership', { co
 });
 
 test('GET conversation rejects a user without active membership', { concurrency: false }, async (t) => {
-  const original = db.query;
-  db.query = async (sql) => {
+  const connection = transactionConnection(async (sql) => {
     assert.match(sql, /LEFT JOIN conversation_members/);
+    assert.match(sql, /FOR UPDATE/);
     return [[{
       id: 12,
       portfolio_id: 1,
@@ -147,16 +147,16 @@ test('GET conversation rejects a user without active membership', { concurrency:
       user_id: null,
       membership_status: null,
     }], []];
-  };
-  t.after(() => {
-    db.query = original;
   });
+  stubPool(t, connection);
 
   const outsider = { ...manager, id: 99 };
   const { response, payload } = await request(t, '/conversations/12', outsider);
 
   assert.equal(response.status, 403);
   assert.equal(payload.code, 'ROOM_ACCESS_DENIED');
+  assert.equal(connection.calls.rollback, 1);
+  assert.equal(connection.calls.release, 1);
 });
 
 test('POST room message commits one message and fans out notifications', { concurrency: false }, async (t) => {

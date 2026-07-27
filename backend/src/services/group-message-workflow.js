@@ -29,6 +29,7 @@ async function queryRows(database, sql, params = []) {
 async function inTransaction(database, work) {
   const connection = await database.getConnection();
   let transactionOpen = false;
+  let releaseConnection = true;
   try {
     await connection.beginTransaction();
     transactionOpen = true;
@@ -40,13 +41,21 @@ async function inTransaction(database, work) {
     if (transactionOpen) {
       try {
         await connection.rollback();
-      } catch (rollbackError) {
-        error.rollbackError = rollbackError;
+      } catch {
+        console.error('Group message rollback failed');
+        releaseConnection = false;
+        if (typeof connection.destroy === 'function') {
+          try {
+            await connection.destroy();
+          } catch {
+            // Preserve only the original safe workflow error.
+          }
+        }
       }
     }
     throw error;
   } finally {
-    connection.release();
+    if (releaseConnection) connection.release();
   }
 }
 
@@ -190,52 +199,54 @@ async function loadConversationThread({
 }) {
   const userId = positiveId(userIdValue, 'user ID');
   const conversationId = positiveId(conversationIdValue, 'conversation ID');
-  const access = await loadAccess(database, userId, conversationId);
-  const participants = await queryRows(
-    database,
-    `SELECT u.id,u.name,cm.member_role AS role
-       FROM conversation_members cm
-       JOIN users u ON u.id=cm.user_id
-      WHERE cm.conversation_id=? AND cm.membership_status='active'
-      ORDER BY FIELD(cm.member_role,'relationship_manager','business_owner','investor'),
-               u.name,u.id`,
-    [conversationId],
-  );
-  const boundary = Number(access.visible_after_message_id || 0);
-  const messages = await queryRows(
-    database,
-    `SELECT m.id,m.conversation_id,m.sender_id,u.name AS sender_name,
-            cm.member_role AS sender_role,m.content,m.created_at
-       FROM messages m
-       JOIN users u ON u.id=m.sender_id
-       JOIN conversation_members cm
-         ON cm.conversation_id=m.conversation_id AND cm.user_id=m.sender_id
-      WHERE m.conversation_id=? AND m.id>?
-      ORDER BY m.id`,
-    [conversationId, boundary],
-  );
-  const normalizedMessages = messages.map(normalizeMessage);
-  const latestMessage = normalizedMessages.at(-1);
-  return {
-    conversation: {
-      id: conversationId,
-      portfolio_id: access.portfolio_id == null ? null : Number(access.portfolio_id),
-      title: access.title,
-      status: access.status,
-      archived_reason: access.archived_reason || null,
-      can_send: access.status === 'active',
-      unread_count: Number(access.unread_count || 0),
-      latest_message: latestMessage ? {
-        id: latestMessage.id,
-        sender_id: latestMessage.sender_id,
-        sender_name: latestMessage.sender_name,
-        content: latestMessage.content,
-        created_at: latestMessage.created_at,
-      } : null,
-    },
-    participants: participants.map(normalizeParticipant),
-    messages: normalizedMessages,
-  };
+  return inTransaction(database, async (connection) => {
+    const access = await loadAccess(connection, userId, conversationId, true);
+    const participants = await queryRows(
+      connection,
+      `SELECT u.id,u.name,cm.member_role AS role
+         FROM conversation_members cm
+         JOIN users u ON u.id=cm.user_id
+        WHERE cm.conversation_id=? AND cm.membership_status='active'
+        ORDER BY FIELD(cm.member_role,'relationship_manager','business_owner','investor'),
+                 u.name,u.id`,
+      [conversationId],
+    );
+    const boundary = Number(access.visible_after_message_id || 0);
+    const messages = await queryRows(
+      connection,
+      `SELECT m.id,m.conversation_id,m.sender_id,u.name AS sender_name,
+              cm.member_role AS sender_role,m.content,m.created_at
+         FROM messages m
+         JOIN users u ON u.id=m.sender_id
+         JOIN conversation_members cm
+           ON cm.conversation_id=m.conversation_id AND cm.user_id=m.sender_id
+        WHERE m.conversation_id=? AND m.id>?
+        ORDER BY m.id`,
+      [conversationId, boundary],
+    );
+    const normalizedMessages = messages.map(normalizeMessage);
+    const latestMessage = normalizedMessages.at(-1);
+    return {
+      conversation: {
+        id: conversationId,
+        portfolio_id: access.portfolio_id == null ? null : Number(access.portfolio_id),
+        title: access.title,
+        status: access.status,
+        archived_reason: access.archived_reason || null,
+        can_send: access.status === 'active',
+        unread_count: Number(access.unread_count || 0),
+        latest_message: latestMessage ? {
+          id: latestMessage.id,
+          sender_id: latestMessage.sender_id,
+          sender_name: latestMessage.sender_name,
+          content: latestMessage.content,
+          created_at: latestMessage.created_at,
+        } : null,
+      },
+      participants: participants.map(normalizeParticipant),
+      messages: normalizedMessages,
+    };
+  });
 }
 
 async function markConversationRead({

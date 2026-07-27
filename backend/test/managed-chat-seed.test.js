@@ -10,9 +10,11 @@ function loadSeed() {
   return require(seedPath);
 }
 
-function scriptedDatabase(responses) {
+function scriptedDatabase(responses, options = {}) {
   const calls = [];
-  const state = { begins: 0, commits: 0, rollbacks: 0, releases: 0 };
+  const state = {
+    begins: 0, commits: 0, rollbacks: 0, releases: 0, destroys: 0,
+  };
   const connection = {
     async beginTransaction() { state.begins += 1; },
     async query(sql, params = []) {
@@ -23,8 +25,15 @@ function scriptedDatabase(responses) {
       return [typeof response === 'function' ? response(sql, params) : response, []];
     },
     async commit() { state.commits += 1; },
-    async rollback() { state.rollbacks += 1; },
+    async rollback() {
+      state.rollbacks += 1;
+      if (options.rollbackError) throw options.rollbackError;
+    },
     release() { state.releases += 1; },
+    async destroy() {
+      state.destroys += 1;
+      if (options.destroyError) throw options.destroyError;
+    },
   };
   return {
     database: { async getConnection() { return connection; } },
@@ -183,6 +192,39 @@ test('partial deterministic message set is a conflict and rolls back', async () 
   );
   assert.equal(fake.state.commits, 0);
   assert.equal(fake.state.rollbacks, 1);
+  fake.assertConsumed();
+});
+
+test('rollback failure destroys the seed connection and preserves only the seed error', {
+  concurrency: false,
+}, async (t) => {
+  const { seedManagedChat, ManagedChatSeedError } = loadSeed();
+  const primary = new ManagedChatSeedError(
+    'Seed identities changed',
+    'SEED_IDENTITY_CHANGED',
+  );
+  const fake = scriptedDatabase([primary], {
+    rollbackError: new Error('rollback password sentinel'),
+    destroyError: new Error('destroy password sentinel'),
+  });
+  const logs = [];
+  const originalError = console.error;
+  console.error = (...parts) => logs.push(parts);
+  t.after(() => {
+    console.error = originalError;
+  });
+
+  await assert.rejects(
+    seedManagedChat(fake.database, config()),
+    (error) => error === primary,
+  );
+
+  assert.equal(fake.state.rollbacks, 1);
+  assert.equal(fake.state.destroys, 1);
+  assert.equal(fake.state.releases, 0);
+  assert.equal(Object.hasOwn(primary, 'rollbackError'), false);
+  assert.doesNotMatch(JSON.stringify(primary), /rollback|password|sentinel|destroy/i);
+  assert.deepEqual(logs, [['Managed chat seed rollback failed']]);
   fake.assertConsumed();
 });
 

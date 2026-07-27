@@ -436,7 +436,7 @@ test('manual lifecycle functions are not exported', () => {
   assert.equal(Object.hasOwn(service, 'reopenManagedConversation'), false);
 });
 
-test('manual removal preserves interest and history, notifies safely, and archives the last investor', async () => {
+test('last manual investor removal emits archive and removal notifications exactly once', async () => {
   const { removeManagedInvestor } = loadService();
   assert.equal(typeof removeManagedInvestor, 'function');
   const fake = scriptedDatabase([
@@ -460,7 +460,9 @@ test('manual removal preserves interest and history, notifies safely, and archiv
     [{ id: 31, investor_id: 9, portfolio_id: 1 }],
     [{ user_id: 9, member_role: 'investor', membership_status: 'active' }],
     [{ user_id: 9 }],
-    [{ user_id: 3 }],
+    [{ user_id: 3 }, { user_id: 3 }],
+    { affectedRows: 1 },
+    [{ user_id: 8 }, { user_id: 3 }, { user_id: 3 }],
     { affectedRows: 1 },
     { affectedRows: 1 },
     { affectedRows: 2 },
@@ -481,10 +483,23 @@ test('manual removal preserves interest and history, notifies safely, and archiv
   assert.equal(fake.calls.some(({ sql }) => /DELETE FROM investor_interests/.test(sql)), false);
   assert.equal(fake.calls.some(({ sql }) => /DELETE FROM messages/.test(sql)), false);
   assert.equal(fake.calls.some(({ sql }) => /DELETE FROM notifications/.test(sql)), false);
-  const notification = fake.calls.find(({ sql }) => /INSERT INTO notifications/.test(sql));
-  assert.deepEqual(notification.params[0].map((row) => row[0]), [9, 3]);
-  assert.equal(notification.params[0][0][5], null);
-  assert.equal(notification.params[0][1][5], 12);
+  const notifications = fake.calls.filter(({ sql }) => /INSERT INTO notifications/.test(sql));
+  assert.equal(notifications.length, 2);
+  assert.deepEqual(
+    notifications[0].params[0].map((row) => [row[0], row[1], row[5], row[6]]),
+    [[3, 'conversation_archived', 12, 8]],
+  );
+  assert.deepEqual(
+    notifications[1].params[0].map((row) => [row[0], row[1], row[5], row[6]]),
+    [
+      [9, 'conversation_member_removed', null, 8],
+      [3, 'conversation_member_removed', 12, 8],
+    ],
+  );
+  const notificationPairs = notifications.flatMap(({ params }) => (
+    params[0].map((row) => `${row[0]}:${row[1]}`)
+  ));
+  assert.equal(new Set(notificationPairs).size, notificationPairs.length);
   assert.ok(fake.calls.some(({ sql, params }) => (
     /UPDATE conversations/.test(sql)
     && /archived_reason=\?/.test(sql)
@@ -572,6 +587,12 @@ test('manual removal keeps the room active when another eligible investor remain
     { changed: true, investor_id: 9, archived: false },
   );
   assert.equal(fake.calls.some(({ sql }) => /UPDATE conversations/.test(sql)), false);
+  const notifications = fake.calls.filter(({ sql }) => /INSERT INTO notifications/.test(sql));
+  assert.equal(notifications.length, 1);
+  assert.equal(
+    notifications[0].params[0].every((row) => row[1] === 'conversation_member_removed'),
+    true,
+  );
   fake.assertConsumed();
 });
 
@@ -599,6 +620,8 @@ test('manual removal rolls back membership and archive changes when notification
     [{ user_id: 9, member_role: 'investor', membership_status: 'active' }],
     [{ user_id: 9 }],
     [{ user_id: 3 }],
+    { affectedRows: 1 },
+    [{ user_id: 8 }, { user_id: 3 }],
     { affectedRows: 1 },
     { affectedRows: 1 },
     new Error('notification insertion failed'),

@@ -727,6 +727,48 @@ async function assertNoDuplicateActiveSingletons(connection) {
   }
 }
 
+async function assertActiveSingletonAssignmentsMatch(connection) {
+  const assignmentColumns = await readColumn(
+    connection,
+    'portfolios',
+    'relationship_manager_id',
+  );
+  const expectedManager = assignmentColumns.length
+    ? 'COALESCE(p.relationship_manager_id, c.relationship_manager_id)'
+    : 'c.relationship_manager_id';
+  const invalid = await rows(
+    connection,
+    `SELECT c.id AS conversation_id,
+            ${expectedManager} AS expected_relationship_manager_id,
+            rm.user_id AS active_relationship_manager_id,
+            p.owner_id AS expected_business_owner_id,
+            bo.user_id AS active_business_owner_id
+       FROM conversations c
+       JOIN portfolios p ON p.id = c.portfolio_id
+       LEFT JOIN conversation_members rm
+         ON rm.conversation_id = c.id
+        AND rm.member_role = 'relationship_manager'
+        AND rm.membership_status = 'active'
+       LEFT JOIN conversation_members bo
+         ON bo.conversation_id = c.id
+        AND bo.member_role = 'business_owner'
+        AND bo.membership_status = 'active'
+      WHERE ${expectedManager} IS NULL
+         OR rm.user_id IS NULL
+         OR rm.user_id <> ${expectedManager}
+         OR bo.user_id IS NULL
+         OR bo.user_id <> p.owner_id`,
+  );
+  if (invalid.length) {
+    throw new FiveRoleMigrationError(
+      `Active conversation manager or owner memberships do not match assignments: ${
+        invalid.map((row) => property(row, 'conversation_id')).join(', ')
+      }`,
+      'ACTIVE_SINGLETON_ASSIGNMENT_INVALID',
+    );
+  }
+}
+
 async function readColumn(connection, tableName, columnName) {
   return rows(
     connection,
@@ -1089,6 +1131,7 @@ async function migrateFiveRoleWorkflow(
     await assertNoPortfolioConversationManagerConflicts(connection);
     await assertAssignedUsersAreRelationshipManagers(connection);
     await assertNoDuplicateActiveSingletons(connection);
+    await assertActiveSingletonAssignmentsMatch(connection);
 
     await ensureFiveRoleEnum(connection, result.changed);
     await ensurePortfolioAssignmentColumnIndexAndForeignKey(
@@ -1100,6 +1143,7 @@ async function migrateFiveRoleWorkflow(
     await ensureFinalNotificationEnum(connection, result.changed);
     await ensureSuperadminAuditTable(connection, result.changed);
     await verifyFinalSchema(connection);
+    await assertActiveSingletonAssignmentsMatch(connection);
 
     const after = await readProtectedState(connection);
     result.after = after.counts;

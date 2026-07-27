@@ -214,6 +214,53 @@ test('oversized JSON returns a safe 413 response before database access', {
   assert.equal(loggedErrors.length, 0);
 });
 
+test('malformed JSON returns 400 without logging the request body or password', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const originalGetConnection = db.getConnection;
+  const originalError = console.error;
+  const sentinel = 'malformed-json-password-sentinel';
+  let databaseCalls = 0;
+  const loggedErrors = [];
+  db.query = async () => {
+    databaseCalls += 1;
+    throw new Error('Malformed JSON must not reach the database');
+  };
+  db.getConnection = async () => {
+    databaseCalls += 1;
+    throw new Error('Malformed JSON must not start a transaction');
+  };
+  console.error = (...parts) => {
+    loggedErrors.push(parts.map((part) => (
+      part && typeof part === 'object'
+        ? `${part.message || ''} ${part.body || ''}`
+        : String(part)
+    )).join(' '));
+  };
+  t.after(() => {
+    db.query = originalQuery;
+    db.getConnection = originalGetConnection;
+    console.error = originalError;
+  });
+
+  const server = await listen(createApp());
+  t.after(server.close);
+  const response = await fetch(`${server.origin}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: `{"email":"owner@example.test","password":"${sentinel}"`,
+  });
+  const responseBody = await response.text();
+
+  assert.equal(response.status, 400);
+  assert.match(response.headers.get('content-type') || '', /^application\/json\b/);
+  assert.deepEqual(JSON.parse(responseBody), { error: 'Invalid JSON body' });
+  assert.doesNotMatch(responseBody, new RegExp(sentinel));
+  assert.doesNotMatch(loggedErrors.join('\n'), new RegExp(sentinel));
+  assert.equal(databaseCalls, 0);
+});
+
 test('JSON below 256 KiB reaches ordinary route validation', {
   concurrency: false,
 }, async (t) => {

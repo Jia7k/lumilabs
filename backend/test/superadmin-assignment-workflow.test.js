@@ -127,6 +127,7 @@ function assignmentHarness(fixture, options = {}) {
   let commits = 0;
   let rollbacks = 0;
   let releases = 0;
+  let destroys = 0;
   let writeCount = 0;
 
   function finishWrite(result) {
@@ -349,12 +350,17 @@ function assignmentHarness(fixture, options = {}) {
     release() {
       releases += 1;
     },
+    async destroy() {
+      destroys += 1;
+      if (options.destroyError) throw options.destroyError;
+    },
   };
 
   return {
     get commits() { return commits; },
     get rollbacks() { return rollbacks; },
     get releases() { return releases; },
+    get destroys() { return destroys; },
     get writeCount() { return writeCount; },
     calls,
     async getConnection() {
@@ -1252,12 +1258,13 @@ test('pre-chat assignment, reassignment, and unassignment roll back exact SQL ef
   }
 });
 
-test('rollback failure does not replace the original write error', async () => {
+test('rollback failure destroys the assignment connection and preserves only the original error', async () => {
   const original = new Error('audit unavailable');
   const database = assignmentHarness(unassignedFixture, {
     failAfterWrite: 2,
     writeError: original,
-    rollbackError: new Error('rollback unavailable'),
+    rollbackError: new Error('rollback password sentinel'),
+    destroyError: new Error('destroy password sentinel'),
   });
   const originalConsoleError = console.error;
   const logged = [];
@@ -1278,8 +1285,11 @@ test('rollback failure does not replace the original write error', async () => {
   }
 
   assert.equal(database.rollbacks, 1);
-  assert.equal(database.releases, 1);
+  assert.equal(database.destroys, 1);
+  assert.equal(database.releases, 0);
+  assert.equal(Object.hasOwn(original, 'rollbackError'), false);
+  assert.doesNotMatch(JSON.stringify(original), /rollback|password|sentinel|destroy/i);
   assert.equal(logged.length, 1);
   assert.equal(logged[0][0], 'Assignment rollback failed');
-  assert.match(logged[0][1].message, /rollback unavailable/);
+  assert.equal(logged[0].length, 1);
 });

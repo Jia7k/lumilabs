@@ -719,24 +719,13 @@ async function removeManagedInvestor({
     );
 
     const remainingEligible = eligibleBefore.filter((userId) => userId !== investorId);
-    if (
-      remainingEligible.length === 0
-      && (
-        conversation.status !== 'archived'
-        || shouldReplaceArchiveReason(
-          conversation.archived_reason,
-          'no_active_investors',
-        )
-      )
-    ) {
-      await connection.query(
-        `UPDATE conversations
-            SET status='archived',archived_reason=?
-          WHERE id=?`,
-        ['no_active_investors', conversationId],
+    if (remainingEligible.length === 0) {
+      await applyAutomaticArchive(
+        connection,
+        conversation,
+        'no_active_investors',
+        managerId,
       );
-      conversation.status = 'archived';
-      conversation.archived_reason = 'no_active_investors';
     }
 
     const ownerIds = owners.map((owner) => Number(owner.user_id));

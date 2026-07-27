@@ -115,6 +115,70 @@ test('failed uploaded-document transaction removes every newly written file', as
   assert.ok(!events.includes('commit'));
 });
 
+test('rollback failure destroys the document connection without exposing its cause', {
+  concurrency: false,
+}, async (t) => {
+  const primary = new Error('portfolio update failed safely');
+  const state = {
+    rollback: 0, destroy: 0, release: 0,
+  };
+  const connection = {
+    async beginTransaction() {},
+    async query(sql) {
+      if (/SELECT \* FROM portfolios/.test(sql)) return [[editablePortfolio()], []];
+      if (/FROM conversations/.test(sql)) return [[], []];
+      if (/SELECT COUNT\(\*\)/.test(sql)) return [[{ c: 0 }], []];
+      if (/INSERT INTO portfolio_documents/.test(sql)) return [{ affectedRows: 1 }, []];
+      if (/UPDATE portfolios/.test(sql)) throw primary;
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    async commit() {
+      assert.fail('commit must not run');
+    },
+    async rollback() {
+      state.rollback += 1;
+      throw new Error('rollback password sentinel');
+    },
+    async destroy() {
+      state.destroy += 1;
+      throw new Error('destroy password sentinel');
+    },
+    release() {
+      state.release += 1;
+    },
+  };
+  const logs = [];
+  const originalError = console.error;
+  console.error = (...parts) => logs.push(parts);
+  t.after(() => {
+    console.error = originalError;
+  });
+
+  await assert.rejects(
+    saveUploadedDocuments({
+      database: { getConnection: async () => connection },
+      portfolioId: 7,
+      ownerId: 3,
+      files: [{
+        path: path.join(uploadDir, 'rollback-failed.pdf'),
+        filename: 'rollback-failed.pdf',
+        originalname: 'rollback-failed.pdf',
+        mimetype: 'application/pdf',
+      }],
+      calculateReadiness: () => 44,
+      fileSystem: { async unlink() {} },
+    }),
+    (error) => error === primary,
+  );
+
+  assert.deepEqual(state, {
+    rollback: 1, destroy: 1, release: 0,
+  });
+  assert.equal(Object.hasOwn(primary, 'rollbackError'), false);
+  assert.doesNotMatch(JSON.stringify(primary), /rollback|password|sentinel|destroy/i);
+  assert.deepEqual(logs, [['Document transaction rollback failed']]);
+});
+
 test('upload enforces five documents total and removes rejected files', async () => {
   const events = [];
   const files = [

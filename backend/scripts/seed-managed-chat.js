@@ -180,6 +180,7 @@ function seedMessagesComplete(messages, authors) {
 async function seedManagedChat(database, config) {
   const connection = await database.getConnection();
   let transactionOpen = false;
+  let releaseConnection = true;
   try {
     await connection.beginTransaction();
     transactionOpen = true;
@@ -289,13 +290,21 @@ async function seedManagedChat(database, config) {
     if (transactionOpen) {
       try {
         await connection.rollback();
-      } catch (rollbackError) {
-        error.rollbackError = rollbackError;
+      } catch {
+        console.error('Managed chat seed rollback failed');
+        releaseConnection = false;
+        if (typeof connection.destroy === 'function') {
+          try {
+            await connection.destroy();
+          } catch {
+            // Preserve only the original seed error.
+          }
+        }
       }
     }
     throw error;
   } finally {
-    connection.release();
+    if (releaseConnection) connection.release();
   }
 }
 

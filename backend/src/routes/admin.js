@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const db = require('../config/db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const workflow = require('../services/workflow');
+const { DB_LIMITS } = require('../validation/database-boundaries');
 
 const router = express.Router();
 
@@ -72,7 +73,16 @@ router.put(
   '/portfolios/:id/reject',
   authenticate,
   requireRole('admin'),
-  [body('reason').trim().notEmpty()],
+  [
+    body('reason')
+      .isString().withMessage('Rejection reason must be a string')
+      .bail()
+      .trim()
+      .notEmpty().withMessage('Rejection reason is required')
+      .bail()
+      .custom((value) => Buffer.byteLength(value, 'utf8') <= DB_LIMITS.TEXT_BYTES)
+      .withMessage('Rejection reason exceeds the database text limit'),
+  ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });

@@ -153,6 +153,9 @@ function createApp(options = {}) {
     if (error?.type === 'entity.too.large' || error?.status === 413) {
       return res.status(413).json({ error: 'Request body too large' });
     }
+    if (error?.type === 'entity.parse.failed') {
+      return res.status(400).json({ error: 'Invalid JSON body' });
+    }
     return next(error);
   });
   app.use((error, req, res, next) => {

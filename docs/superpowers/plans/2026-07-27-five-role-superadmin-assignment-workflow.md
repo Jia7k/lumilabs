@@ -2716,14 +2716,45 @@ Run:
 
 ```bash
 git diff origin/main...HEAD --check
-! git diff origin/main...HEAD | rg -n \
-  'DROP TABLE (messages|conversation_members|conversations)|TRUNCATE|superadmin.+SET.+admin'
-! git diff origin/main...HEAD | rg -ni \
-  'victor@lumilabs\.com|biztest@lumilabs\.com|invtest@lumilabs\.com|rsmanager@lumilabs\.com'
+
+task15_runtime_patch=$(git diff --unified=0 origin/main...HEAD -- \
+  backend/server.js \
+  backend/migrate.js \
+  backend/schema.sql \
+  backend/src \
+  backend/scripts)
+if printf '%s\n' "$task15_runtime_patch" |
+  rg -n '^\+[^+]*(DROP TABLE (messages|conversation_members|conversations)|TRUNCATE|superadmin.+SET.+admin)'; then
+  echo 'Added runtime or migration source contains prohibited destructive SQL' >&2
+  exit 1
+fi
+printf '%s\n' '+DROP TABLE messages;' | rg -q \
+  '^\+[^+]*(DROP TABLE (messages|conversation_members|conversations)|TRUNCATE|superadmin.+SET.+admin)'
+
+task15_release_patch=$(git diff --unified=0 origin/main...HEAD -- \
+  backend/server.js \
+  backend/migrate.js \
+  backend/schema.sql \
+  backend/src \
+  backend/scripts \
+  '*.html' \
+  'js/*.js')
+if printf '%s\n' "$task15_release_patch" |
+  rg -ni '^\+[^+]*(victor@lumilabs\.com|biztest@lumilabs\.com|invtest@lumilabs\.com|rsmanager@lumilabs\.com)'; then
+  echo 'Added release source contains a known credential-bearing account' >&2
+  exit 1
+fi
+
 ! rg -n 'localhost|127\.0\.0\.1|:3000|:3001' --glob '*.html' --glob 'js/*.js'
 ```
 
-Expected: no whitespace error, destructive SQL, embedded password, superadmin conversion, or browser-facing localhost/old-port reference. Loopback remains allowed only in backend server/deploy/smoke code.
+Expected: no whitespace error, prohibited destructive SQL in added
+runtime/migration source, embedded known account in added release source,
+superadmin conversion, or browser-facing localhost/old-port reference. The
+synthetic `DROP TABLE messages` line must be detected successfully. Documentation
+and tests are excluded from the SQL and account scans so the safety patterns do
+not match themselves. Loopback remains allowed only in backend
+server/deploy/smoke code.
 
 - [ ] **Step 4: Inspect commit scope and teammate preservation**
 

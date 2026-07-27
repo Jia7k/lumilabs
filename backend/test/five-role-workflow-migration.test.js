@@ -255,6 +255,9 @@ function migrationHarness(
     invalidAssignees = [],
     orphanAssignees = [],
     duplicateActiveSingletons = [],
+    invalidActiveSingletonAssignments = [],
+    afterInvalidActiveSingletonAssignments =
+      invalidActiveSingletonAssignments,
     nullAssignments = 0,
     beforeCounts = defaultCounts,
     afterCounts = beforeCounts,
@@ -283,6 +286,7 @@ function migrationHarness(
   const countReads = new Map();
   let messageIdentityReads = 0;
   let memberIdentityReads = 0;
+  let activeSingletonAssignmentReads = 0;
   let remainingNullAssignments = nullAssignments;
   let releaseCount = 0;
 
@@ -477,6 +481,13 @@ function migrationHarness(
       if (/AS duplicate_count/i.test(source)) {
         return [clone(duplicateActiveSingletons), []];
       }
+      if (/AS active_relationship_manager_id/i.test(source)) {
+        const rows = activeSingletonAssignmentReads === 0
+          ? invalidActiveSingletonAssignments
+          : afterInvalidActiveSingletonAssignments;
+        activeSingletonAssignmentReads += 1;
+        return [clone(rows), []];
+      }
       if (
         /SELECT COUNT\(\*\) AS count FROM portfolios p JOIN conversations c/i
           .test(source)
@@ -657,6 +668,81 @@ test('duplicate active singleton members abort before mutation', async () => {
     (error) => error.code === 'DUPLICATE_ACTIVE_SINGLETON',
   );
   assert.deepEqual(connection.mutations, []);
+});
+
+for (const fixture of [
+  {
+    label: 'missing assigned relationship-manager member',
+    violation: {
+      conversation_id: 7,
+      expected_relationship_manager_id: 8,
+      active_relationship_manager_id: null,
+      expected_business_owner_id: 3,
+      active_business_owner_id: 3,
+    },
+  },
+  {
+    label: 'wrong assigned relationship-manager member',
+    violation: {
+      conversation_id: 7,
+      expected_relationship_manager_id: 8,
+      active_relationship_manager_id: 9,
+      expected_business_owner_id: 3,
+      active_business_owner_id: 3,
+    },
+  },
+  {
+    label: 'missing portfolio business-owner member',
+    violation: {
+      conversation_id: 7,
+      expected_relationship_manager_id: 8,
+      active_relationship_manager_id: 8,
+      expected_business_owner_id: 3,
+      active_business_owner_id: null,
+    },
+  },
+  {
+    label: 'wrong portfolio business-owner member',
+    violation: {
+      conversation_id: 7,
+      expected_relationship_manager_id: 8,
+      active_relationship_manager_id: 8,
+      expected_business_owner_id: 3,
+      active_business_owner_id: 4,
+    },
+  },
+]) {
+  test(`${fixture.label} aborts before mutation`, async () => {
+    const connection = migrationHarness(partiallyAppliedMetadata(), {
+      invalidActiveSingletonAssignments: [fixture.violation],
+    });
+
+    await assert.rejects(
+      migrateFiveRoleWorkflow(connection, confirmedEnvironment),
+      (error) => error.code === 'ACTIVE_SINGLETON_ASSIGNMENT_INVALID',
+    );
+    assert.deepEqual(connection.mutations, []);
+    assert.equal(connection.releaseCount, 1);
+  });
+}
+
+test('active singleton assignment drift is rejected by final verification', async () => {
+  const connection = migrationHarness(cloneProductionSchemaMetadata(), {
+    afterInvalidActiveSingletonAssignments: [{
+      conversation_id: 7,
+      expected_relationship_manager_id: 8,
+      active_relationship_manager_id: 9,
+      expected_business_owner_id: 3,
+      active_business_owner_id: 3,
+    }],
+  });
+
+  await assert.rejects(
+    migrateFiveRoleWorkflow(connection, confirmedEnvironment),
+    (error) => error.code === 'ACTIVE_SINGLETON_ASSIGNMENT_INVALID',
+  );
+  assert.deepEqual(connection.mutations, []);
+  assert.equal(connection.releaseCount, 1);
 });
 
 test('known prior and final singleton expressions are classified exactly', async () => {

@@ -300,6 +300,26 @@ test('malformed portfolio route IDs stop before data or transaction access', {
   }
 });
 
+test('approved portfolio catalog is investor-only', {
+  concurrency: false,
+}, async (t) => {
+  const calls = installDatabaseSpies(t, {
+    query: async () => [[], []],
+  });
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  const result = await requestAs(server, 'GET', '/api/portfolios', {
+    role: 'admin',
+    id: 2,
+  });
+
+  assert.equal(result.response.status, 403);
+  assert.deepEqual(result.payload, { error: 'Insufficient permissions' });
+  assert.equal(calls.query, 0);
+  assert.equal(calls.getConnection, 0);
+});
+
 test('portfolio detail has explicit authorization for all five roles', {
   concurrency: false,
 }, async (t) => {
@@ -345,7 +365,6 @@ test('portfolio detail has explicit authorization for all five roles', {
     ['business_owner', 9],
     ['investor', 11],
     ['relationship_manager', 7],
-    ['admin', 2],
   ]) {
     const result = await requestAs(server, 'GET', '/api/portfolios/20', { role, id });
     assert.equal(result.response.status, 200, `${role} should be allowed`);
@@ -363,6 +382,7 @@ test('portfolio detail has explicit authorization for all five roles', {
   for (const [role, id] of [
     ['business_owner', 10],
     ['relationship_manager', 8],
+    ['admin', 2],
     ['superadmin', 1],
     ['auditor', 3],
   ]) {
@@ -371,6 +391,53 @@ test('portfolio detail has explicit authorization for all five roles', {
     assert.equal(result.payload.error, 'Forbidden');
   }
   assert.equal(calls.getConnection, 0);
+});
+
+test('admin generic portfolio detail is limited to pending moderation review', {
+  concurrency: false,
+}, async (t) => {
+  let portfolioStatus = 'draft';
+  installDatabaseSpies(t, {
+    query: async (sql) => {
+      const normalized = String(sql).replace(/\s+/g, ' ').trim();
+      if (normalized.includes('FROM portfolios p JOIN users u ON u.id = p.owner_id')) {
+        return [[{
+          id: 20,
+          owner_id: 9,
+          name: 'Moderation Scope Co',
+          status: portfolioStatus,
+          owner_name: 'Owner Nine',
+          owner_email: 'owner9@example.test',
+          doc_count: 0,
+          interest_count: 0,
+        }], []];
+      }
+      if (
+        normalized
+          === 'SELECT id,portfolio_id,file_name,file_type,uploaded_at FROM portfolio_documents WHERE portfolio_id = ? ORDER BY uploaded_at DESC,id DESC'
+      ) {
+        return [[], []];
+      }
+      throw new Error(`Unexpected query: ${normalized}`);
+    },
+  });
+  const server = await listen(createApp());
+  t.after(server.close);
+
+  for (const [status, expectedStatus] of [
+    ['draft', 403],
+    ['rejected', 403],
+    ['approved', 403],
+    ['pending', 200],
+  ]) {
+    portfolioStatus = status;
+    const result = await requestAs(server, 'GET', '/api/portfolios/20', {
+      role: 'admin',
+      id: 2,
+    });
+    assert.equal(result.response.status, expectedStatus, status);
+    if (status === 'pending') assert.equal(result.payload.status, 'pending');
+  }
 });
 
 test('investors cannot read an unapproved portfolio while admin can moderate it', {

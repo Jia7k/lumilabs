@@ -122,19 +122,28 @@ function assertEditablePortfolio(rows) {
   return rows[0];
 }
 
-async function rollback(connection, error) {
+async function rollback(connection) {
   try {
     await connection.rollback();
-  } catch (rollbackError) {
-    error.rollbackError = rollbackError;
+    return true;
+  } catch {
+    console.error('Document transaction rollback failed');
+    if (typeof connection.destroy === 'function') {
+      try {
+        await connection.destroy();
+      } catch {
+        // A rollback-failed connection must never return to the pool.
+      }
+    }
+    return false;
   }
 }
 
 function release(connection) {
   try {
     connection.release();
-  } catch (releaseError) {
-    console.error('Document transaction release failed', releaseError);
+  } catch {
+    console.error('Document transaction release failed');
   }
 }
 
@@ -148,6 +157,7 @@ async function saveUploadedDocuments({
 }) {
   let connection;
   let transactionOpen = false;
+  let releaseConnection = true;
 
   try {
     connection = await database.getConnection();
@@ -207,13 +217,15 @@ async function saveUploadedDocuments({
     transactionOpen = false;
     return { documents, readinessScore };
   } catch (error) {
-    if (connection && transactionOpen) await rollback(connection, error);
+    if (connection && transactionOpen) {
+      releaseConnection = await rollback(connection);
+    }
     await removeWrittenFiles(files, fileSystem).catch((cleanupError) => {
       error.cleanupError = cleanupError;
     });
     throw error;
   } finally {
-    if (connection) release(connection);
+    if (connection && releaseConnection) release(connection);
   }
 }
 
@@ -227,6 +239,7 @@ async function deletePortfolioDocument({
 }) {
   let connection;
   let transactionOpen = false;
+  let releaseConnection = true;
   let stagedFiles = [];
   let readinessScore;
 
@@ -279,13 +292,15 @@ async function deletePortfolioDocument({
     await connection.commit();
     transactionOpen = false;
   } catch (error) {
-    if (connection && transactionOpen) await rollback(connection, error);
+    if (connection && transactionOpen) {
+      releaseConnection = await rollback(connection);
+    }
     await restoreStagedFiles(stagedFiles, fileSystem).catch((restoreError) => {
       error.restoreError = restoreError;
     });
     throw error;
   } finally {
-    if (connection) release(connection);
+    if (connection && releaseConnection) release(connection);
   }
 
   let cleanupError;
@@ -303,6 +318,7 @@ async function deleteEditablePortfolio({
 }) {
   let connection;
   let transactionOpen = false;
+  let releaseConnection = true;
   let stagedFiles = [];
 
   try {
@@ -348,13 +364,15 @@ async function deleteEditablePortfolio({
     await connection.commit();
     transactionOpen = false;
   } catch (error) {
-    if (connection && transactionOpen) await rollback(connection, error);
+    if (connection && transactionOpen) {
+      releaseConnection = await rollback(connection);
+    }
     await restoreStagedFiles(stagedFiles, fileSystem).catch((restoreError) => {
       error.restoreError = restoreError;
     });
     throw error;
   } finally {
-    if (connection) release(connection);
+    if (connection && releaseConnection) release(connection);
   }
 
   let cleanupError;

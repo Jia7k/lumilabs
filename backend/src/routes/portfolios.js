@@ -114,7 +114,10 @@ async function portfolioReadAuthorization(user, portfolio) {
         error: 'Portfolio not available',
       };
     case 'admin':
-      return { allowed: true, error: null };
+      return {
+        allowed: portfolio.status === 'pending',
+        error: 'Forbidden',
+      };
     case 'relationship_manager':
       return {
         allowed: await relationshipManagerCanAccessPortfolio(user.id, portfolio.id),
@@ -338,7 +341,7 @@ router.get('/my', authenticate, requireRole('business_owner'), async (req, res) 
 });
 
 // GET /api/portfolios  — approved portfolios (investors can browse)
-router.get('/', authenticate, requireRole('investor', 'admin'), async (req, res) => {
+router.get('/', authenticate, requireRole('investor'), async (req, res) => {
   try {
     const { sector, minScore } = req.query;
     let query = `

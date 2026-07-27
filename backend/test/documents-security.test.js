@@ -279,7 +279,6 @@ test('document downloads explicitly authorize each role and deny superadmin fall
     ['business_owner', 9],
     ['investor', 11],
     ['relationship_manager', 7],
-    ['admin', 2],
   ]) {
     const allowed = await downloadAs(role, id);
     assert.equal(allowed.status, 200, `${role} should be allowed`);
@@ -288,12 +287,67 @@ test('document downloads explicitly authorize each role and deny superadmin fall
   for (const [role, id] of [
     ['business_owner', 10],
     ['relationship_manager', 8],
+    ['admin', 2],
     ['superadmin', 1],
     ['auditor', 3],
   ]) {
     const denied = await downloadAs(role, id);
     assert.equal(denied.status, 403, `${role} should be denied`);
     assert.deepEqual(await denied.json(), { error: 'Forbidden' });
+  }
+});
+
+test('admin document download is limited to pending moderation review', {
+  concurrency: false,
+}, async (t) => {
+  const originalQuery = db.query;
+  const filename = `task-15-admin-scope-${process.pid}.pdf`;
+  const absolute = path.join(uploadDirectory, filename);
+  fs.writeFileSync(absolute, 'pending moderation document');
+  let portfolioStatus = 'draft';
+  t.after(() => {
+    db.query = originalQuery;
+    fs.rmSync(absolute, { force: true });
+  });
+
+  db.query = async (sql) => {
+    const normalized = String(sql).replace(/\s+/g, ' ').trim();
+    if (normalized.startsWith('SELECT d.*, p.owner_id, p.status')) {
+      return [[{
+        id: 51,
+        portfolio_id: 20,
+        file_name: 'moderation.pdf',
+        file_url: `/uploads/portfolio-documents/${filename}`,
+        owner_id: 9,
+        status: portfolioStatus,
+      }], []];
+    }
+    throw new Error(`Unexpected query: ${normalized}`);
+  };
+
+  const httpServer = await listen(createApp());
+  t.after(httpServer.close);
+  for (const [status, expectedStatus] of [
+    ['draft', 403],
+    ['rejected', 403],
+    ['approved', 403],
+    ['pending', 200],
+  ]) {
+    portfolioStatus = status;
+    const response = await fetch(
+      `${httpServer.origin}/api/portfolios/20/documents/51/download`,
+      {
+        headers: {
+          Authorization: `Bearer ${roleToken('admin', 2)}`,
+        },
+      },
+    );
+    assert.equal(response.status, expectedStatus, status);
+    if (status === 'pending') {
+      assert.equal(await response.text(), 'pending moderation document');
+    } else {
+      assert.deepEqual(await response.json(), { error: 'Forbidden' });
+    }
   }
 });
 

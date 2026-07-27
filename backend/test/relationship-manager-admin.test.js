@@ -6,6 +6,7 @@ process.env.JWT_SECRET = 'relationship-manager-admin-test-secret';
 
 const db = require('../src/config/db');
 const { createApp } = require('../server');
+const workflow = require('../src/services/workflow');
 
 async function listen(app) {
   const server = await new Promise((resolve, reject) => {
@@ -123,6 +124,43 @@ test('superadmins cannot approve or reject portfolios', { concurrency: false }, 
   assert.equal(approve.response.status, 403);
   assert.equal(reject.response.status, 403);
   assert.equal(calls.length, 0);
+});
+
+test('rejection reason enforces the exact MySQL TEXT byte boundary and string type', {
+  concurrency: false,
+}, async (t) => {
+  const originalModeratePortfolio = workflow.moderatePortfolio;
+  const moderationCalls = [];
+  workflow.moderatePortfolio = async (values) => {
+    moderationCalls.push(values);
+    return { id: values.portfolioId, status: values.action };
+  };
+  t.after(() => {
+    workflow.moderatePortfolio = originalModeratePortfolio;
+  });
+
+  const exactBoundary = '界'.repeat(21845);
+  assert.equal(Buffer.byteLength(exactBoundary, 'utf8'), 65535);
+  const accepted = await request(t, 'PUT', '/api/admin/portfolios/20/reject', {
+    role: 'admin',
+    body: { reason: exactBoundary },
+  });
+  assert.equal(accepted.response.status, 200);
+  assert.equal(moderationCalls.length, 1);
+  assert.equal(moderationCalls[0].reason, exactBoundary);
+
+  for (const reason of [
+    `${exactBoundary}a`,
+    42,
+    ['not', 'a', 'string'],
+  ]) {
+    const rejected = await request(t, 'PUT', '/api/admin/portfolios/20/reject', {
+      role: 'admin',
+      body: { reason },
+    });
+    assert.equal(rejected.response.status, 400, typeof reason);
+  }
+  assert.equal(moderationCalls.length, 1);
 });
 
 test('admins cannot access any superadmin route', { concurrency: false }, async (t) => {

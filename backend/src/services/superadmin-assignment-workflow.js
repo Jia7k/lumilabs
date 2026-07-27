@@ -30,20 +30,34 @@ function translateDuplicateError(error) {
 
 async function inTransaction(database, work) {
   const connection = await database.getConnection();
+  let transactionOpen = false;
+  let releaseConnection = true;
   try {
     await connection.beginTransaction();
+    transactionOpen = true;
     const result = await work(connection);
     await connection.commit();
+    transactionOpen = false;
     return result;
   } catch (error) {
-    try {
-      await connection.rollback();
-    } catch (rollbackError) {
-      console.error('Assignment rollback failed', rollbackError);
+    if (transactionOpen) {
+      try {
+        await connection.rollback();
+      } catch {
+        console.error('Assignment rollback failed');
+        releaseConnection = false;
+        if (typeof connection.destroy === 'function') {
+          try {
+            await connection.destroy();
+          } catch {
+            // Preserve only the original safe assignment error.
+          }
+        }
+      }
     }
     throw translateDuplicateError(error);
   } finally {
-    connection.release();
+    if (releaseConnection) connection.release();
   }
 }
 
