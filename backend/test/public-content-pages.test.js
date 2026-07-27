@@ -127,6 +127,11 @@ function visibleTextContent(node) {
     .trim();
 }
 
+function visibleBodyText(document) {
+  const body = findOne(document, (node) => node.tagName === 'body', 'visible body');
+  return visibleTextContent(body);
+}
+
 function assertExactLinks(scope, expected, label) {
   const actual = findAll(scope, (node) => node.tagName === 'a').map((link) => ({
     label: visibleTextContent(link),
@@ -167,19 +172,26 @@ const footerFacts = [
   'v26.02.13.1',
 ];
 
-test('visible copy excludes hidden and non-rendered subtrees', () => {
+test('visible body copy excludes head, hidden and non-rendered subtrees', () => {
   const document = parseHtml(`
-    <main>
-      <p>Visible copy</p>
-      <script>Script-only copy</script>
-      <style>Style-only copy</style>
-      <template>Template-only copy</template>
-      <p hidden>Hidden-attribute copy</p>
-      <p aria-hidden="true">ARIA-hidden copy</p>
-    </main>
+    <html>
+      <head>
+        <title>Title-only requirement</title>
+      </head>
+      <body>
+        <main>
+          <p>Visible copy</p>
+          <script>Script-only copy</script>
+          <style>Style-only copy</style>
+          <template>Template-only copy</template>
+          <p hidden>Hidden-attribute copy</p>
+          <p aria-hidden="true">ARIA-hidden copy</p>
+        </main>
+      </body>
+    </html>
   `);
 
-  assert.equal(visibleTextContent(document), 'Visible copy');
+  assert.equal(visibleBodyText(document), 'Visible copy');
 });
 
 test('both pages expose independently complete desktop, compact and footer shells', () => {
@@ -284,7 +296,7 @@ test('both pages expose independently complete desktop, compact and footer shell
 
 test('About preserves the complete story, vision, leadership and connect copy', () => {
   const source = read('about.html');
-  const text = visibleTextContent(parseHtml(source));
+  const text = visibleBodyText(parseHtml(source));
   const required = [
     'Ideas grow through connection.',
     'About Lumi5 Labs',
@@ -328,7 +340,7 @@ test('About preserves the complete story, vision, leadership and connect copy', 
 test('Contact preserves its details, map fallback and accessible form contract', () => {
   const source = read('contact.html');
   const document = parseHtml(source);
-  const text = visibleTextContent(document);
+  const text = visibleBodyText(document);
   for (const value of [
     'Contact Us',
     'Here is how you can contact us for any questions or concerns.',
