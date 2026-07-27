@@ -500,11 +500,13 @@ test('an organic mutation transport failure fails closed without destructive cle
       installSignalHandlers: false,
       runFlow: async (context) => requestApi(origin, '/unknown-write', {
         method: 'POST',
+        timeoutMs: 5,
         signal: context.abortController.signal,
       }, {
-        fetchImpl: async () => {
-          throw new Error('socket closed after dispatch');
-        },
+        fetchImpl: async () => new Promise((resolve, reject) => {
+          setTimeout(() => reject(new Error('socket closed after dispatch')), 20);
+          void resolve;
+        }),
       }),
     }),
     /mutation outcome.*indeterminate|outcome.*unknown/i,

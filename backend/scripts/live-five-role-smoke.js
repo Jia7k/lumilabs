@@ -398,11 +398,12 @@ async function requestApi(origin, requestPath, {
       mutating
       && dispatched
       && !responseReceived
-      && !deferredTimeout
-      && !deferredAbort
     ) {
+      const transportContext = deferredTimeout
+        ? 'after timeout'
+        : (deferredAbort ? 'after interruption' : 'after transport failure');
       const unknown = new Error(
-        `${normalizedMethod} ${requestPath} mutation outcome is indeterminate after transport failure`,
+        `${normalizedMethod} ${requestPath} mutation outcome is indeterminate ${transportContext}`,
         { cause: error },
       );
       unknown.code = 'MUTATION_OUTCOME_INDETERMINATE';
