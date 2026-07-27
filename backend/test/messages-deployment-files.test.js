@@ -2,11 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const backendDir = path.join(__dirname, '..');
 const deployDir = path.join(backendDir, 'deploy');
 const repositoryDir = path.join(backendDir, '..');
+const MAX_DEPENDENCY_SOURCE_BYTES = 1024 * 1024;
+const MAX_DEPENDENCY_TOKENS = 200000;
 
 const expectedRuntimeFiles = [
   'about.html',
@@ -97,6 +100,265 @@ function resolveLocalRequire(fromFile, specifier) {
   throw new Error(`Cannot resolve ${specifier} from ${fromFile}`);
 }
 
+function tokenizeModuleSyntax(source, sourceLabel) {
+  const sourceBytes = Buffer.byteLength(source, 'utf8');
+  if (sourceBytes > MAX_DEPENDENCY_SOURCE_BYTES) {
+    throw new Error(
+      `dependency source exceeds ${MAX_DEPENDENCY_SOURCE_BYTES} bytes: ${sourceLabel}`
+    );
+  }
+
+  const tokens = [];
+  let index = 0;
+
+  function addToken(type, value) {
+    tokens.push({ type, value });
+    if (tokens.length > MAX_DEPENDENCY_TOKENS) {
+      throw new Error(`dependency source has too many tokens: ${sourceLabel}`);
+    }
+  }
+
+  function readQuotedString(quote) {
+    let value = '';
+    index += 1;
+    while (index < source.length) {
+      const character = source[index];
+      if (character === quote) {
+        index += 1;
+        addToken('string', value);
+        return;
+      }
+      if (character === '\\') {
+        index += 1;
+        if (index >= source.length) break;
+        const escaped = source[index];
+        const simpleEscapes = {
+          b: '\b',
+          f: '\f',
+          n: '\n',
+          r: '\r',
+          t: '\t',
+          v: '\v',
+        };
+        value += simpleEscapes[escaped] ?? escaped;
+        index += 1;
+        continue;
+      }
+      value += character;
+      index += 1;
+    }
+    throw new Error(`unterminated string while scanning dependencies: ${sourceLabel}`);
+  }
+
+  function readTemplate() {
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        index += 2;
+        continue;
+      }
+      if (source[index] === '`') {
+        index += 1;
+        addToken('template', '');
+        return;
+      }
+      index += 1;
+    }
+    throw new Error(`unterminated template while scanning dependencies: ${sourceLabel}`);
+  }
+
+  function regexCanStart() {
+    const previous = tokens.at(-1);
+    if (!previous) return true;
+    if (previous.type === 'identifier') {
+      return new Set([
+        'await',
+        'case',
+        'delete',
+        'do',
+        'else',
+        'in',
+        'instanceof',
+        'of',
+        'return',
+        'throw',
+        'typeof',
+        'void',
+        'yield',
+      ]).has(previous.value);
+    }
+    return (
+      previous.type === 'punctuator'
+      && /[([{,;:=!?&|+\-*%^~<>]/.test(previous.value)
+    );
+  }
+
+  function readRegex() {
+    let inCharacterClass = false;
+    index += 1;
+    while (index < source.length) {
+      const character = source[index];
+      if (/[\r\n]/.test(character)) {
+        throw new Error(`unterminated regex while scanning dependencies: ${sourceLabel}`);
+      }
+      if (character === '\\') {
+        index += 2;
+        continue;
+      }
+      if (character === '[') {
+        inCharacterClass = true;
+        index += 1;
+        continue;
+      }
+      if (character === ']') {
+        inCharacterClass = false;
+        index += 1;
+        continue;
+      }
+      if (character === '/' && !inCharacterClass) {
+        index += 1;
+        while (index < source.length && /[A-Za-z]/.test(source[index])) index += 1;
+        addToken('regex', '');
+        return;
+      }
+      index += 1;
+    }
+    throw new Error(`unterminated regex while scanning dependencies: ${sourceLabel}`);
+  }
+
+  while (index < source.length) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (/\s/.test(character)) {
+      index += 1;
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      index += 2;
+      while (index < source.length && !/[\r\n]/.test(source[index])) index += 1;
+      continue;
+    }
+    if (character === '/' && next === '*') {
+      index += 2;
+      while (
+        index < source.length
+        && !(source[index] === '*' && source[index + 1] === '/')
+      ) {
+        index += 1;
+      }
+      if (index >= source.length) {
+        throw new Error(`unterminated comment while scanning dependencies: ${sourceLabel}`);
+      }
+      index += 2;
+      continue;
+    }
+    if (character === '/' && regexCanStart()) {
+      readRegex();
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      readQuotedString(character);
+      continue;
+    }
+    if (character === '`') {
+      readTemplate();
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(character)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) {
+        index += 1;
+      }
+      addToken('identifier', source.slice(start, index));
+      continue;
+    }
+    addToken('punctuator', character);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function literalModuleSpecifiers(source, sourceLabel = '<source>') {
+  const tokens = tokenizeModuleSyntax(source, sourceLabel);
+  const specifiers = [];
+
+  function addCallSpecifier(tokenIndex) {
+    const argument = tokens[tokenIndex + 2];
+    const close = tokens[tokenIndex + 3];
+    if (argument?.type !== 'string' || close?.value !== ')') {
+      throw new Error(`nonliteral module load in ${sourceLabel}`);
+    }
+    specifiers.push(argument.value);
+    return tokenIndex + 3;
+  }
+
+  function addStaticSpecifier(tokenIndex) {
+    const immediate = tokens[tokenIndex + 1];
+    if (immediate?.type === 'string') {
+      specifiers.push(immediate.value);
+      return tokenIndex + 1;
+    }
+
+    for (
+      let cursor = tokenIndex + 1;
+      cursor < tokens.length && tokens[cursor].value !== ';';
+      cursor += 1
+    ) {
+      if (tokens[cursor].type !== 'identifier' || tokens[cursor].value !== 'from') {
+        continue;
+      }
+      const specifier = tokens[cursor + 1];
+      if (specifier?.type !== 'string') {
+        throw new Error(`nonliteral module load in ${sourceLabel}`);
+      }
+      specifiers.push(specifier.value);
+      return cursor + 1;
+    }
+    throw new Error(`nonliteral module load in ${sourceLabel}`);
+  }
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const previous = tokens[index - 1];
+    const next = tokens[index + 1];
+    if (token.type !== 'identifier') continue;
+
+    if (token.value === 'require' && previous?.value !== '.' && next?.value === '(') {
+      index = addCallSpecifier(index);
+      continue;
+    }
+    if (token.value === 'import') {
+      if (next?.value === '.') continue;
+      index = next?.value === '('
+        ? addCallSpecifier(index)
+        : addStaticSpecifier(index);
+      continue;
+    }
+    if (token.value === 'export') {
+      for (
+        let cursor = index + 1;
+        cursor < tokens.length && tokens[cursor].value !== ';';
+        cursor += 1
+      ) {
+        if (tokens[cursor].type !== 'identifier' || tokens[cursor].value !== 'from') {
+          continue;
+        }
+        const specifier = tokens[cursor + 1];
+        if (specifier?.type !== 'string') {
+          throw new Error(`nonliteral module load in ${sourceLabel}`);
+        }
+        specifiers.push(specifier.value);
+        index = cursor + 1;
+        break;
+      }
+    }
+  }
+  return specifiers;
+}
+
 function staticRequiresReachableFrom(entryRelativePath) {
   const pending = [path.resolve(repositoryDir, entryRelativePath)];
   const visited = new Set();
@@ -105,9 +367,10 @@ function staticRequiresReachableFrom(entryRelativePath) {
     if (visited.has(current)) continue;
     visited.add(current);
     const source = fs.readFileSync(current, 'utf8');
-    for (const match of source.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) {
-      if (!match[1].startsWith('.')) continue;
-      pending.push(resolveLocalRequire(current, match[1]));
+    const relativeCurrent = path.relative(repositoryDir, current).split(path.sep).join('/');
+    for (const specifier of literalModuleSpecifiers(source, relativeCurrent)) {
+      if (!specifier.startsWith('.')) continue;
+      pending.push(resolveLocalRequire(current, specifier));
     }
   }
   return [...visited]
@@ -128,6 +391,99 @@ function localPageReferences(pageRelativePath) {
     );
   }
   return references;
+}
+
+function assertRuntimeFileSafe(file, root = repositoryDir) {
+  assert.equal(path.posix.isAbsolute(file), false);
+  assert.equal(path.posix.normalize(file), file);
+  assert.equal(file.startsWith('../'), false);
+  const segments = file.split('/');
+  const lowerSegments = segments.map((segment) => segment.toLowerCase());
+  const basename = lowerSegments.at(-1);
+  const forbiddenSegment = lowerSegments.some((segment) => (
+    segment === 'node_modules'
+    || segment === 'test'
+    || segment === 'tests'
+    || segment === 'docs'
+    || segment === 'deploy'
+    || segment === 'upload'
+    || segment === 'uploads'
+    || segment === 'backup'
+    || segment === 'backups'
+    || segment === 'archive'
+    || segment === 'archives'
+    || segment === 'temp'
+    || segment === 'tmp'
+    || segment === 'secret'
+    || segment === 'secrets'
+    || segment === 'key'
+    || segment === 'keys'
+    || segment === 'certificate'
+    || segment === 'certificates'
+    || segment === '.git'
+    || segment === '.vscode'
+    || segment.startsWith('.env')
+  ));
+  const forbiddenName = (
+    /[*?[\]{}]/.test(file)
+    || /^readme(?:\.|$)/i.test(basename)
+    || /\.(?:sql|dump|sqlite|sqlite3|db)(?:$|\.)/i.test(basename)
+    || /\.(?:pem|key|crt|cer|p12|pfx|jks)$/i.test(basename)
+    || /(?:^|[-_.])(?:secret|secrets|credential|credentials|api[-_.]?key|private[-_.]?key|id_rsa|id_ed25519)(?:[-_.]|$)/i
+      .test(basename)
+    || /\.(?:zip|tar|tgz|gz|bz2|xz|7z|rar)$/i.test(basename)
+    || /(?:~|\.sw[op]|\.tmp|\.temp|\.bak|\.backup|\.old|\.orig|\.rej|\.save|\.ds_store)$/i
+      .test(basename)
+  );
+  assert.equal(
+    forbiddenSegment || forbiddenName,
+    false,
+    `forbidden runtime manifest entry: ${file}`
+  );
+
+  const rootRealPath = fs.realpathSync(root);
+  const absolute = path.resolve(root, ...segments);
+  const lexicalRelative = path.relative(root, absolute);
+  assert.equal(
+    lexicalRelative === '..'
+      || lexicalRelative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(lexicalRelative),
+    false,
+    `manifest path escapes repository: ${file}`
+  );
+  assert.equal(fs.existsSync(absolute), true, `manifest file is missing: ${file}`);
+  const pathStats = fs.lstatSync(absolute);
+  assert.equal(
+    pathStats.isSymbolicLink(),
+    false,
+    `runtime manifest symbolic links are forbidden: ${file}`
+  );
+  assert.equal(pathStats.isFile(), true, `manifest path is not a file: ${file}`);
+  const resolved = fs.realpathSync(absolute);
+  const resolvedRelative = path.relative(rootRealPath, resolved);
+  assert.equal(
+    resolvedRelative === '..'
+      || resolvedRelative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(resolvedRelative),
+    false,
+    `manifest target escapes repository: ${file}`
+  );
+}
+
+function runNodeEntry(entry, args = [], { timeout } = {}) {
+  return spawnSync(process.execPath, [entry, ...args], {
+    cwd: backendDir,
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: 'test',
+      DB_USER: '',
+      DB_PASSWORD: '',
+      DB_NAME: '',
+      SSH_HOST: '',
+    },
+    encoding: 'utf8',
+    timeout,
+  });
 }
 
 test('systemd unit runs the unified API on a private loopback port', () => {
@@ -174,17 +530,58 @@ test('runtime manifest is the exact public deployment allowlist', () => {
   assert.equal(new Set(files).size, files.length);
 
   for (const file of files) {
-    assert.equal(path.posix.isAbsolute(file), false);
-    assert.equal(path.posix.normalize(file), file);
-    assert.equal(file.startsWith('../'), false);
-    assert.doesNotMatch(
-      file,
-      /(^|\/)(\.env|node_modules|test|deploy|docs|\.vscode|README(?:\.|$))/
-    );
-    const absolute = path.join(repositoryDir, ...file.split('/'));
-    assert.equal(fs.existsSync(absolute), true, `manifest file is missing: ${file}`);
-    assert.equal(fs.statSync(absolute).isFile(), true, `manifest path is not a file: ${file}`);
+    assertRuntimeFileSafe(file);
   }
+});
+
+test('runtime file safety rejects private, generated and broad deployment artifacts', () => {
+  const forbidden = [
+    'backend/schema.sql',
+    'backups/schema-20260727.sql.gz',
+    'backups/server.js',
+    'uploads/contact/message.txt',
+    'backend/.env.production',
+    'backend/secrets.json',
+    'secrets/runtime.json',
+    'backend/private.key',
+    'keys/runtime.json',
+    'backend/api-key.json',
+    'backend/certificate.pem',
+    'release/runtime.zip',
+    'temp/server.js',
+    'backend/server.js.bak',
+    'backend/server.js.tmp',
+    'backend/server.js~',
+    'backend/node_modules/express/index.js',
+    'backend/test/example.test.js',
+    'docs/release.md',
+    'backend/deploy/runtime-manifest.txt',
+    'js/*.js',
+  ];
+
+  for (const file of forbidden) {
+    assert.throws(
+      () => assertRuntimeFileSafe(file),
+      /forbidden runtime manifest entry/,
+      file
+    );
+  }
+});
+
+test('runtime file safety rejects a symlink that escapes its fixture repository', (context) => {
+  const fixtureParent = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-manifest-'));
+  const fixtureRoot = path.join(fixtureParent, 'repository');
+  const fixtureBackend = path.join(fixtureRoot, 'backend');
+  const outsideFile = path.join(fixtureParent, 'outside.js');
+  fs.mkdirSync(fixtureBackend, { recursive: true });
+  fs.writeFileSync(outsideFile, 'module.exports = true;\n');
+  fs.symlinkSync(outsideFile, path.join(fixtureBackend, 'server.js'));
+  context.after(() => fs.rmSync(fixtureParent, { recursive: true, force: true }));
+
+  assert.throws(
+    () => assertRuntimeFileSafe('backend/server.js', fixtureRoot),
+    /symbolic links are forbidden/
+  );
 });
 
 test('runtime manifest contains every local dependency reachable from the backend server', () => {
@@ -192,6 +589,47 @@ test('runtime manifest contains every local dependency reachable from the backen
   for (const dependency of staticRequiresReachableFrom('backend/server.js')) {
     assert.ok(manifest.has(dependency), `missing runtime dependency: ${dependency}`);
   }
+});
+
+test('dependency scanner ignores comments and strings while enumerating literal module loads', () => {
+  const source = `
+    // require('./line-comment');
+    /* require('./block-comment'); import './block-import.js'; */
+    const example = "require('./string-content')";
+    const pattern = /require\\(['"]\\.\\/regex-content/;
+    const commonJs = require('./common-js');
+    import staticValue from './static-esm.js';
+    export { named } from './re-export.js';
+    const lazy = import('./dynamic-esm.js');
+  `;
+
+  assert.deepEqual(literalModuleSpecifiers(source, 'fixture.js'), [
+    './common-js',
+    './static-esm.js',
+    './re-export.js',
+    './dynamic-esm.js',
+  ]);
+});
+
+test('dependency scanner fails closed on computed module loads', () => {
+  for (const source of [
+    "require('./routes/' + routeName);",
+    'require(moduleName);',
+    'import(moduleName);',
+    'import(`./routes/${routeName}.js`);',
+  ]) {
+    assert.throws(
+      () => literalModuleSpecifiers(source, 'fixture.js'),
+      /nonliteral module load in fixture\.js/
+    );
+  }
+});
+
+test('dependency scanner rejects an oversized source instead of scanning without a bound', () => {
+  assert.throws(
+    () => literalModuleSpecifiers(' '.repeat(1024 * 1024 + 1), 'oversized.js'),
+    /dependency source exceeds 1048576 bytes: oversized\.js/
+  );
 });
 
 test('About and Contact local routes, assets and scripts are deployable', () => {
@@ -262,25 +700,28 @@ test('focused Contact migration command executes and fails closed without creden
   const [runtime, entry, ...args] = script.split(/\s+/);
   assert.equal(runtime, 'node');
 
-  const result = spawnSync(process.execPath, [entry, ...args], {
-    cwd: backendDir,
-    env: {
-      PATH: process.env.PATH,
-      NODE_ENV: 'test',
-      DB_USER: '',
-      DB_PASSWORD: '',
-      DB_NAME: '',
-      SSH_HOST: '',
-    },
-    encoding: 'utf8',
-  });
+  const result = runNodeEntry(entry, args, { timeout: 2000 });
 
+  assert.equal(result.error, undefined);
+  assert.equal(result.signal, null);
   assert.equal(result.status, 1);
   assert.match(
     result.stderr,
     /Contact migration failed: Missing migration environment variables: DB_USER, DB_PASSWORD, DB_NAME/
   );
   assert.doesNotMatch(result.stderr, /ECONN|connect|password@|access denied/i);
+});
+
+test('node entry runner terminates a child that exceeds its timeout', () => {
+  const result = runNodeEntry(
+    '-e',
+    ['setTimeout(() => {}, 400);'],
+    { timeout: 25 }
+  );
+
+  assert.equal(result.status, null);
+  assert.equal(result.error?.code, 'ETIMEDOUT');
+  assert.equal(result.signal, 'SIGTERM');
 });
 
 test('production package does not depend on browser CORS middleware', () => {
