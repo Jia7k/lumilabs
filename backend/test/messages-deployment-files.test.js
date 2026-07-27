@@ -12,6 +12,7 @@ const deployDir = path.join(backendDir, 'deploy');
 const repositoryDir = path.join(backendDir, '..');
 const MAX_DEPENDENCY_SOURCE_BYTES = 1024 * 1024;
 const MAX_DEPENDENCY_NODES = 200000;
+const MAX_DEPENDENCY_RESOLUTION_STEPS = 1000;
 
 const expectedRuntimeFiles = [
   'about.html',
@@ -94,12 +95,53 @@ function readManifest() {
     .filter(Boolean);
 }
 
-function resolveLocalRequire(fromFile, specifier) {
-  const candidate = path.resolve(path.dirname(fromFile), specifier);
-  for (const resolved of [candidate, `${candidate}.js`, path.join(candidate, 'index.js')]) {
-    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+function pathEscapesRoot(root, target) {
+  const relative = path.relative(path.resolve(root), path.resolve(target));
+  return (
+    relative === '..'
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative)
+  );
+}
+
+function inspectDependencyPath(target, root) {
+  if (pathEscapesRoot(root, target)) {
+    throw new Error(`dependency path escapes root: ${target}`);
   }
-  throw new Error(`Cannot resolve ${specifier} from ${fromFile}`);
+  if (!fs.existsSync(target)) return null;
+
+  const stats = fs.lstatSync(target);
+  if (stats.isSymbolicLink()) {
+    throw new Error(`dependency symbolic links are forbidden: ${target}`);
+  }
+
+  const rootRealPath = fs.realpathSync(root);
+  const targetRealPath = fs.realpathSync(target);
+  if (pathEscapesRoot(rootRealPath, targetRealPath)) {
+    throw new Error(`dependency target escapes root: ${target}`);
+  }
+  return { path: targetRealPath, stats };
+}
+
+function readBoundedPackageJson(packageFile, root) {
+  const inspected = inspectDependencyPath(packageFile, root);
+  if (!inspected || !inspected.stats.isFile()) {
+    throw new Error(`dependency package metadata is not a file: ${packageFile}`);
+  }
+  if (inspected.stats.size > MAX_DEPENDENCY_SOURCE_BYTES) {
+    throw new Error(
+      `dependency package metadata exceeds ${MAX_DEPENDENCY_SOURCE_BYTES} bytes: ${packageFile}`
+    );
+  }
+  try {
+    const value = JSON.parse(fs.readFileSync(inspected.path, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('top level must be an object');
+    }
+    return { path: inspected.path, value };
+  } catch (error) {
+    throw new Error(`cannot parse dependency package metadata ${packageFile}: ${error.message}`);
+  }
 }
 
 function moduleSpecifierValue(node, sourceLabel) {
@@ -117,7 +159,55 @@ function moduleSpecifierValue(node, sourceLabel) {
   throw new Error(`nonliteral module load in ${sourceLabel}`);
 }
 
-function literalModuleSpecifiers(source, sourceLabel = '<source>') {
+function sourceContextForFile(sourceFile, root = repositoryDir) {
+  const extension = path.extname(sourceFile).toLowerCase();
+  if (extension === '.mjs') return { sourceType: 'module', metadataFiles: [] };
+  if (extension === '.cjs') return { sourceType: 'commonjs', metadataFiles: [] };
+  if (extension !== '.js') return { sourceType: 'script', metadataFiles: [] };
+
+  const absoluteRoot = path.resolve(root);
+  let directory = path.dirname(
+    path.isAbsolute(sourceFile) ? sourceFile : path.resolve(root, sourceFile)
+  );
+  while (true) {
+    const relative = path.relative(absoluteRoot, directory);
+    if (
+      relative === '..'
+      || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)
+    ) {
+      break;
+    }
+
+    const packageFile = path.join(directory, 'package.json');
+    if (fs.existsSync(packageFile)) {
+      const packageJson = readBoundedPackageJson(packageFile, root);
+      return {
+        sourceType: packageJson.value.type === 'module' ? 'module' : 'commonjs',
+        metadataFiles: [packageJson.path],
+      };
+    }
+    if (directory === absoluteRoot) break;
+    directory = path.dirname(directory);
+  }
+  return { sourceType: 'commonjs', metadataFiles: [] };
+}
+
+function isRequireCallee(callee) {
+  return (
+    (callee.type === 'Identifier' && callee.name === 'require')
+    || (
+      callee.type === 'MemberExpression'
+      && callee.computed === false
+      && callee.object.type === 'Identifier'
+      && callee.object.name === 'module'
+      && callee.property.type === 'Identifier'
+      && callee.property.name === 'require'
+    )
+  );
+}
+
+function literalModuleLoads(source, sourceLabel = '<source>', root = repositoryDir) {
   const sourceBytes = Buffer.byteLength(source, 'utf8');
   if (sourceBytes > MAX_DEPENDENCY_SOURCE_BYTES) {
     throw new Error(
@@ -126,11 +216,12 @@ function literalModuleSpecifiers(source, sourceLabel = '<source>') {
   }
 
   let ast;
+  const sourceContext = sourceContextForFile(sourceLabel, root);
   try {
     ast = acorn.parse(source, {
       allowHashBang: true,
       ecmaVersion: 'latest',
-      sourceType: 'module',
+      sourceType: sourceContext.sourceType,
     });
   } catch (error) {
     throw new Error(`cannot parse dependency source ${sourceLabel}: ${error.message}`);
@@ -145,27 +236,31 @@ function literalModuleSpecifiers(source, sourceLabel = '<source>') {
     }
 
     let sourceNode;
+    let kind;
     if (
       node.type === 'ImportDeclaration'
       || node.type === 'ExportAllDeclaration'
       || (node.type === 'ExportNamedDeclaration' && node.source)
     ) {
       sourceNode = node.source;
+      kind = 'esm';
     } else if (node.type === 'ImportExpression') {
       sourceNode = node.source;
+      kind = 'esm';
     } else if (
       node.type === 'CallExpression'
-      && node.callee.type === 'Identifier'
-      && node.callee.name === 'require'
+      && isRequireCallee(node.callee)
     ) {
       if (node.arguments.length !== 1) {
         throw new Error(`nonliteral module load in ${sourceLabel}`);
       }
       [sourceNode] = node.arguments;
+      kind = 'commonjs';
     }
 
     if (sourceNode) {
       dependencies.push({
+        kind,
         start: node.start,
         specifier: moduleSpecifierValue(sourceNode, sourceLabel),
       });
@@ -174,25 +269,169 @@ function literalModuleSpecifiers(source, sourceLabel = '<source>') {
 
   return dependencies
     .sort((left, right) => left.start - right.start)
+    .map(({ kind, specifier }) => ({ kind, specifier }));
+}
+
+function literalModuleSpecifiers(source, sourceLabel = '<source>', root = repositoryDir) {
+  return literalModuleLoads(source, sourceLabel, root)
     .map(({ specifier }) => specifier);
 }
 
-function staticRequiresReachableFrom(entryRelativePath) {
-  const pending = [path.resolve(repositoryDir, entryRelativePath)];
+function createResolutionState(root) {
+  return {
+    active: new Set(),
+    root: path.resolve(root),
+    steps: 0,
+  };
+}
+
+function inspectResolutionCandidate(candidate, state) {
+  state.steps += 1;
+  if (state.steps > MAX_DEPENDENCY_RESOLUTION_STEPS) {
+    throw new Error(
+      `dependency resolution exceeds ${MAX_DEPENDENCY_RESOLUTION_STEPS} steps`
+    );
+  }
+  return inspectDependencyPath(candidate, state.root);
+}
+
+function resolveCommonJsAsFile(candidate, state) {
+  for (const file of [
+    candidate,
+    `${candidate}.js`,
+    `${candidate}.json`,
+    `${candidate}.node`,
+  ]) {
+    const inspected = inspectResolutionCandidate(file, state);
+    if (inspected?.stats.isFile()) {
+      return { target: inspected.path, metadataFiles: [] };
+    }
+  }
+  return null;
+}
+
+function resolveCommonJsAsDirectory(candidate, state) {
+  const inspectedDirectory = inspectResolutionCandidate(candidate, state);
+  if (!inspectedDirectory?.stats.isDirectory()) return null;
+
+  const packageFile = path.join(inspectedDirectory.path, 'package.json');
+  const inspectedPackage = inspectResolutionCandidate(packageFile, state);
+  if (inspectedPackage) {
+    if (!inspectedPackage.stats.isFile()) {
+      throw new Error(`dependency package metadata is not a file: ${packageFile}`);
+    }
+    const packageJson = readBoundedPackageJson(packageFile, state.root);
+    const metadataFiles = [packageJson.path];
+    if (Object.hasOwn(packageJson.value, 'main')) {
+      if (
+        typeof packageJson.value.main !== 'string'
+        || packageJson.value.main.length === 0
+      ) {
+        throw new Error(`invalid dependency package main: ${packageFile}`);
+      }
+      const main = resolveCommonJsPath(
+        path.resolve(inspectedDirectory.path, packageJson.value.main),
+        state
+      );
+      if (main) {
+        return {
+          target: main.target,
+          metadataFiles: [...metadataFiles, ...main.metadataFiles],
+        };
+      }
+    }
+  }
+
+  for (const basename of ['index.js', 'index.json', 'index.node']) {
+    const inspected = inspectResolutionCandidate(
+      path.join(inspectedDirectory.path, basename),
+      state
+    );
+    if (inspected?.stats.isFile()) {
+      return {
+        target: inspected.path,
+        metadataFiles: inspectedPackage ? [inspectedPackage.path] : [],
+      };
+    }
+  }
+  return null;
+}
+
+function resolveCommonJsPath(candidate, state) {
+  const normalized = path.resolve(candidate);
+  if (pathEscapesRoot(state.root, normalized)) {
+    throw new Error(`dependency path escapes root: ${candidate}`);
+  }
+  if (state.active.has(normalized)) return null;
+
+  state.active.add(normalized);
+  try {
+    return (
+      resolveCommonJsAsFile(normalized, state)
+      || resolveCommonJsAsDirectory(normalized, state)
+    );
+  } finally {
+    state.active.delete(normalized);
+  }
+}
+
+function resolveLocalModule(fromFile, load, root) {
+  const candidate = path.resolve(path.dirname(fromFile), load.specifier);
+  if (load.kind === 'esm') {
+    const inspected = inspectDependencyPath(candidate, root);
+    if (!inspected?.stats.isFile()) {
+      throw new Error(
+        `Cannot resolve explicit ESM dependency ${load.specifier} from ${fromFile}`
+      );
+    }
+    return { target: inspected.path, metadataFiles: [] };
+  }
+
+  const resolved = resolveCommonJsPath(candidate, createResolutionState(root));
+  if (!resolved) {
+    throw new Error(`Cannot resolve ${load.specifier} from ${fromFile}`);
+  }
+  return resolved;
+}
+
+function isJavaScriptDependency(file) {
+  return new Set(['.js', '.cjs', '.mjs']).has(path.extname(file).toLowerCase());
+}
+
+function staticRequiresReachableFrom(entryRelativePath, root = repositoryDir) {
+  const requestedRoot = path.resolve(root);
+  const requestedEntry = path.isAbsolute(entryRelativePath)
+    ? entryRelativePath
+    : path.resolve(root, entryRelativePath);
+  const inspectedEntry = inspectDependencyPath(requestedEntry, requestedRoot);
+  if (!inspectedEntry?.stats.isFile()) {
+    throw new Error('dependency graph entry is missing or not a file');
+  }
+  const absoluteRoot = fs.realpathSync(requestedRoot);
+  const pending = [inspectedEntry.path];
   const visited = new Set();
   while (pending.length) {
-    const current = pending.pop();
+    const inspected = inspectDependencyPath(pending.pop(), absoluteRoot);
+    if (!inspected?.stats.isFile()) {
+      throw new Error('dependency graph entry is missing or not a file');
+    }
+    const current = inspected.path;
     if (visited.has(current)) continue;
     visited.add(current);
+    if (!isJavaScriptDependency(current)) continue;
+
+    const sourceContext = sourceContextForFile(current, absoluteRoot);
+    pending.push(...sourceContext.metadataFiles);
     const source = fs.readFileSync(current, 'utf8');
-    const relativeCurrent = path.relative(repositoryDir, current).split(path.sep).join('/');
-    for (const specifier of literalModuleSpecifiers(source, relativeCurrent)) {
-      if (!specifier.startsWith('.')) continue;
-      pending.push(resolveLocalRequire(current, specifier));
+    const relativeCurrent = path.relative(absoluteRoot, current).split(path.sep).join('/');
+    for (const load of literalModuleLoads(source, relativeCurrent, absoluteRoot)) {
+      if (!load.specifier.startsWith('.')) continue;
+      const resolved = resolveLocalModule(current, load, absoluteRoot);
+      pending.push(...resolved.metadataFiles, resolved.target);
     }
   }
   return [...visited]
-    .map((file) => path.relative(repositoryDir, file).split(path.sep).join('/'))
+    .map((file) => path.relative(absoluteRoot, file).split(path.sep).join('/'))
     .sort();
 }
 
@@ -308,6 +547,14 @@ function runNodeEntry(entry, args = [], { timeout } = {}) {
     encoding: 'utf8',
     timeout,
   });
+}
+
+function writeDependencyFixture(root, files) {
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const absolute = path.join(root, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, contents);
+  }
 }
 
 test('systemd unit runs the unified API on a private loopback port', () => {
@@ -435,7 +682,7 @@ test('dependency scanner ignores comments and strings while enumerating literal 
     const lazy = import('./dynamic-esm.js');
   `;
 
-  assert.deepEqual(literalModuleSpecifiers(source, 'fixture.js'), [
+  assert.deepEqual(literalModuleSpecifiers(source, 'fixture.mjs'), [
     './common-js',
     './static-esm.js',
     './re-export.js',
@@ -443,10 +690,25 @@ test('dependency scanner ignores comments and strings while enumerating literal 
   ]);
 });
 
+test('dependency scanner uses CommonJS wrapper context and module.require', () => {
+  const source = [
+    "if (stop) return require('./top-level-return.js');",
+    'with ({ enabled: true }) {',
+    "  module.require('./sloppy-module-require.js');",
+    '}',
+  ].join('\n');
+
+  assert.deepEqual(
+    literalModuleSpecifiers(source, path.join(backendDir, 'fixture.js')),
+    ['./top-level-return.js', './sloppy-module-require.js']
+  );
+});
+
 test('dependency scanner fails closed on computed module loads', () => {
   for (const source of [
     "require('./routes/' + routeName);",
     'require(moduleName);',
+    'module.require(moduleName);',
     'import(moduleName);',
     'import(`./routes/${routeName}.js`);',
   ]) {
@@ -491,7 +753,7 @@ test('dependency scanner does not treat metadata, regex or ordinary templates as
     "const example = `require('./template-content.js')`;",
   ].join('\n');
 
-  assert.deepEqual(literalModuleSpecifiers(source, 'non-dependencies.js'), []);
+  assert.deepEqual(literalModuleSpecifiers(source, 'non-dependencies.mjs'), []);
 });
 
 test('dependency scanner accepts literal dynamic import options', () => {
@@ -508,6 +770,108 @@ test('dependency scanner rejects an oversized source instead of scanning without
   assert.throws(
     () => literalModuleSpecifiers(' '.repeat(1024 * 1024 + 1), 'oversized.js'),
     /dependency source exceeds 1048576 bytes: oversized\.js/
+  );
+});
+
+test('dependency graph resolves exact CommonJS and explicit ESM runtime closure', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-dependency-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': '{"type":"commonjs"}\n',
+    'entry.js': [
+      "if (stop) return require('./extensionless-data');",
+      'with ({ available: true }) {',
+      "  module.require('./package-main');",
+      '}',
+      "require('./explicit.json');",
+      "require('./directory-index');",
+      "require('./native');",
+      "require('./looped-package');",
+      "import('./module.mjs');",
+      "import('./esm-package/module.js');",
+    ].join('\n'),
+    'extensionless-data.json': '{"kind":"extensionless"}\n',
+    'explicit.json': '{"kind":"explicit"}\n',
+    'native.node': 'not parsed as JavaScript\n',
+    'package-main/package.json': '{"main":"lib/start"}\n',
+    'package-main/lib/start.js': "module.require('./nested.json');\n",
+    'package-main/lib/nested.json': '{"kind":"nested"}\n',
+    'directory-index/index.json': '{"kind":"index"}\n',
+    'looped-package/package.json': '{"main":"."}\n',
+    'looped-package/index.js': "require('./leaf.json');\n",
+    'looped-package/leaf.json': '{"kind":"loop-fallback"}\n',
+    'module.mjs': [
+      "import './esm-target.mjs';",
+      "export * from './esm-all.mjs';",
+      "import('./esm-data.json', { with: { type: 'json' } });",
+    ].join('\n'),
+    'esm-target.mjs': 'export const target = true;\n',
+    'esm-all.mjs': 'export const all = true;\n',
+    'esm-data.json': '{"kind":"esm"}\n',
+    'esm-package/package.json': '{"type":"module"}\n',
+    'esm-package/module.js': [
+      "import './leaf.js';",
+      "export { value } from './re-export.js';",
+    ].join('\n'),
+    'esm-package/leaf.js': 'export const leaf = true;\n',
+    'esm-package/re-export.js': 'export const value = true;\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.js'), fixtureRoot),
+    [
+      'directory-index/index.json',
+      'entry.js',
+      'esm-all.mjs',
+      'esm-data.json',
+      'esm-package/leaf.js',
+      'esm-package/module.js',
+      'esm-package/package.json',
+      'esm-package/re-export.js',
+      'esm-target.mjs',
+      'explicit.json',
+      'extensionless-data.json',
+      'looped-package/index.js',
+      'looped-package/leaf.json',
+      'looped-package/package.json',
+      'module.mjs',
+      'native.node',
+      'package-main/lib/nested.json',
+      'package-main/lib/start.js',
+      'package-main/package.json',
+      'package.json',
+    ]
+  );
+});
+
+test('dependency graph rejects CommonJS extension fallback for explicit ESM paths', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-esm-path-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'entry.mjs': "import './target';\n",
+    'target.js': 'export const target = true;\n',
+  });
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    /Cannot resolve explicit ESM dependency \.\/target/
+  );
+});
+
+test('dependency graph rejects a local dependency symlink that escapes its root', (context) => {
+  const fixtureParent = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-dependency-link-'));
+  const fixtureRoot = path.join(fixtureParent, 'repository');
+  const outsideFile = path.join(fixtureParent, 'outside.js');
+  context.after(() => fs.rmSync(fixtureParent, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'entry.js': "require('./escape');\n",
+  });
+  fs.writeFileSync(outsideFile, 'module.exports = true;\n');
+  fs.symlinkSync(outsideFile, path.join(fixtureRoot, 'escape.js'));
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.js'), fixtureRoot),
+    /symbolic links are forbidden/
   );
 });
 
