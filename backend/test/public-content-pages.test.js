@@ -1753,6 +1753,14 @@ test('Contact hero presents one accessible Singapore Horizon scene', () => {
 test('Contact preserves its details, map fallback and accessible form contract', () => {
   const source = read('contact.html');
   const document = parseHtml(source);
+  const stylesheets = findAll(document, (node) => (
+    node.tagName === 'link' && node.attributes.rel === 'stylesheet'
+  )).map((link) => link.attributes.href);
+  assert.deepEqual(
+    stylesheets,
+    ['css/style.css?v=20260728.5'],
+    'Contact loads the Singapore Horizon stylesheet release',
+  );
   const text = visibleBodyText(document);
   for (const value of [
     'Contact Us',
