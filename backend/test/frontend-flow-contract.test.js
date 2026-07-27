@@ -668,6 +668,30 @@ test('standalone investor pages define narrow-screen layout contracts', () => {
   );
 });
 
+test('managed-chat guidance wraps inside narrow dashboard cards', () => {
+  const sharedCss = read('css/style.css');
+  const investorDashboard = read('investordashboard.html');
+  const sharedGuidance = sharedCss.match(
+    /\.managed-chat-awaiting\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*normal;[^}]*\}/s,
+  )?.[0];
+
+  assert.ok(sharedGuidance, 'missing shared managed-chat guidance styles');
+  assert.match(sharedGuidance, /white-space:\s*normal;/);
+  assert.match(sharedGuidance, /overflow-wrap:\s*anywhere;/);
+  assert.match(
+    sharedCss,
+    /\.interest-item\s*\{[^}]*flex-wrap:\s*wrap;/s,
+  );
+  assert.match(
+    investorDashboard,
+    /\.interest-list-item\s*\{[^}]*flex-wrap:\s*wrap;/s,
+  );
+  assert.match(
+    investorDashboard,
+    /\.managed-chat-awaiting--compact\s*\{[^}]*flex:\s*1\s+1\s+100%;[^}]*white-space:\s*normal;/s,
+  );
+});
+
 test('authentication pages expose the Connected Horizon shell accessibly', () => {
   const cases = [
     {

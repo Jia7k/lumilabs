@@ -27,8 +27,8 @@ function managedChatAction(portfolio, hasExpressedInterest) {
   }
   if (portfolio.chat_state === "withdrawn") return "";
   const guidance = portfolio.relationship_manager_id
-    ? "Awaiting group chat setup"
-    : "Pending match";
+    ? "Awaiting relationship manager to create group chat"
+    : "Awaiting relationship manager assignment";
   return `<span class="managed-chat-awaiting"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 

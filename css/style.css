@@ -1755,9 +1755,15 @@ body.audit .card {
 .interest-item {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
+}
+
+.interest-item > :nth-child(2) {
+  flex: 1 1 150px;
+  min-width: 0;
 }
 
 .interest-item:last-child {
@@ -4130,7 +4136,9 @@ body.rm-dashboard .rm-stats-grid {
   border: 1px dashed #D1D5DB;
   background: #F9FAFB;
   color: #6B7280;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
   cursor: default;
 }
 
@@ -4140,8 +4148,19 @@ body.rm-dashboard .rm-stats-grid {
   margin-left: auto;
   padding: 4px 10px;
   font-size: 11px;
-  white-space: nowrap;
   border-radius: 20px;
+}
+
+.managed-chat-action--compact {
+  white-space: nowrap;
+}
+
+.managed-chat-awaiting--compact {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin-left: 0;
+  justify-content: flex-start;
+  white-space: normal;
 }
 
 .managed-chat-action--icon,
