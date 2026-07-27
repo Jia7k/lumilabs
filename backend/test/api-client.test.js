@@ -362,3 +362,100 @@ test('browser API exposes no obsolete admin staff or manual chat lifecycle metho
     assert.equal(client.run(`typeof API.${method}`), 'undefined', method);
   }
 });
+
+test('submitContact posts the exact public payload to the shared API', async () => {
+  const client = clientHarness();
+  const requests = [];
+  client.context.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return response(201, { message: 'Message received' });
+  };
+
+  const result = await client.run(`
+    API.submitContact({
+      name: 'Visitor',
+      email: 'visitor@example.com',
+      message: 'Hello',
+      company_website: ''
+    })
+  `);
+
+  assert.equal(result.message, 'Message received');
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    message: 'Message received',
+  });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/api/contact');
+  assert.equal(requests[0].options.method, 'POST');
+  assert.equal(requests[0].options.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    name: 'Visitor',
+    email: 'visitor@example.com',
+    message: 'Hello',
+    company_website: '',
+  });
+});
+
+test('submitContact does not propagate unexpected success fields', async () => {
+  const client = clientHarness();
+  client.context.fetch = async () => response(201, {
+    message: 'Message received',
+    email: 'visitor@example.com',
+    id: 42,
+  });
+
+  const result = await client.run("API.submitContact({})");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    message: 'Message received',
+  });
+});
+
+test('submitContact rejects malformed and non-JSON success responses safely', async () => {
+  const client = clientHarness();
+  const responses = [
+    response(201, { message: '<script>unsafe response</script>' }),
+    {
+      ok: true,
+      status: 201,
+      json: async () => {
+        throw new SyntaxError('private invalid response body');
+      },
+    },
+  ];
+
+  for (const nextResponse of responses) {
+    client.context.nextResponse = nextResponse;
+    client.context.fetch = async () => client.context.nextResponse;
+    await assert.rejects(client.run(`
+      API.submitContact({
+        name: 'Visitor',
+        email: 'visitor@example.com',
+        message: '',
+        company_website: ''
+      })
+    `), (error) => {
+      assert.equal(error.message, 'Contact service returned an invalid response.');
+      assert.doesNotMatch(error.message, /script|unsafe|private/i);
+      return true;
+    });
+  }
+});
+
+test('apiFetch preserves structured validation fields for a safe client mapper', async () => {
+  const client = clientHarness();
+  client.context.fetch = async () => response(400, {
+    errors: {
+      email: 'Enter a valid email address.',
+    },
+  });
+
+  await assert.rejects(client.run("API.submitContact({})"), (error) => {
+    assert.equal(error.status, 400);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(error.fields)),
+      { email: 'Enter a valid email address.' },
+    );
+    return true;
+  });
+});

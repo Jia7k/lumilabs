@@ -11,11 +11,15 @@ const ROLE_DASHBOARDS = Object.freeze({
 let signInTransitionStarted = false;
 
 class ApiRequestError extends Error {
-  constructor(message, { status = null, isNetworkError = false } = {}) {
+  constructor(
+    message,
+    { status = null, isNetworkError = false, fields = null } = {},
+  ) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
     this.isNetworkError = isNetworkError;
+    this.fields = fields;
   }
 }
 
@@ -150,8 +154,14 @@ async function apiFetch(path, options = {}) {
       data?.error ||
       data?.errors?.[0]?.msg ||
       `Request failed (${response.status})`;
+    const fields =
+      data?.errors
+      && typeof data.errors === "object"
+      && !Array.isArray(data.errors)
+        ? data.errors
+        : null;
     if (response.status === 401) redirectToSignIn();
-    throw new ApiRequestError(message, { status: response.status });
+    throw new ApiRequestError(message, { status: response.status, fields });
   }
 
   return data;
@@ -194,6 +204,18 @@ async function downloadDocument(downloadUrl, fileName) {
 }
 
 const API = {
+  // Public Contact
+  submitContact: async (payload) => {
+    const result = await apiFetch("/contact", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (result?.message !== "Message received") {
+      throw new ApiRequestError("Contact service returned an invalid response.");
+    }
+    return { message: "Message received" };
+  },
+
   // Auth
   getCurrentUser: () => apiFetch("/auth/me"),
 
