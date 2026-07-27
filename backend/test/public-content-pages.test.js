@@ -108,9 +108,28 @@ function textContent(node) {
   return decodeEntities(value).replace(/\s+/g, ' ').trim();
 }
 
+function visibleTextContent(node) {
+  if (node.tagName === '#text') {
+    return decodeEntities(node.value).replace(/\s+/g, ' ').trim();
+  }
+  if (
+    ['script', 'style', 'template'].includes(node.tagName)
+    || hasAttribute(node, 'hidden')
+    || node.attributes['aria-hidden']?.toLowerCase() === 'true'
+  ) {
+    return '';
+  }
+  return node.children
+    .map(visibleTextContent)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function assertExactLinks(scope, expected, label) {
   const actual = findAll(scope, (node) => node.tagName === 'a').map((link) => ({
-    label: textContent(link),
+    label: visibleTextContent(link),
     href: decodeEntities(link.attributes.href || ''),
     current: link.attributes['aria-current'] || null,
   }));
@@ -147,6 +166,21 @@ const footerFacts = [
   'Copyright © 2026 LUMI5 LABS',
   'v26.02.13.1',
 ];
+
+test('visible copy excludes hidden and non-rendered subtrees', () => {
+  const document = parseHtml(`
+    <main>
+      <p>Visible copy</p>
+      <script>Script-only copy</script>
+      <style>Style-only copy</style>
+      <template>Template-only copy</template>
+      <p hidden>Hidden-attribute copy</p>
+      <p aria-hidden="true">ARIA-hidden copy</p>
+    </main>
+  `);
+
+  assert.equal(visibleTextContent(document), 'Visible copy');
+});
 
 test('both pages expose independently complete desktop, compact and footer shells', () => {
   const pages = [
@@ -189,7 +223,7 @@ test('both pages expose independently complete desktop, compact and footer shell
       node.tagName === 'details' && node.attributes.class === 'public-menu'
     ), `${file}: native compact menu`);
     const summary = findOne(compactMenu, (node) => node.tagName === 'summary', `${file}: menu summary`);
-    assert.equal(textContent(summary), 'Menu', `${file}: menu summary label`);
+    assert.equal(visibleTextContent(summary), 'Menu', `${file}: menu summary label`);
     const compactNav = findOne(compactMenu, (node) => (
       node.tagName === 'nav' && node.attributes['aria-label'] === 'Compact primary navigation'
     ), `${file}: compact navigation`);
@@ -230,7 +264,7 @@ test('both pages expose independently complete desktop, compact and footer shell
       (node) => node.tagName === 'h2',
       `${file}: footer contact heading`,
     );
-    assert.equal(textContent(footerContactHeading), 'Visit & contact');
+    assert.equal(visibleTextContent(footerContactHeading), 'Visit & contact');
     const address = findOne(footerContact, (node) => node.tagName === 'address', `${file}: footer address`);
     assert.equal(findAll(address, (node) => /^h[1-6]$/.test(node.tagName)).length, 0);
     assertExactLinks(address, [
@@ -242,7 +276,7 @@ test('both pages expose independently complete desktop, compact and footer shell
       { label: 'business@lumi5labs.com', href: 'mailto:business@lumi5labs.com', current: null },
       { label: '+65-6599-1991', href: 'tel:+6565991991', current: null },
     ], `${file}: footer contact links`);
-    const footerText = textContent(footer);
+    const footerText = visibleTextContent(footer);
     for (const fact of footerFacts) assert.ok(footerText.includes(fact), `${file}: ${fact}`);
     assert.doesNotMatch(source, /ai\.webp|artificial intelligence hero/i);
   }
@@ -250,7 +284,7 @@ test('both pages expose independently complete desktop, compact and footer shell
 
 test('About preserves the complete story, vision, leadership and connect copy', () => {
   const source = read('about.html');
-  const text = textContent(parseHtml(source));
+  const text = visibleTextContent(parseHtml(source));
   const required = [
     'Ideas grow through connection.',
     'About Lumi5 Labs',
@@ -294,7 +328,7 @@ test('About preserves the complete story, vision, leadership and connect copy', 
 test('Contact preserves its details, map fallback and accessible form contract', () => {
   const source = read('contact.html');
   const document = parseHtml(source);
-  const text = textContent(document);
+  const text = visibleTextContent(document);
   for (const value of [
     'Contact Us',
     'Here is how you can contact us for any questions or concerns.',
@@ -386,6 +420,11 @@ test('Contact preserves its details, map fallback and accessible form contract',
     form,
     (node) => node.tagName === 'div' && hasClass(node, 'contact-honeypot'),
     'Contact honeypot group',
+  );
+  assert.equal(
+    honeypot.attributes['aria-hidden'],
+    'true',
+    'Contact honeypot group is hidden from assistive technology',
   );
   const honeypotLabel = findOne(
     honeypot,
