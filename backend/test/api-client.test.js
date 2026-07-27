@@ -414,6 +414,32 @@ test('submitContact posts the exact public payload to the shared API', async () 
   });
 });
 
+test('submitContact serializes missing and non-string public fields as empty strings', async () => {
+  const client = clientHarness();
+  let request;
+  client.context.fetch = async (url, options) => {
+    request = { url, options };
+    return response(201, { message: 'Message received' });
+  };
+
+  await client.run(`
+    API.submitContact({
+      name: null,
+      email: { address: 'visitor@example.com' },
+      message: 42,
+      company_website: undefined,
+      extra: 'not public'
+    })
+  `);
+
+  assert.deepEqual(JSON.parse(request.options.body), {
+    name: '',
+    email: '',
+    message: '',
+    company_website: '',
+  });
+});
+
 test('submitContact rejects a success body with unexpected fields', async () => {
   const client = clientHarness();
   client.context.fetch = async () => response(201, {

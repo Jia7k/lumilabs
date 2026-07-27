@@ -810,6 +810,11 @@ function contactFormFieldTargets() {
       (node) => ['input', 'textarea'].includes(node.tagName),
       'Contact control',
     );
+    const error = findOne(
+      group,
+      (node) => node.tagName === 'p' && hasClass(node, 'form-error-text'),
+      'Contact field error',
+    );
     const groupAncestry = [...baseAncestry, elementFromHtmlNode(group)];
     const labelStates = [
       ['first-child', 'first-of-type', 'last-of-type', 'only-of-type'],
@@ -827,6 +832,7 @@ function contactFormFieldTargets() {
       labelAncestries: labelStates.map((pseudos) => (
         [...groupAncestry, elementFromHtmlNode(label, pseudos)]
       )),
+      errorAncestry: [...groupAncestry, elementFromHtmlNode(error)],
     };
   });
 }
@@ -1730,6 +1736,18 @@ test('runtime aria-invalid states keep contrast-safe control boundaries', () => 
     [...coveredControls].sort(),
     ['contact-email', 'contact-message', 'contact-name'],
   );
+});
+
+test('contact field errors remain visible after the full CSS cascade', () => {
+  const css = read('css/style.css');
+
+  for (const field of contactFormFieldTargets()) {
+    assert.equal(
+      effectiveCssProperty(css, field.errorAncestry, 'display'),
+      'block',
+      `${field.controlId}: error text display`,
+    );
+  }
 });
 
 test('contact contrast contract rejects effective overrides and invisible borders', async (t) => {

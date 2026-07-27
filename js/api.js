@@ -197,11 +197,12 @@ function contactValidationFields(status, data) {
 }
 
 async function submitContactRequest(payload = {}) {
+  const publicString = (value) => (typeof value === "string" ? value : "");
   const publicPayload = {
-    name: payload?.name,
-    email: payload?.email,
-    message: payload?.message,
-    company_website: payload?.company_website,
+    name: publicString(payload?.name),
+    email: publicString(payload?.email),
+    message: publicString(payload?.message),
+    company_website: publicString(payload?.company_website),
   };
   let response;
   try {

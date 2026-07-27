@@ -132,6 +132,9 @@ function formHarness({
       dispatch(form, 'input', { target: node });
       return true;
     },
+    blur(id) {
+      dispatch(nodes.get(id), 'blur', { target: nodes.get(id) });
+    },
     submitEvent() {
       return Promise.all(dispatch(form, 'submit', { preventDefault() {} }));
     },
@@ -146,7 +149,7 @@ function fillValidRequiredFields(client) {
   client.nodes.get('contact-email').value = 'visitor@example.com';
 }
 
-test('button eligibility follows all field rules without showing errors while typing', () => {
+test('button eligibility follows required field rules without showing errors while typing', () => {
   const client = formHarness();
   const button = client.nodes.get('contact-submit');
   assert.equal(button.disabled, true);
@@ -157,11 +160,60 @@ test('button eligibility follows all field rules without showing errors while ty
   assert.equal(button.disabled, false);
   assert.equal(client.nodes.get('contact-name-error').textContent, '');
   assert.equal(client.nodes.get('contact-email-error').textContent, '');
+});
 
-  client.nodes.get('contact-message').value = '界'.repeat(5001);
-  client.input();
-  assert.equal(button.disabled, true);
+test('overlong optional message remains submittable and surfaces its field error', async () => {
+  const client = formHarness();
+  client.userInput('contact-name', 'Visitor');
+  client.userInput('contact-email', 'visitor@example.com');
+  client.userInput('contact-message', '界'.repeat(5001));
+
+  assert.equal(client.nodes.get('contact-submit').disabled, false);
   assert.equal(client.nodes.get('contact-message-error').textContent, '');
+
+  await client.submit();
+
+  assert.equal(client.calls.length, 0);
+  assert.equal(
+    client.nodes.get('contact-message-error').textContent,
+    'Message must be 5,000 characters or fewer.',
+  );
+  assert.equal(client.nodes.get('contact-message').attributes['aria-invalid'], 'true');
+  assert.equal(client.nodes.get('contact-message').focused, 1);
+  assert.equal(client.nodes.get('contact-submit').disabled, false);
+});
+
+test('code-point-only required-field errors are available on blur without focus churn', () => {
+  const client = formHarness();
+  client.userInput('contact-name', '🙂'.repeat(101));
+  client.userInput('contact-email', 'visitor@example.com');
+
+  assert.equal(client.nodes.get('contact-submit').disabled, true);
+  assert.equal(client.nodes.get('contact-name-error').textContent, '');
+
+  client.blur('contact-name');
+
+  assert.equal(
+    client.nodes.get('contact-name-error').textContent,
+    'Name must be 100 characters or fewer.',
+  );
+  assert.equal(client.nodes.get('contact-name').attributes['aria-invalid'], 'true');
+  assert.equal(client.nodes.get('contact-name').focused, 0);
+});
+
+test('typing in another field preserves a disclosed blocking error', () => {
+  const client = formHarness();
+  client.userInput('contact-name', '🙂'.repeat(101));
+  client.blur('contact-name');
+
+  client.userInput('contact-email', 'visitor@example.com');
+
+  assert.equal(
+    client.nodes.get('contact-name-error').textContent,
+    'Name must be 100 characters or fewer.',
+  );
+  assert.equal(client.nodes.get('contact-name').attributes['aria-invalid'], 'true');
+  assert.equal(client.nodes.get('contact-submit').disabled, true);
 });
 
 test('native field constraints preserve the exact astral code-point boundary', () => {
@@ -211,9 +263,8 @@ test('typing clears rendered feedback without moving focus', async () => {
   client.nodes.get('contact-email').value = 'invalid';
   await client.submit();
 
-  client.nodes.get('contact-name').value = 'Visitor';
-  client.nodes.get('contact-email').value = 'visitor@example.com';
-  client.input();
+  client.userInput('contact-name', 'Visitor');
+  client.userInput('contact-email', 'visitor@example.com');
 
   assert.equal(client.nodes.get('contact-name-error').textContent, '');
   assert.equal(client.nodes.get('contact-email-error').textContent, '');

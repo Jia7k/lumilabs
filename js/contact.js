@@ -99,14 +99,18 @@ function initializeContactForm({ root = document, api = API } = {}) {
     };
   }
 
+  function renderFieldError(name, message) {
+    errors[name].textContent = message || "";
+    if (message) {
+      fields[name].setAttribute("aria-invalid", "true");
+    } else {
+      fields[name].removeAttribute("aria-invalid");
+    }
+  }
+
   function renderErrors(nextErrors) {
     for (const name of Object.keys(fields)) {
-      errors[name].textContent = nextErrors[name] || "";
-      if (nextErrors[name]) {
-        fields[name].setAttribute("aria-invalid", "true");
-      } else {
-        fields[name].removeAttribute("aria-invalid");
-      }
+      renderFieldError(name, nextErrors[name]);
     }
   }
 
@@ -123,14 +127,22 @@ function initializeContactForm({ root = document, api = API } = {}) {
 
   function syncEligibility() {
     const nextErrors = validateContactPayload(payload());
-    submit.disabled = submissionPending || Object.keys(nextErrors).length > 0;
+    submit.disabled = submissionPending || Boolean(nextErrors.name || nextErrors.email);
   }
 
-  form.addEventListener("input", () => {
-    renderErrors({});
+  form.addEventListener("input", (event) => {
+    const changedName = Object.keys(fields)
+      .find((name) => fields[name] === event.target);
+    if (changedName) renderFieldError(changedName);
     clearStatus();
     syncEligibility();
   });
+
+  for (const name of Object.keys(fields)) {
+    fields[name].addEventListener("blur", () => {
+      renderFieldError(name, validateContactPayload(payload())[name]);
+    });
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
