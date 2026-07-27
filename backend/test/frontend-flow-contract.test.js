@@ -725,6 +725,50 @@ test('authentication pages expose the Connected Horizon shell accessibly', () =>
   assertAttribute(roleButtons[1], 'aria-pressed', 'false');
 });
 
+test('authentication source order and responsive grid placement keep focus aligned with the layout', () => {
+  for (const page of ['signin.html', 'signup.html']) {
+    const html = read(page);
+    const formPanelPosition = html.indexOf('class="auth-form-panel"');
+    const storyPosition = html.indexOf('class="auth-story"');
+
+    assert.notEqual(formPanelPosition, -1, `${page}: missing form panel`);
+    assert.notEqual(storyPosition, -1, `${page}: missing story panel`);
+    assert.ok(
+      formPanelPosition < storyPosition,
+      `${page}: the form panel must precede the story panel in source order`,
+    );
+  }
+
+  const css = read('css/style.css');
+  const desktopStart = css.indexOf('@media (min-width: 900px)');
+  const narrowStart = css.indexOf('@media (max-width: 899px)', desktopStart);
+  assert.notEqual(desktopStart, -1, 'missing desktop authentication layout');
+  assert.notEqual(narrowStart, -1, 'missing narrow authentication layout');
+
+  const desktop = css.slice(desktopStart, narrowStart);
+  assert.match(
+    desktop,
+    /\.auth-shell-page \.auth-story\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1;/s,
+  );
+  assert.match(
+    desktop,
+    /\.auth-shell-page \.auth-form-panel\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1;/s,
+  );
+
+  const narrowEnd = css.indexOf('@media (max-width: 560px)', narrowStart);
+  assert.notEqual(narrowEnd, -1, 'missing compact authentication layout');
+  const narrow = css.slice(narrowStart, narrowEnd);
+  assert.match(
+    narrow,
+    /\.auth-shell-page \.auth-form-panel\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1;/s,
+  );
+  assert.match(
+    narrow,
+    /\.auth-shell-page \.auth-story\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*2;/s,
+  );
+  assert.doesNotMatch(narrow, /\border:\s*[1-9]\d*\s*;/);
+});
+
 test('authentication text and focus tokens meet WCAG contrast thresholds', () => {
   const css = read('css/style.css');
   const authTokenBlock = css.match(/\.auth-shell-page\s*\{([^}]+)\}/s)?.[1];
@@ -756,15 +800,111 @@ test('authentication text and focus tokens meet WCAG contrast thresholds', () =>
     css,
     /\.auth-shell-page (?:a|button|input):focus-visible,[\s\S]*?\{[^}]*outline:\s*3px solid var\(--auth-focus\)/,
   );
-  for (const storyToken of ['auth-indigo-deep', 'auth-indigo', 'auth-violet']) {
-    const storyColor = token(storyToken);
+
+  const rule = (selector) => {
+    const body = css.match(new RegExp(`${selector}\\s*\\{([^}]+)\\}`, 's'))?.[1];
+    assert.ok(body, `missing ${selector} rule`);
+    return body;
+  };
+  const declaration = (body, property) => {
+    const value = body.match(new RegExp(`${property}:\\s*([^;]+);`, 's'))?.[1].trim();
+    assert.ok(value, `missing ${property} declaration`);
+    return value;
+  };
+  const referencedTokens = (value) => [
+    ...value.matchAll(/var\(--([a-z0-9-]+)\)/gi),
+  ].map((match) => match[1]);
+
+  const storyBackground = declaration(rule('\\.auth-shell-page \\.auth-story'), 'background');
+  const storyBackgroundTokens = referencedTokens(storyBackground);
+  assert.ok(storyBackgroundTokens.length >= 2, 'story gradient must use audited color tokens');
+  assert.doesNotMatch(
+    storyBackground,
+    /rgba?\(/i,
+    'story gradient stops must be opaque so their contrast can be audited directly',
+  );
+
+  for (const [selector, textToken] of [
+    ['\\.auth-shell-page \\.auth-eyebrow', 'auth-story-eyebrow'],
+    ['\\.auth-shell-page \\.auth-story-copy > p:last-child', 'auth-story-support'],
+  ]) {
+    assert.equal(declaration(rule(selector), 'color'), `var(--${textToken})`);
+    const textColor = token(textToken);
+    for (const backgroundToken of storyBackgroundTokens) {
+      const backgroundColor = token(backgroundToken);
+      assert.ok(
+        contrastRatio(textColor, backgroundColor) >= 4.5,
+        `--${textToken} ${textColor} must reach 4.5:1 against --${backgroundToken} ${backgroundColor}`,
+      );
+    }
+  }
+
+  const buttonRule = rule('\\.auth-shell-page \\.auth-submit-btn');
+  const buttonTextToken = declaration(buttonRule, 'color')
+    .match(/^var\(--([a-z0-9-]+)\)$/i)?.[1];
+  assert.ok(buttonTextToken, 'submit button text must use an opaque audited token');
+  const buttonTextColor = token(buttonTextToken);
+  const buttonBackgroundTokens = referencedTokens(declaration(buttonRule, 'background'));
+  assert.ok(buttonBackgroundTokens.length >= 2, 'submit button gradient must use audited tokens');
+  for (const backgroundToken of buttonBackgroundTokens) {
+    const backgroundColor = token(backgroundToken);
     assert.ok(
-      contrastRatio('#ffffff', storyColor) >= 3,
-      `white brand focus must reach 3:1 against --${storyToken} ${storyColor}`,
+      contrastRatio(buttonTextColor, backgroundColor) >= 4.5,
+      `--${buttonTextToken} ${buttonTextColor} must reach 4.5:1 against --${backgroundToken} ${backgroundColor}`,
     );
   }
+
   assert.match(
     css,
     /\.auth-shell-page \.auth-brand:focus-visible\s*\{[^}]*outline-color:\s*#fff;[^}]*box-shadow:\s*0 0 0 6px var\(--auth-focus\)/s,
+  );
+});
+
+test('authentication navigation links expose explicit 44px touch targets', () => {
+  const css = read('css/style.css');
+
+  for (const selector of [
+    '\\.auth-shell-page \\.auth-brand',
+    '\\.auth-shell-page \\.auth-back-link',
+    '\\.auth-shell-page \\.auth-footer a',
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`${selector}\\s*\\{[^}]*(?:min-block-size|min-height):\\s*44px;[^}]*display:\\s*inline-flex;[^}]*align-items:\\s*center;`, 's'),
+      `${selector} must expose a 44px inline-flex touch target`,
+    );
+  }
+});
+
+test('authentication shell has an inset desktop frame and an edge-to-edge narrow reset', () => {
+  const css = read('css/style.css');
+  const desktopStart = css.indexOf('@media (min-width: 900px)');
+  const narrowStart = css.indexOf('@media (max-width: 899px)', desktopStart);
+  assert.notEqual(desktopStart, -1, 'missing desktop authentication frame');
+  assert.notEqual(narrowStart, -1, 'missing narrow authentication reset');
+
+  const desktop = css.slice(desktopStart, narrowStart);
+  assert.match(
+    desktop,
+    /\.auth-shell-page\s*\{[^}]*padding:\s*(?!0(?:px)?\s*;)[^;]+;/s,
+  );
+  assert.match(
+    desktop,
+    /\.auth-shell-page \.auth-shell\s*\{[^}]*min-height:\s*calc\(100vh\s*-\s*\d+px\);[^}]*border-radius:\s*(?!0(?:px)?\s*;)[^;]+;[^}]*box-shadow:\s*(?!none\s*;)[^;]+;/s,
+  );
+  assert.match(
+    desktop,
+    /\.auth-shell-page \.(?:auth-story|auth-form-panel)\s*\{[^}]*min-height:\s*calc\(100vh\s*-\s*\d+px\);/s,
+  );
+  assert.doesNotMatch(desktop, /\.auth-shell-page\s*\{[^}]*position:\s*fixed/s);
+  assert.doesNotMatch(desktop, /\.auth-shell-page\s*\{[^}]*overflow(?:-y)?:\s*hidden/s);
+
+  const narrowEnd = css.indexOf('@media (max-width: 560px)', narrowStart);
+  assert.notEqual(narrowEnd, -1, 'missing compact authentication layout');
+  const narrow = css.slice(narrowStart, narrowEnd);
+  assert.match(narrow, /\.auth-shell-page\s*\{[^}]*padding:\s*0;/s);
+  assert.match(
+    narrow,
+    /\.auth-shell-page \.auth-shell\s*\{[^}]*border-radius:\s*0;[^}]*box-shadow:\s*none;/s,
   );
 });
