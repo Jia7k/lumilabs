@@ -1687,6 +1687,59 @@ test('About preserves the complete story, vision, leadership and connect copy', 
   assert.match(source, /src=["']images\/victor\.webp["'][^>]*width=["']600["'][^>]*height=["']600["'][^>]*loading=["']lazy["']/);
 });
 
+test('Contact hero presents one accessible Singapore Horizon scene', () => {
+  const source = read('contact.html');
+  const document = parseHtml(source);
+  const horizons = findAll(document, (node) => (
+    node.tagName === 'figure' && hasClass(node, 'contact-horizon')
+  ));
+
+  assert.equal(horizons.length, 1, 'Contact has one Singapore Horizon figure');
+  const horizon = horizons[0];
+  assert.match(
+    horizon.attributes['aria-label'] || '',
+    /Lumi5 Labs.*Singapore/i,
+    'scene label identifies Lumi5 Labs and Singapore',
+  );
+
+  const requiredClasses = [
+    'contact-horizon-scene',
+    'contact-horizon-glow',
+    'contact-horizon-arc--outer',
+    'contact-horizon-arc--inner',
+    'contact-horizon-pin',
+    'contact-horizon-skyline',
+    'contact-horizon-building',
+    'contact-horizon-landmark',
+    'contact-horizon-reflections',
+  ];
+  for (const className of requiredClasses) {
+    assert.ok(
+      findAll(horizon, (node) => hasClass(node, className)).length > 0,
+      `${className}: decorative scene element`,
+    );
+  }
+
+  const decorativeElements = findAll(horizon, (node) => (
+    node !== horizon && node.tagName === 'span'
+  ));
+  assert.ok(decorativeElements.length >= 20, 'scene has enough detail to read as a skyline');
+  for (const element of decorativeElements) {
+    assert.equal(
+      element.attributes['aria-hidden'],
+      'true',
+      `${element.attributes.class || element.tagName}: hidden decorative element`,
+    );
+  }
+
+  assert.equal(
+    findAll(horizon, (node) => hasClass(node, 'contact-horizon-building')).length,
+    5,
+    'scene has five supporting buildings',
+  );
+  assert.doesNotMatch(source, /\bcontact-orbit\b|\bnode-(?:visit|email|call)\b/);
+});
+
 test('Contact preserves its details, map fallback and accessible form contract', () => {
   const source = read('contact.html');
   const document = parseHtml(source);
