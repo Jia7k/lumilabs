@@ -237,6 +237,50 @@ test('complete schema rejects a missing or non-null contact submission message',
   }, /Missing schema invariants/);
 });
 
+test('complete schema rejects an extra contact submission column', async () => {
+  await expectInvariant((metadata) => {
+    metadata.columns.push({
+      table_name: 'contact_submissions',
+      column_name: 'required_tenant',
+      ordinal_position: 6,
+      column_type: 'varchar(100)',
+      is_nullable: 'NO',
+      column_default: null,
+      extra: '',
+      generation_expression: '',
+    });
+  }, /contact_submissions must not have unexpected column required_tenant/);
+});
+
+test('complete schema rejects an extra unique contact submission constraint', async () => {
+  await expectInvariant((metadata) => {
+    metadata.indexes.push({
+      table_name: 'contact_submissions',
+      index_name: 'unique_contact_submissions_email',
+      non_unique: 0,
+      seq_in_index: 1,
+      column_name: 'email',
+      index_type: 'BTREE',
+      is_visible: 'YES',
+    });
+  }, /contact_submissions must not have unexpected unique index \(email\)/);
+});
+
+test('complete schema rejects an extra contact submission foreign key', async () => {
+  await expectInvariant((metadata) => {
+    metadata.foreignKeys.push({
+      table_name: 'contact_submissions',
+      constraint_name: 'fk_contact_submissions_user',
+      column_name: 'email',
+      referenced_table_name: 'users',
+      referenced_column_name: 'email',
+      ordinal_position: 1,
+      update_rule: 'NO ACTION',
+      delete_rule: 'RESTRICT',
+    });
+  }, /contact_submissions must not have unexpected foreign key \(email\) -> users\(email\)/);
+});
+
 test('exports the exact final enum strings and expected schema', () => {
   assert.equal(
     FINAL_ROLE_COLUMN_TYPE,
