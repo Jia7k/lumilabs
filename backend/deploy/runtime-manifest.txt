@@ -41,6 +41,7 @@ backend/src/middleware/auth.js
 backend/src/middleware/upload.js
 backend/src/routes/admin.js
 backend/src/routes/auth.js
+backend/src/routes/contact.js
 backend/src/routes/dashboard.js
 backend/src/routes/interests.js
 backend/src/routes/messages.js
@@ -49,6 +50,7 @@ backend/src/routes/portfolios.js
 backend/src/routes/recommendations.js
 backend/src/routes/relationship-manager.js
 backend/src/routes/superadmin.js
+backend/src/services/contact-submission-workflow.js
 backend/src/services/document-workflow.js
 backend/src/services/group-message-workflow.js
 backend/src/services/managed-conversation-workflow.js
