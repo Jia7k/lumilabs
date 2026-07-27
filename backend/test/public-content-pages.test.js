@@ -1429,13 +1429,14 @@ function assertExactLinks(scope, expected, label) {
   assert.deepEqual(actual, expected, label);
 }
 
-const primaryRoutes = [
-  ['Home', 'index.html'],
+const publicNavbarRoutes = [
   ['About', 'about.html'],
-  ['Portfolio', 'https://www.lumi5labs.com/portfolio/'],
-  ['Blog', 'https://www.lumi5labs.com/blog/'],
-  ['FAQ', 'https://www.lumi5labs.com/faq/'],
   ['Contact', 'contact.html'],
+];
+
+const footerRoutes = [
+  ['Home', 'index.html'],
+  ...publicNavbarRoutes,
 ];
 
 const authRoutes = [
@@ -1482,7 +1483,7 @@ test('visible body copy excludes head, hidden and non-rendered subtrees', () => 
   assert.equal(visibleBodyText(document), 'Visible copy');
 });
 
-test('both pages expose independently complete desktop, compact and footer shells', () => {
+test('About and Contact share the homepage navbar and reduced footer navigation', () => {
   const pages = [
     ['about.html', 'public-content-page about-page', 'About'],
     ['contact.html', 'public-content-page contact-page', 'Contact'],
@@ -1496,14 +1497,20 @@ test('both pages expose independently complete desktop, compact and footer shell
     assert.equal(findAll(body, (node) => node.tagName === 'h1').length, 1, `${file}: one h1`);
 
     const header = findOne(body, (node) => (
-      node.tagName === 'header' && hasClass(node, 'public-header')
-    ), `${file}: public header`);
+      node.tagName === 'header' && hasClass(node, 'landing-header')
+    ), `${file}: homepage header`);
+    const brand = findOne(header, (node) => (
+      node.tagName === 'a' && hasClass(node, 'landing-brand')
+    ), `${file}: homepage brand`);
+    assert.equal(decodeEntities(brand.attributes.href || ''), 'index.html', `${file}: brand home link`);
+    assert.equal(visibleTextContent(brand), 'Lumi5 Labs', `${file}: brand label`);
+
     const desktopNav = findOne(header, (node) => (
       node.tagName === 'nav'
-      && hasClass(node, 'public-nav')
+      && hasClass(node, 'landing-page-links')
       && node.attributes['aria-label'] === 'Primary navigation'
     ), `${file}: desktop navigation`);
-    const expectedPrimary = primaryRoutes.map(([label, href]) => ({
+    const expectedPrimary = publicNavbarRoutes.map(([label, href]) => ({
       label,
       href,
       current: label === currentPage ? 'page' : null,
@@ -1511,7 +1518,7 @@ test('both pages expose independently complete desktop, compact and footer shell
     assertExactLinks(desktopNav, expectedPrimary, `${file}: desktop navigation links`);
 
     const authActions = findOne(header, (node) => (
-      node.tagName === 'div' && hasClass(node, 'public-auth-actions')
+      node.tagName === 'div' && hasClass(node, 'landing-nav-actions')
     ), `${file}: authentication actions`);
     assertExactLinks(
       authActions,
@@ -1520,7 +1527,7 @@ test('both pages expose independently complete desktop, compact and footer shell
     );
 
     const compactMenu = findOne(header, (node) => (
-      node.tagName === 'details' && node.attributes.class === 'public-menu'
+      node.tagName === 'details' && node.attributes.class === 'landing-menu'
     ), `${file}: native compact menu`);
     const summary = findOne(compactMenu, (node) => node.tagName === 'summary', `${file}: menu summary`);
     assert.equal(visibleTextContent(summary), 'Menu', `${file}: menu summary label`);
@@ -1529,7 +1536,7 @@ test('both pages expose independently complete desktop, compact and footer shell
     ), `${file}: compact navigation`);
     assertExactLinks(
       compactNav,
-      [...primaryRoutes, ...authRoutes].map(([label, href]) => ({
+      [...publicNavbarRoutes, authRoutes[0]].map(([label, href]) => ({
         label,
         href,
         current: label === currentPage ? 'page' : null,
@@ -1545,7 +1552,7 @@ test('both pages expose independently complete desktop, compact and footer shell
     ), `${file}: footer navigation`);
     assertExactLinks(
       footerNav,
-      primaryRoutes.map(([label, href]) => ({ label, href, current: null })),
+      footerRoutes.map(([label, href]) => ({ label, href, current: null })),
       `${file}: footer navigation links`,
     );
     const socials = findOne(footer, (node) => (
@@ -1578,6 +1585,7 @@ test('both pages expose independently complete desktop, compact and footer shell
     ], `${file}: footer contact links`);
     const footerText = visibleTextContent(footer);
     for (const fact of footerFacts) assert.ok(footerText.includes(fact), `${file}: ${fact}`);
+    assert.doesNotMatch(source, /href="[^"]*\/(?:portfolio|blog|faq)\/?"/i);
     assert.doesNotMatch(source, /ai\.webp|artificial intelligence hero/i);
   }
 });
