@@ -1,7 +1,7 @@
 # Public Index Page Revamp Design
 
 Date: 2026-07-27
-Status: Visual direction approved; awaiting written-spec review
+Status: Approved for implementation
 
 ## Context
 
