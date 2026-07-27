@@ -1826,6 +1826,260 @@ body.public-content-page {
   50% { transform: translateY(-8px); }
 }
 
+.public-content-page .contact-horizon {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 520px);
+  aspect-ratio: 1.08;
+  justify-self: center;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at 68% 33%, rgba(99, 102, 241, 0.26), transparent 32%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.08), rgba(8, 14, 38, 0.18));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 32px 70px rgba(4, 9, 30, 0.3);
+}
+
+.public-content-page .contact-horizon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 78%);
+}
+
+.public-content-page .contact-horizon-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.public-content-page .contact-horizon-glow {
+  position: absolute;
+  top: 10%;
+  right: 8%;
+  width: 58%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(83, 231, 166, 0.22), rgba(99, 102, 241, 0.12) 44%, transparent 72%);
+  filter: blur(10px);
+  animation: contactHorizonGlow 6s ease-in-out infinite;
+}
+
+.public-content-page .contact-horizon-arc {
+  position: absolute;
+  border: 1px solid rgba(196, 205, 255, 0.34);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  transform: rotate(14deg);
+}
+
+.public-content-page .contact-horizon-arc--outer {
+  top: 9%;
+  left: 9%;
+  width: 82%;
+  height: 54%;
+}
+
+.public-content-page .contact-horizon-arc--inner {
+  top: 18%;
+  left: 20%;
+  width: 61%;
+  height: 38%;
+  border-color: rgba(83, 231, 166, 0.34);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.public-content-page .contact-horizon-pin {
+  position: absolute;
+  top: 23%;
+  left: 63%;
+  width: 30px;
+  height: 38px;
+  border: 2px solid rgba(255, 255, 255, 0.76);
+  border-radius: 50% 50% 50% 8px;
+  background: var(--public-green);
+  box-shadow:
+    0 0 0 8px rgba(83, 231, 166, 0.09),
+    0 12px 28px rgba(83, 231, 166, 0.3);
+  transform: rotate(-45deg);
+  animation: contactHorizonPin 4.8s ease-in-out infinite;
+}
+
+.public-content-page .contact-horizon-pin-core {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.public-content-page .contact-horizon-label {
+  position: absolute;
+  top: 33%;
+  left: 52%;
+  padding: 6px 10px;
+  color: #f5f7ff;
+  background: rgba(9, 15, 40, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-content-page .contact-horizon-skyline {
+  position: absolute;
+  right: 8%;
+  bottom: 20%;
+  left: 8%;
+  height: 42%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2.2%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.42);
+}
+
+.public-content-page .contact-horizon-building {
+  position: relative;
+  flex: 0 0 9%;
+  min-width: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, rgba(104, 117, 194, 0.9), rgba(22, 30, 73, 0.94));
+  box-shadow: inset 8px 0 18px rgba(255, 255, 255, 0.04);
+}
+
+.public-content-page .contact-horizon-building--one {
+  height: 42%;
+}
+
+.public-content-page .contact-horizon-building--two {
+  height: 63%;
+  border-radius: 9px 9px 0 0;
+}
+
+.public-content-page .contact-horizon-building--three {
+  height: 72%;
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+}
+
+.public-content-page .contact-horizon-building--four {
+  height: 50%;
+}
+
+.public-content-page .contact-horizon-building--five {
+  height: 36%;
+  border-radius: 18px 18px 0 0;
+}
+
+.public-content-page .contact-horizon-windows {
+  position: absolute;
+  inset: 14% 22% 10%;
+  opacity: 0.72;
+  background-image:
+    linear-gradient(90deg, rgba(191, 255, 226, 0.66) 2px, transparent 2px),
+    linear-gradient(rgba(191, 255, 226, 0.54) 2px, transparent 2px);
+  background-size: 9px 9px;
+}
+
+.public-content-page .contact-horizon-landmark {
+  position: relative;
+  flex: 0 0 30%;
+  height: 88%;
+}
+
+.public-content-page .contact-horizon-tower {
+  position: absolute;
+  bottom: 0;
+  width: 25%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  background: linear-gradient(180deg, rgba(109, 122, 208, 0.96), rgba(18, 26, 67, 0.98));
+}
+
+.public-content-page .contact-horizon-tower--one {
+  left: 4%;
+  height: 78%;
+  transform: skewX(-2deg);
+}
+
+.public-content-page .contact-horizon-tower--two {
+  left: 37.5%;
+  height: 88%;
+}
+
+.public-content-page .contact-horizon-tower--three {
+  right: 4%;
+  height: 72%;
+  transform: skewX(2deg);
+}
+
+.public-content-page .contact-horizon-skypark {
+  position: absolute;
+  top: 4%;
+  left: 0;
+  width: 100%;
+  height: 13%;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 60% 28% 46% 38% / 70% 54% 46% 44%;
+  background: linear-gradient(90deg, rgba(83, 231, 166, 0.88), rgba(119, 123, 228, 0.94));
+  box-shadow: 0 8px 22px rgba(4, 9, 30, 0.36);
+  transform: rotate(-2deg);
+}
+
+.public-content-page .contact-horizon-reflections {
+  position: absolute;
+  right: 9%;
+  bottom: 6%;
+  left: 9%;
+  height: 12%;
+  display: flex;
+  justify-content: space-around;
+  overflow: hidden;
+  opacity: 0.52;
+  mask-image: linear-gradient(to bottom, #000, transparent);
+}
+
+.public-content-page .contact-horizon-reflections > span {
+  width: 10%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(132, 151, 240, 0.58), transparent);
+  clip-path: polygon(18% 0, 82% 0, 100% 100%, 0 100%);
+}
+
+@keyframes contactHorizonGlow {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes contactHorizonPin {
+  0%, 100% {
+    transform: rotate(-45deg) translate(0, 0);
+  }
+  50% {
+    transform: rotate(-45deg) translate(3px, -3px);
+  }
+}
+
 .public-content-page .public-section {
   padding: clamp(72px, 9vw, 132px) clamp(24px, 8vw, 132px);
 }
@@ -2156,6 +2410,10 @@ body.public-content-page {
   .public-content-page .story-orbit {
     width: min(76vw, 500px);
   }
+
+  .public-content-page .contact-horizon {
+    width: min(76vw, 500px);
+  }
 }
 
 @media (max-width: 660px) {
@@ -2214,6 +2472,15 @@ body.public-content-page {
     width: min(92vw, 420px);
   }
 
+  .public-content-page .contact-horizon {
+    width: min(92vw, 420px);
+    border-radius: 26px;
+  }
+
+  .public-content-page .contact-horizon-label {
+    font-size: 0.64rem;
+  }
+
   .public-content-page .vision-grid {
     grid-template-columns: 1fr;
   }
@@ -2236,6 +2503,11 @@ body.public-content-page {
 
 @media (prefers-reduced-motion: reduce) {
   .public-content-page .story-orbit-node {
+    animation: none;
+  }
+
+  .public-content-page .contact-horizon-glow,
+  .public-content-page .contact-horizon-pin {
     animation: none;
   }
 

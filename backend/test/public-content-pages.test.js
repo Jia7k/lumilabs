@@ -1111,6 +1111,16 @@ function assertPublicResponsiveContract(publicCss) {
   ]) {
     assert.equal(cssProperty(narrow, selector, 'grid-template-columns'), '1fr', selector);
   }
+  assert.equal(
+    cssProperty(compact, '.public-content-page .contact-horizon', 'width'),
+    'min(76vw, 500px)',
+    '979px safely scales the Contact horizon',
+  );
+  assert.equal(
+    cssProperty(narrow, '.public-content-page .contact-horizon', 'width'),
+    'min(92vw, 420px)',
+    '660px safely scales the Contact horizon',
+  );
 }
 
 function assertPublicStylesheetContract(css) {
@@ -1941,6 +1951,7 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
     '.public-content-page .public-menu',
     '.public-content-page .public-hero',
     '.public-content-page .story-orbit',
+    '.public-content-page .contact-horizon',
     '.public-content-page .about-journey',
     '.public-content-page .about-vision',
     '.public-content-page .vision-grid',
@@ -1968,11 +1979,41 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
     cssProperty(base, '.public-content-page .about-vision', 'grid-template-columns'),
     'minmax(250px, 0.75fr) minmax(0, 1.25fr)',
   );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-horizon', 'overflow'),
+    'hidden',
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-horizon', 'isolation'),
+    'isolate',
+  );
+  assert.match(
+    cssProperty(base, '.public-content-page .contact-horizon', 'width'),
+    /min\(100%,\s*520px\)/,
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-horizon-scene', 'position'),
+    'absolute',
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-horizon-skyline', 'display'),
+    'flex',
+  );
+  assert.equal(
+    cssProperty(base, '.public-content-page .contact-horizon-reflections', 'overflow'),
+    'hidden',
+  );
   const reducedMotion = cssMediaRules(publicCss, '(prefers-reduced-motion: reduce)');
   assert.equal(
     cssProperty(reducedMotion, '.public-content-page .story-orbit-node', 'animation'),
     'none',
   );
+  for (const selector of [
+    '.public-content-page .contact-horizon-glow',
+    '.public-content-page .contact-horizon-pin',
+  ]) {
+    assert.equal(cssProperty(reducedMotion, selector, 'animation'), 'none', selector);
+  }
 
   for (const [selector, expected] of [
     ['.public-content-page .public-menu summary', '44px'],
