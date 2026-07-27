@@ -490,38 +490,239 @@ function classifyModuleSpecifier(specifier) {
   return 'bare';
 }
 
-function resolvePackageImportsAlias(fromFile, load, root) {
-  if (load.kind !== 'commonjs') {
-    throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
-  }
-
+function packageSelfReference(fromFile, specifier, root) {
   const packageJson = nearestPackageJson(fromFile, root);
-  const mapping = packageJson?.value.imports?.[load.specifier];
+  const packageName = packageJson?.value.name;
   if (
-    !packageJson
-    || typeof mapping !== 'string'
-    || !mapping.startsWith('./')
+    typeof packageName !== 'string'
+    || packageName.length === 0
+    || !Object.hasOwn(packageJson.value, 'exports')
   ) {
+    return null;
+  }
+  return (
+    specifier === packageName
+    || specifier.startsWith(`${packageName}/`)
+  )
+    ? packageJson
+    : null;
+}
+
+const PACKAGE_TARGET_NO_MATCH = Symbol('package target has no matching condition');
+const PACKAGE_TARGET_BLOCKED = Symbol('package target is blocked');
+
+function advancePackageTargetState(state) {
+  state.steps += 1;
+  if (state.steps > MAX_DEPENDENCY_RESOLUTION_STEPS) {
+    throw new Error(
+      `dependency resolution exceeds ${MAX_DEPENDENCY_RESOLUTION_STEPS} steps`
+    );
+  }
+}
+
+function matchPackageImportsTarget(imports, specifier, state) {
+  if (!imports || typeof imports !== 'object' || Array.isArray(imports)) {
+    throw new Error(`invalid package imports map for ${specifier}`);
+  }
+  if (Object.hasOwn(imports, specifier) && !specifier.includes('*')) {
+    return { patternMatch: null, target: imports[specifier] };
+  }
+
+  const matches = [];
+  for (const [key, target] of Object.entries(imports)) {
+    advancePackageTargetState(state);
+    const wildcardCount = [...key].filter((character) => character === '*').length;
+    if (wildcardCount > 1) {
+      throw new Error(`unsupported package imports pattern: ${key}`);
+    }
+    if (wildcardCount !== 1) continue;
+
+    const wildcardIndex = key.indexOf('*');
+    const prefix = key.slice(0, wildcardIndex);
+    const trailer = key.slice(wildcardIndex + 1);
+    if (
+      specifier.length < prefix.length + trailer.length
+      || !specifier.startsWith(prefix)
+      || !specifier.endsWith(trailer)
+    ) {
+      continue;
+    }
+    matches.push({
+      key,
+      patternMatch: specifier.slice(
+        prefix.length,
+        specifier.length - trailer.length
+      ),
+      prefixLength: prefix.length,
+      target,
+    });
+  }
+  matches.sort((left, right) => (
+    right.prefixLength - left.prefixLength
+    || right.key.length - left.key.length
+  ));
+  return matches[0] || null;
+}
+
+function selectPackageImportsTarget(target, conditions, patternMatch, state, inArray = false) {
+  advancePackageTargetState(state);
+  if (target === null) {
+    return inArray ? PACKAGE_TARGET_NO_MATCH : PACKAGE_TARGET_BLOCKED;
+  }
+  if (typeof target === 'string') {
+    if (patternMatch === null && target.includes('*')) {
+      throw new Error('package imports target has a wildcard without a pattern key');
+    }
+    return patternMatch === null
+      ? target
+      : target.replaceAll('*', patternMatch);
+  }
+  if (Array.isArray(target)) {
+    if (target.length === 0) return PACKAGE_TARGET_BLOCKED;
+    for (const fallback of target) {
+      const selected = selectPackageImportsTarget(
+        fallback,
+        conditions,
+        patternMatch,
+        state,
+        true
+      );
+      if (selected !== PACKAGE_TARGET_NO_MATCH) return selected;
+    }
+    return PACKAGE_TARGET_BLOCKED;
+  }
+  if (!target || typeof target !== 'object') {
+    throw new Error('unsupported package imports target type');
+  }
+
+  const keys = Object.keys(target);
+  if (keys.some((key) => key.startsWith('.') || key.startsWith('#'))) {
+    throw new Error('unsupported package imports target object');
+  }
+  for (const condition of keys) {
+    advancePackageTargetState(state);
+    if (condition !== 'default' && !conditions.has(condition)) continue;
+    const selected = selectPackageImportsTarget(
+      target[condition],
+      conditions,
+      patternMatch,
+      state
+    );
+    if (selected !== PACKAGE_TARGET_NO_MATCH) return selected;
+  }
+  return PACKAGE_TARGET_NO_MATCH;
+}
+
+function inspectLocalPackageImportsTarget(packageJson, target, root) {
+  if (
+    target.includes('\\')
+    || target.split(/[?#]/, 1)[0]
+      .split('/')
+      .slice(1)
+      .some((segment) => (
+        segment === '.'
+        || segment === '..'
+        || segment.toLowerCase() === 'node_modules'
+      ))
+  ) {
+    throw new Error(`unsupported local package imports target: ${target}`);
+  }
+
+  let candidate;
+  try {
+    const targetUrl = new URL(target, pathToFileURL(packageJson.path));
+    if (targetUrl.protocol !== 'file:') {
+      throw new Error(`unsupported protocol ${targetUrl.protocol}`);
+    }
+    candidate = fileURLToPath(targetUrl);
+  } catch (error) {
+    throw new Error(`invalid local package imports target ${target}: ${error.message}`);
+  }
+  if (pathEscapesRoot(path.dirname(packageJson.path), candidate)) {
+    throw new Error(`local package imports target escapes package: ${target}`);
+  }
+
+  const inspected = inspectDependencyPath(candidate, root);
+  if (!inspected?.stats.isFile()) {
+    throw new Error(`Cannot resolve local package imports target ${target}`);
+  }
+  return inspected;
+}
+
+function resolvePackageImportsAlias(fromFile, load, root) {
+  const packageJson = nearestPackageJson(fromFile, root);
+  if (!packageJson) {
     throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
   }
 
-  let resolved;
-  try {
-    resolved = createRequire(fromFile).resolve(load.specifier);
-  } catch {
+  const state = createCandidateState(root);
+  const mapping = matchPackageImportsTarget(
+    packageJson.value.imports,
+    load.specifier,
+    state
+  );
+  if (!mapping) {
     throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
   }
-  const inspected = inspectDependencyPath(resolved, root);
-  const lexicalTarget = inspectDependencyPath(
-    path.resolve(path.dirname(packageJson.path), mapping),
+  const conditions = new Set(
+    load.kind === 'commonjs'
+      ? ['node', 'require']
+      : ['node', 'import']
+  );
+  const target = selectPackageImportsTarget(
+    mapping.target,
+    conditions,
+    mapping.patternMatch,
+    state
+  );
+  if (target === PACKAGE_TARGET_BLOCKED) {
+    throw new Error(`blocked package imports alias ${load.specifier} from ${fromFile}`);
+  }
+  if (target === PACKAGE_TARGET_NO_MATCH) {
+    throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
+  }
+
+  const targetType = classifyModuleSpecifier(target);
+  if (targetType === 'builtin' || targetType === 'bare') {
+    if (target.length === 0) {
+      throw new Error(`unsupported package imports target: ${target}`);
+    }
+    if (
+      targetType === 'bare'
+      && packageSelfReference(fromFile, target, root)
+    ) {
+      throw new Error(
+        `package self-reference is forbidden: ${target} from ${fromFile}`
+      );
+    }
+    return {
+      target: null,
+      metadataFiles: [packageJson.path],
+    };
+  }
+  if (targetType !== 'relative' || !target.startsWith('./')) {
+    throw new Error(`unsupported package imports target: ${target}`);
+  }
+
+  const lexicalTarget = inspectLocalPackageImportsTarget(
+    packageJson,
+    target,
     root
   );
-  if (
-    !inspected?.stats.isFile()
-    || !lexicalTarget?.stats.isFile()
-    || inspected.path !== lexicalTarget.path
-  ) {
-    throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
+  if (load.kind === 'commonjs') {
+    let nodeResolved;
+    try {
+      nodeResolved = createRequire(fromFile).resolve(load.specifier);
+    } catch {
+      throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
+    }
+    const inspectedNodeTarget = inspectDependencyPath(nodeResolved, root);
+    if (
+      !inspectedNodeTarget?.stats.isFile()
+      || inspectedNodeTarget.realPath !== lexicalTarget.realPath
+    ) {
+      throw new Error(`Cannot resolve package imports alias ${load.specifier} from ${fromFile}`);
+    }
   }
   return {
     target: lexicalTarget.path,
@@ -562,7 +763,15 @@ function staticRequiresReachableFrom(entryRelativePath, root = repositoryDir) {
     const relativeCurrent = path.relative(absoluteRoot, current).split(path.sep).join('/');
     for (const load of literalModuleLoads(source, relativeCurrent, absoluteRoot)) {
       const specifierType = classifyModuleSpecifier(load.specifier);
-      if (specifierType === 'builtin' || specifierType === 'bare') continue;
+      if (specifierType === 'builtin') continue;
+      if (specifierType === 'bare') {
+        if (packageSelfReference(current, load.specifier, absoluteRoot)) {
+          throw new Error(
+            `package self-reference is forbidden: ${load.specifier} from ${current}`
+          );
+        }
+        continue;
+      }
       if (
         specifierType === 'absolute'
         || specifierType === 'file'
@@ -575,7 +784,8 @@ function staticRequiresReachableFrom(entryRelativePath, root = repositoryDir) {
       const resolved = specifierType === 'imports'
         ? resolvePackageImportsAlias(current, load, absoluteRoot)
         : resolveLocalModule(current, load, absoluteRoot);
-      pending.push(...resolved.metadataFiles, resolved.target);
+      pending.push(...resolved.metadataFiles);
+      if (resolved.target) pending.push(resolved.target);
     }
   }
   return [...visited]
@@ -1205,6 +1415,240 @@ test('dependency graph fails closed on an unresolved package imports alias', (co
   assert.throws(
     () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.js'), fixtureRoot),
     /Cannot resolve package imports alias #missing/
+  );
+});
+
+test('dependency graph rejects a scoped CommonJS package self-reference', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-self-cjs-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      name: '@scope/self-package',
+      exports: {
+        './local': './mapped.cjs',
+      },
+    }),
+    'entry.cjs': "require('@scope/self-package/local');\n",
+    'mapped.cjs': "require('./mapped-leaf.js');\n",
+    'mapped-leaf.js': 'module.exports = true;\n',
+  });
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.cjs'), fixtureRoot),
+    /package self-reference is forbidden: @scope\/self-package\/local/
+  );
+});
+
+test('dependency graph rejects an ESM package self-reference', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-self-esm-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      name: 'self-package',
+      type: 'module',
+      exports: {
+        './local': './mapped.mjs',
+      },
+    }),
+    'entry.mjs': "import 'self-package/local';\n",
+    'mapped.mjs': "import './mapped-leaf.mjs';\n",
+    'mapped-leaf.mjs': 'export const leaf = true;\n',
+  });
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    /package self-reference is forbidden: self-package\/local/
+  );
+});
+
+test('dependency graph does not misclassify an ordinary package sharing a self-reference prefix', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-self-prefix-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      name: '@scope/self',
+      exports: {
+        './local': './mapped.cjs',
+      },
+    }),
+    'entry.cjs': "require('@scope/selfish/local');\n",
+    'mapped.cjs': 'module.exports = true;\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.cjs'), fixtureRoot),
+    ['entry.cjs']
+  );
+});
+
+test('dependency graph resolves an exact ESM package imports alias transitively', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-esm-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'module',
+      imports: {
+        '#local': './mapped.mjs',
+      },
+    }),
+    'entry.mjs': "import '#local';\n",
+    'mapped.mjs': "import './leaf.mjs';\n",
+    'leaf.mjs': 'export const leaf = true;\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    ['entry.mjs', 'leaf.mjs', 'mapped.mjs', 'package.json']
+  );
+});
+
+test('dependency graph applies ordered require and import package imports conditions', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-conditions-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'commonjs',
+      imports: {
+        '#conditional': {
+          require: './require-target.cjs',
+          import: './import-target.mjs',
+          default: './default-target.js',
+        },
+      },
+    }),
+    'entry.js': [
+      "require('#conditional');",
+      "import('#conditional');",
+    ].join('\n'),
+    'require-target.cjs': "require('./require-leaf.json');\n",
+    'require-leaf.json': '{"kind":"require"}\n',
+    'import-target.mjs': "import './import-leaf.mjs';\n",
+    'import-leaf.mjs': 'export const kind = "import";\n',
+    'default-target.js': 'module.exports = "wrong";\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.js'), fixtureRoot),
+    [
+      'entry.js',
+      'import-leaf.mjs',
+      'import-target.mjs',
+      'package.json',
+      'require-leaf.json',
+      'require-target.cjs',
+    ]
+  );
+});
+
+test('dependency graph resolves the most specific ESM package imports pattern', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-pattern-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'module',
+      imports: {
+        '#features/*': './wrong/*.mjs',
+        '#features/*.js': './features/*.mjs',
+      },
+    }),
+    'entry.mjs': "import '#features/tool.js';\n",
+    'features/tool.mjs': "import './tool-leaf.mjs';\n",
+    'features/tool-leaf.mjs': 'export const leaf = true;\n',
+    'wrong/tool.js.mjs': 'export const wrong = true;\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    [
+      'entry.mjs',
+      'features/tool-leaf.mjs',
+      'features/tool.mjs',
+      'package.json',
+    ]
+  );
+});
+
+test('dependency graph follows an ordered package imports array fallback', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-array-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'module',
+      imports: {
+        '#fallback': [null, './fallback.mjs'],
+      },
+    }),
+    'entry.mjs': "import '#fallback';\n",
+    'fallback.mjs': "import './fallback-leaf.mjs';\n",
+    'fallback-leaf.mjs': 'export const leaf = true;\n',
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    ['entry.mjs', 'fallback-leaf.mjs', 'fallback.mjs', 'package.json']
+  );
+});
+
+test('dependency graph rejects a blocked package imports alias', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-blocked-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'module',
+      imports: {
+        '#blocked': null,
+      },
+    }),
+    'entry.mjs': "import '#blocked';\n",
+  });
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    /blocked package imports alias #blocked/
+  );
+});
+
+test('dependency graph deliberately skips an external package imports target', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-external-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      type: 'module',
+      imports: {
+        '#external': 'external-package/subpath',
+      },
+    }),
+    'entry.mjs': "import '#external';\n",
+  });
+
+  assert.deepEqual(
+    staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    ['entry.mjs', 'package.json']
+  );
+});
+
+test('dependency graph rejects a package imports target that is a self-reference', (context) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumilabs-imports-self-'));
+  context.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  writeDependencyFixture(fixtureRoot, {
+    'package.json': JSON.stringify({
+      name: 'self-package',
+      type: 'module',
+      exports: {
+        './local': './mapped.mjs',
+      },
+      imports: {
+        '#self': 'self-package/local',
+      },
+    }),
+    'entry.mjs': "import '#self';\n",
+    'mapped.mjs': "import './mapped-leaf.mjs';\n",
+    'mapped-leaf.mjs': 'export const leaf = true;\n',
+  });
+
+  assert.throws(
+    () => staticRequiresReachableFrom(path.join(fixtureRoot, 'entry.mjs'), fixtureRoot),
+    /package self-reference is forbidden: self-package\/local/
   );
 });
 
