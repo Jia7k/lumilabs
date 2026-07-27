@@ -1365,7 +1365,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
       attributes: {
         name: 'name',
         type: 'text',
-        maxlength: '100',
+        'data-max-code-points': '100',
         placeholder: 'Your name',
         autocomplete: 'name',
         'aria-describedby': 'contact-name-error',
@@ -1379,7 +1379,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
       attributes: {
         name: 'email',
         type: 'email',
-        maxlength: '255',
+        'data-max-code-points': '255',
         placeholder: 'your@email.com',
         autocomplete: 'email',
         'aria-describedby': 'contact-email-error',
@@ -1392,7 +1392,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
       label: 'Message (optional)',
       attributes: {
         name: 'message',
-        maxlength: '5000',
+        'data-max-code-points': '5000',
         placeholder: 'How can we help you?',
         'aria-describedby': 'contact-message-error',
       },
@@ -1409,6 +1409,11 @@ test('Contact preserves its details, map fallback and accessible form contract',
     for (const [name, value] of Object.entries(contract.attributes)) {
       assert.equal(field.attributes[name], value, `${contract.id}: ${name}`);
     }
+    assert.equal(
+      hasAttribute(field, 'maxlength'),
+      false,
+      `${contract.id}: native maxlength must not truncate astral code points`,
+    );
     assert.equal(hasAttribute(field, 'required'), contract.required, `${contract.id}: required state`);
     const label = findOne(
       form,

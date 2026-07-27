@@ -13,6 +13,7 @@ const CONTACT_FIELD_MESSAGES = Object.freeze({
     "Message must be 5,000 characters or fewer.",
   ]),
 });
+const contactFormBindings = new WeakMap();
 
 function contactCharacterCount(value) {
   return [...value].length;
@@ -71,6 +72,8 @@ function contactServerErrors(error) {
 function initializeContactForm({ root = document, api = API } = {}) {
   const form = root.getElementById("contact-form");
   if (!form) return null;
+  const existingBinding = contactFormBindings.get(form);
+  if (existingBinding) return existingBinding;
 
   const fields = {
     name: root.getElementById("contact-name"),
@@ -178,7 +181,9 @@ function initializeContactForm({ root = document, api = API } = {}) {
   });
 
   syncEligibility();
-  return { syncEligibility };
+  const binding = { syncEligibility };
+  contactFormBindings.set(form, binding);
+  return binding;
 }
 
 initializeContactForm();

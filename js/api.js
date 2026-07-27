@@ -13,15 +13,31 @@ let signInTransitionStarted = false;
 class ApiRequestError extends Error {
   constructor(
     message,
-    { status = null, isNetworkError = false, fields = null } = {},
+    { status = null, isNetworkError = false, fields } = {},
   ) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
     this.isNetworkError = isNetworkError;
-    this.fields = fields;
+    if (fields !== undefined) this.fields = fields;
   }
 }
+
+const CONTACT_VALIDATION_MESSAGES = Object.freeze({
+  name: Object.freeze([
+    "Enter your name.",
+    "Name must be 100 characters or fewer.",
+  ]),
+  email: Object.freeze([
+    "Enter your email address.",
+    "Email must be 255 characters or fewer.",
+    "Enter a valid email address.",
+  ]),
+  message: Object.freeze([
+    "Message must be text.",
+    "Message must be 5,000 characters or fewer.",
+  ]),
+});
 
 function dashboardForRole(role) {
   return ROLE_DASHBOARDS[role] || "index.html";
@@ -154,17 +170,84 @@ async function apiFetch(path, options = {}) {
       data?.error ||
       data?.errors?.[0]?.msg ||
       `Request failed (${response.status})`;
-    const fields =
-      data?.errors
-      && typeof data.errors === "object"
-      && !Array.isArray(data.errors)
-        ? data.errors
-        : null;
     if (response.status === 401) redirectToSignIn();
-    throw new ApiRequestError(message, { status: response.status, fields });
+    throw new ApiRequestError(message, { status: response.status });
   }
 
   return data;
+}
+
+function contactValidationFields(status, data) {
+  if (
+    status !== 400
+    || !data?.errors
+    || typeof data.errors !== "object"
+    || Array.isArray(data.errors)
+  ) {
+    return undefined;
+  }
+
+  const safeFields = {};
+  for (const [name, message] of Object.entries(data.errors)) {
+    if (!Object.hasOwn(CONTACT_VALIDATION_MESSAGES, name)) continue;
+    if (!CONTACT_VALIDATION_MESSAGES[name].includes(message)) continue;
+    safeFields[name] = message;
+  }
+  return Object.keys(safeFields).length ? safeFields : undefined;
+}
+
+async function submitContactRequest(payload = {}) {
+  const publicPayload = {
+    name: payload?.name,
+    email: payload?.email,
+    message: payload?.message,
+    company_website: payload?.company_website,
+  };
+  let response;
+  try {
+    response = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(publicPayload),
+    });
+  } catch {
+    throw new ApiRequestError(
+      "Unable to reach Lumi5 Labs. Check your connection and retry.",
+      { isNetworkError: true },
+    );
+  }
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // The exact success contract below rejects empty and non-JSON responses.
+  }
+
+  if (!response.ok) {
+    const fields = contactValidationFields(response.status, data);
+    throw new ApiRequestError(
+      `Request failed (${response.status})`,
+      { status: response.status, fields },
+    );
+  }
+
+  const responseKeys =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? Object.keys(data)
+      : [];
+  if (
+    response.status !== 201
+    || responseKeys.length !== 1
+    || responseKeys[0] !== "message"
+    || data.message !== "Message received"
+  ) {
+    throw new ApiRequestError(
+      "Contact service returned an invalid response.",
+      { status: response.status },
+    );
+  }
+  return { message: "Message received" };
 }
 
 async function downloadDocument(downloadUrl, fileName) {
@@ -205,16 +288,7 @@ async function downloadDocument(downloadUrl, fileName) {
 
 const API = {
   // Public Contact
-  submitContact: async (payload) => {
-    const result = await apiFetch("/contact", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    if (result?.message !== "Message received") {
-      throw new ApiRequestError("Contact service returned an invalid response.");
-    }
-    return { message: "Message received" };
-  },
+  submitContact: submitContactRequest,
 
   // Auth
   getCurrentUser: () => apiFetch("/auth/me"),

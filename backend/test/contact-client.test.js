@@ -4,23 +4,48 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(
+const rawSource = fs.readFileSync(
   path.join(__dirname, '..', '..', 'js', 'contact.js'),
   'utf8',
-).replace(/\ninitializeContactForm\(\);\s*$/, '\n');
+);
+const source = rawSource.replace(/\ninitializeContactForm\(\);\s*$/, '\n');
+const contactPageSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'contact.html'),
+  'utf8',
+);
+
+function contactFieldConstraint(id) {
+  const markup = contactPageSource.match(
+    new RegExp(`<(?:input|textarea)\\b[^>]*\\bid="${id}"[^>]*>`, 'i'),
+  )?.[0];
+  assert.ok(markup, `${id}: field markup`);
+  const maxlength = markup.match(/\bmaxlength="(\d+)"/i)?.[1];
+  const maxCodePoints = markup.match(/\bdata-max-code-points="(\d+)"/i)?.[1];
+  return {
+    maxLength: maxlength === undefined ? -1 : Number(maxlength),
+    maxCodePoints: maxCodePoints === undefined ? undefined : maxCodePoints,
+  };
+}
+
+function dispatch(node, name, event) {
+  return (node.listeners[name] || []).map((handler) => handler(event));
+}
 
 function element(value = '') {
   return {
     value,
     disabled: false,
     readOnly: false,
+    maxLength: -1,
+    dataset: {},
     textContent: '',
     className: '',
     attributes: {},
     listeners: {},
     focused: 0,
     addEventListener(name, handler) {
-      this.listeners[name] = handler;
+      if (!this.listeners[name]) this.listeners[name] = [];
+      this.listeners[name].push(handler);
     },
     setAttribute(name, nextValue) {
       this.attributes[name] = String(nextValue);
@@ -37,6 +62,7 @@ function element(value = '') {
 function formHarness({
   apiResult = { message: 'Message received' },
   submitContact,
+  automatic = false,
 } = {}) {
   const ids = [
     'contact-form',
@@ -51,10 +77,17 @@ function formHarness({
     'contact-status',
   ];
   const nodes = new Map(ids.map((id) => [id, element()]));
+  for (const id of ['contact-name', 'contact-email', 'contact-message']) {
+    const constraint = contactFieldConstraint(id);
+    nodes.get(id).maxLength = constraint.maxLength;
+    nodes.get(id).dataset.maxCodePoints = constraint.maxCodePoints;
+  }
   const form = nodes.get('contact-form');
+  let resetCount = 0;
   nodes.get('contact-submit').textContent = 'Send Message';
   nodes.get('contact-status').className = 'form-message';
   form.reset = () => {
+    resetCount += 1;
     for (const id of [
       'contact-name',
       'contact-email',
@@ -75,24 +108,35 @@ function formHarness({
   };
   const root = { getElementById: (id) => nodes.get(id) || null };
   const context = vm.createContext({ document: root, API: api, console });
-  vm.runInContext(source, context);
-  context.initializeContactForm({ root, api });
+  vm.runInContext(automatic ? rawSource : source, context);
+  if (!automatic) context.initializeContactForm({ root, api });
   return {
+    api,
     calls,
     context,
     nodes,
+    root,
+    get resetCount() {
+      return resetCount;
+    },
+    initialize() {
+      return context.initializeContactForm({ root, api });
+    },
     input() {
-      form.listeners.input({ target: form });
+      dispatch(form, 'input', { target: form });
     },
     userInput(id, value) {
       const node = nodes.get(id);
       if (node.readOnly) return false;
-      node.value = value;
-      form.listeners.input({ target: node });
+      node.value = node.maxLength >= 0 ? value.slice(0, node.maxLength) : value;
+      dispatch(form, 'input', { target: node });
       return true;
     },
+    submitEvent() {
+      return Promise.all(dispatch(form, 'submit', { preventDefault() {} }));
+    },
     async submit() {
-      await form.listeners.submit({ preventDefault() {} });
+      await this.submitEvent();
     },
   };
 }
@@ -118,6 +162,29 @@ test('button eligibility follows all field rules without showing errors while ty
   client.input();
   assert.equal(button.disabled, true);
   assert.equal(client.nodes.get('contact-message-error').textContent, '');
+});
+
+test('native field constraints preserve the exact astral code-point boundary', () => {
+  const client = formHarness();
+  client.userInput('contact-email', 'visitor@example.com');
+  client.userInput('contact-name', '🙂'.repeat(100));
+
+  assert.equal(client.nodes.get('contact-name').value, '🙂'.repeat(100));
+  assert.equal(client.nodes.get('contact-name').dataset.maxCodePoints, '100');
+  assert.equal(client.nodes.get('contact-submit').disabled, false);
+});
+
+test('automatic and explicit initialization bind one state machine per form', async () => {
+  const client = formHarness({ automatic: true });
+  client.initialize();
+  fillValidRequiredFields(client);
+  client.input();
+
+  await client.submit();
+
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.resetCount, 1);
+  assert.equal(client.nodes.get('contact-status').focused, 1);
 });
 
 test('invalid submit renders field guidance and focuses the first invalid field', async () => {
@@ -223,12 +290,8 @@ test('pending submission is single-flight and exposes Sending state', async () =
   const client = formHarness({ apiResult: pending });
   fillValidRequiredFields(client);
 
-  const first = client.nodes.get('contact-form').listeners.submit({
-    preventDefault() {},
-  });
-  const second = client.nodes.get('contact-form').listeners.submit({
-    preventDefault() {},
-  });
+  const first = client.submitEvent();
+  const second = client.submitEvent();
   await Promise.resolve();
 
   assert.equal(client.calls.length, 1);

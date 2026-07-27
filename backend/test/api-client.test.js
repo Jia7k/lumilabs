@@ -17,7 +17,7 @@ function response(status, payload) {
   };
 }
 
-function clientHarness() {
+function clientHarness({ apiBase } = {}) {
   const values = new Map([
     ['lumilabsToken', 'token'],
     ['lumilabsUser', '{"id":1}'],
@@ -48,7 +48,7 @@ function clientHarness() {
     },
   };
   const sandbox = {
-    window: { LUMILABS_API_BASE: undefined, location },
+    window: { LUMILABS_API_BASE: apiBase, location },
     localStorage: {
       getItem(key) {
         return values.get(key) ?? null;
@@ -178,6 +178,22 @@ test('apiFetch retains a status fallback when an error body is not JSON', async 
     return true;
   });
   assert.equal(client.values.get('lumilabsToken'), 'token');
+});
+
+test('non-Contact request errors do not retain structured response bodies', async () => {
+  const client = clientHarness();
+  client.context.fetch = async () => response(400, {
+    errors: {
+      email: 'private@example.com',
+      nested: { secret: 'do not retain' },
+    },
+  });
+
+  await assert.rejects(client.run("API.getCurrentUser()"), (error) => {
+    assert.equal(Object.hasOwn(error, 'fields'), false);
+    assert.doesNotMatch(JSON.stringify(error), /private|secret|nested/i);
+    return true;
+  });
 });
 
 test('requirePageRole returns a matching authenticated user', async () => {
@@ -364,7 +380,7 @@ test('browser API exposes no obsolete admin staff or manual chat lifecycle metho
 });
 
 test('submitContact posts the exact public payload to the shared API', async () => {
-  const client = clientHarness();
+  const client = clientHarness({ apiBase: 'https://hostile.example/api' });
   const requests = [];
   client.context.fetch = async (url, options) => {
     requests.push({ url, options });
@@ -376,7 +392,9 @@ test('submitContact posts the exact public payload to the shared API', async () 
       name: 'Visitor',
       email: 'visitor@example.com',
       message: 'Hello',
-      company_website: ''
+      company_website: '',
+      role: 'superadmin',
+      nested: { unsafe: true }
     })
   `);
 
@@ -396,7 +414,7 @@ test('submitContact posts the exact public payload to the shared API', async () 
   });
 });
 
-test('submitContact does not propagate unexpected success fields', async () => {
+test('submitContact rejects a success body with unexpected fields', async () => {
   const client = clientHarness();
   client.context.fetch = async () => response(201, {
     message: 'Message received',
@@ -404,12 +422,25 @@ test('submitContact does not propagate unexpected success fields', async () => {
     id: 42,
   });
 
-  const result = await client.run("API.submitContact({})");
-
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    message: 'Message received',
-  });
+  await assert.rejects(
+    client.run("API.submitContact({})"),
+    /Contact service returned an invalid response\./,
+  );
 });
+
+for (const status of [200, 204, 299]) {
+  test(`submitContact rejects HTTP ${status} despite a success acknowledgement`, async () => {
+    const client = clientHarness();
+    client.context.fetch = async () => response(status, {
+      message: 'Message received',
+    });
+
+    await assert.rejects(
+      client.run("API.submitContact({})"),
+      /Contact service returned an invalid response\./,
+    );
+  });
+}
 
 test('submitContact rejects malformed and non-JSON success responses safely', async () => {
   const client = clientHarness();
@@ -442,12 +473,16 @@ test('submitContact rejects malformed and non-JSON success responses safely', as
   }
 });
 
-test('apiFetch preserves structured validation fields for a safe client mapper', async () => {
+test('submitContact retains only own allowlisted exact validation fields', async () => {
   const client = clientHarness();
   client.context.fetch = async () => response(400, {
-    errors: {
-      email: 'Enter a valid email address.',
-    },
+    errors: JSON.parse(`{
+      "email": "Enter a valid email address.",
+      "name": "<unsafe name detail>",
+      "unknown": "unsafe unknown detail",
+      "constructor": "unsafe prototype detail",
+      "__proto__": "unsafe prototype detail"
+    }`),
   });
 
   await assert.rejects(client.run("API.submitContact({})"), (error) => {
@@ -456,6 +491,7 @@ test('apiFetch preserves structured validation fields for a safe client mapper',
       JSON.parse(JSON.stringify(error.fields)),
       { email: 'Enter a valid email address.' },
     );
+    assert.doesNotMatch(JSON.stringify(error), /unsafe|unknown|prototype/i);
     return true;
   });
 });
