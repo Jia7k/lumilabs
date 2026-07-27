@@ -655,6 +655,158 @@ function effectiveCssPropertyOrInitial(
     : winningCssCandidate(candidates, property).value;
 }
 
+function effectiveCssCustomProperty(
+  css,
+  ancestry,
+  property,
+  viewportWidth,
+  styleRules,
+) {
+  assert.match(property, /^--[\w-]+$/, `invalid CSS custom property: ${property}`);
+  for (let index = ancestry.length - 1; index >= 0; index -= 1) {
+    const declaringAncestry = ancestry.slice(0, index + 1);
+    const candidates = cssCascadeCandidates(
+      css,
+      declaringAncestry,
+      viewportWidth,
+      [property],
+      styleRules,
+    );
+    if (candidates.length > 0) {
+      return {
+        ancestry: declaringAncestry,
+        value: winningCssCandidate(candidates, property).value,
+      };
+    }
+  }
+  return null;
+}
+
+function firstCssVarFunction(value) {
+  const match = value.match(/\bvar\s*\(/i);
+  if (!match) return null;
+  const open = value.indexOf('(', match.index);
+  const close = matchingDelimiter(value, open, '(', ')');
+  assert.notEqual(close, -1, `unclosed CSS var(): ${value}`);
+  const body = value.slice(open + 1, close);
+  let quote = null;
+  let depth = 0;
+  let separator = -1;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (quote) {
+      if (character === '\\') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === '(') depth += 1;
+    else if (character === ')') depth -= 1;
+    else if (character === ',' && depth === 0) {
+      separator = index;
+      break;
+    }
+    assert.ok(depth >= 0, `invalid CSS var(): ${value}`);
+  }
+  const property = body.slice(0, separator === -1 ? body.length : separator).trim();
+  assert.match(property, /^--[\w-]+$/, `unsupported CSS var() name: ${property}`);
+  return {
+    end: close + 1,
+    fallback: separator === -1 ? null : body.slice(separator + 1).trim(),
+    property,
+    start: match.index,
+  };
+}
+
+function resolveCssVariables(
+  css,
+  ancestry,
+  value,
+  label,
+  viewportWidth,
+  styleRules,
+  resolutionStack = [],
+) {
+  assert.ok(
+    resolutionStack.length < 64,
+    `${label}: CSS custom property resolution exceeded its bound`,
+  );
+  let resolved = value;
+  for (let replacements = 0; replacements < 64; replacements += 1) {
+    const variable = firstCssVarFunction(resolved);
+    if (!variable) return resolved;
+    const declaration = effectiveCssCustomProperty(
+      css,
+      ancestry,
+      variable.property,
+      viewportWidth,
+      styleRules,
+    );
+    let replacement;
+    if (!declaration) {
+      assert.notEqual(
+        variable.fallback,
+        null,
+        `${label}: unresolved CSS custom property ${variable.property}`,
+      );
+      replacement = resolveCssVariables(
+        css,
+        ancestry,
+        variable.fallback,
+        label,
+        viewportWidth,
+        styleRules,
+        resolutionStack,
+      );
+    } else {
+      const key = `${declaration.ancestry.length - 1}:${variable.property}`;
+      assert.ok(
+        !resolutionStack.includes(key),
+        `${label}: cyclic CSS custom property ${variable.property}`,
+      );
+      replacement = resolveCssVariables(
+        css,
+        declaration.ancestry,
+        declaration.value,
+        label,
+        viewportWidth,
+        styleRules,
+        [...resolutionStack, key],
+      );
+    }
+    resolved = (
+      resolved.slice(0, variable.start)
+      + replacement
+      + resolved.slice(variable.end)
+    );
+    assert.ok(
+      resolved.length <= 10000,
+      `${label}: resolved CSS value exceeds its size bound`,
+    );
+  }
+  assert.fail(`${label}: CSS custom property replacement exceeded its bound`);
+}
+
+function cssResolvedColorAt(
+  css,
+  ancestry,
+  value,
+  label,
+  viewportWidth,
+  styleRules,
+) {
+  const resolved = resolveCssVariables(
+    css,
+    ancestry,
+    value,
+    label,
+    viewportWidth,
+    styleRules,
+  );
+  assert.doesNotMatch(resolved, /\bvar\s*\(/i, `${label}: unresolved CSS var()`);
+  return cssColorFromValue(css, resolved, label);
+}
+
 function cssColorFromValue(css, value, label) {
   const match = value.match(
     /(#[\da-f]{8}(?![\da-f])|#[\da-f]{6}(?![\da-f])|#[\da-f]{4}(?![\da-f])|#[\da-f]{3}(?![\da-f])|var\((--[\w-]+)\)|rgba?\([^)]*\)|transparent)/i,
@@ -864,11 +1016,15 @@ function messageStateAncestry(file, id, stateClass = null) {
   );
   assert.ok(path, `${file}: ${id} ancestry`);
   const ancestry = path.map((node) => elementFromHtmlNode(node));
+  const root = ancestry.find((candidate) => candidate.tag === 'html');
+  assert.ok(root, `${file}: root element`);
+  root.pseudos.push('root');
   const message = ancestry.at(-1);
   assert.ok(message.classes.includes('form-message'), `${id}: form-message class`);
   message.classes = message.classes
     .filter((className) => !['success', 'error'].includes(className));
   if (stateClass) message.classes.push(stateClass);
+  message.attributes.class = message.classes.join(' ');
   return ancestry;
 }
 
@@ -1072,15 +1228,21 @@ function assertContactStatusContract(css) {
       `${state} Contact status has a non-zero rendered height`,
     );
 
-    const foreground = cssColorFromValue(
+    const foreground = cssResolvedColorAt(
       css,
+      ancestry,
       effectiveCssProperty(css, ancestry, 'color', 1024, styleRules),
       `${state} Contact status text`,
+      1024,
+      styleRules,
     );
-    const background = cssColorFromValue(
+    const background = cssResolvedColorAt(
       css,
+      ancestry,
       effectiveCssProperty(css, ancestry, 'background', 1024, styleRules),
       `${state} Contact status background`,
+      1024,
+      styleRules,
     );
     assert.ok(
       contrastRatio(foreground, background) >= 4.5,
@@ -1876,6 +2038,64 @@ test('contact field errors remain visible after the full CSS cascade', () => {
 
 test('contact status feedback remains visible and focusable after the full CSS cascade', () => {
   assertContactStatusContract(read('css/style.css'));
+});
+
+test('contact status contract rejects effective full-cascade overrides', async (t) => {
+  const css = read('css/style.css');
+
+  for (const state of ['success', 'error']) {
+    await t.test(`${state} class attribute selector hides the status`, () => {
+      const mutated = `${css}
+#contact-status[class~="${state}"] { display: none !important; }
+`;
+      assert.throws(
+        () => assertContactStatusContract(mutated),
+        new RegExp(`${state} Contact status is rendered`),
+      );
+    });
+  }
+
+  for (const [state, variable, lowContrastBackground] of [
+    ['success', '--green-bg', '#286745'],
+    ['error', '--red-bg', '#9d2118'],
+  ]) {
+    await t.test(`${state} page-scoped background variable loses AA contrast`, () => {
+      const mutated = `${css}
+.public-content-page .contact-form {
+  ${variable}: ${lowContrastBackground};
+}
+`;
+      assert.throws(
+        () => assertContactStatusContract(mutated),
+        new RegExp(`${state} Contact status text meets AA contrast`),
+      );
+    });
+  }
+
+  await t.test('custom-property fallback participates in contrast resolution', () => {
+    const mutated = `${css}
+.public-content-page .contact-form {
+  --green-bg: var(--missing-contact-bg, #286745);
+}
+`;
+    assert.throws(
+      () => assertContactStatusContract(mutated),
+      /success Contact status text meets AA contrast/,
+    );
+  });
+
+  await t.test('cyclic custom properties fail closed', () => {
+    const mutated = `${css}
+.public-content-page .contact-form {
+  --green-bg: var(--contact-feedback-cycle);
+  --contact-feedback-cycle: var(--green-bg);
+}
+`;
+    assert.throws(
+      () => assertContactStatusContract(mutated),
+      /cyclic CSS custom property/,
+    );
+  });
 });
 
 test('contact contrast contract rejects effective overrides and invisible borders', async (t) => {
