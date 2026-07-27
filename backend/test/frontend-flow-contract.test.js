@@ -555,7 +555,6 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
     '\\.landing-section-heading > p:last-child',
     '\\.landing-audience-card p',
     '\\.landing-steps-grid p',
-    '\\.landing-footer',
   ]) {
     assert.match(
       css,

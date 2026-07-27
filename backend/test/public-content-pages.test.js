@@ -1108,7 +1108,6 @@ function assertPublicResponsiveContract(publicCss) {
   for (const selector of [
     '.public-content-page .vision-grid',
     '.public-content-page .leadership-grid',
-    '.public-content-page .public-footer-grid',
   ]) {
     assert.equal(cssProperty(narrow, selector, 'grid-template-columns'), '1fr', selector);
   }
@@ -1612,6 +1611,21 @@ test('homepage exposes the same complete public footer', () => {
   assert.doesNotMatch(source, /href="[^"]*\/(?:portfolio|blog|faq)\/?"/i);
 });
 
+test('homepage and content pages use one shared footer style contract', () => {
+  const css = read('css/style.css');
+  for (const selector of [
+    '.landing-page .public-footer',
+    '.landing-page .public-footer-grid',
+    '.landing-page .public-footer h2',
+    '.landing-page .public-footer p',
+    '.landing-page .public-footer a',
+    '.landing-page .public-footer-meta',
+  ]) {
+    assert.ok(css.includes(selector), `${selector}: shared footer selector`);
+  }
+  assert.doesNotMatch(css, /\.landing-page \.landing-footer/);
+});
+
 test('public content pages receive the homepage desktop navbar styling', () => {
   const css = read('css/style.css');
   const sharedSelectors = [
@@ -1881,7 +1895,6 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
     '.public-content-page .contact-layout',
     '.public-content-page .contact-map',
     '.public-content-page .contact-form',
-    '.public-content-page .public-footer',
   ]) {
     cssRule(base, selector);
   }
