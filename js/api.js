@@ -1,4 +1,5 @@
-const SHARED_API_BASE = window.LUMILABS_API_BASE || "/api";
+const SHARED_API_BASE = window.LUMILABS_API_BASE ||
+  (location.port === "5501" ? "http://127.0.0.1:3000/api" : "/api");
 
 const ROLE_DASHBOARDS = Object.freeze({
   business_owner: "businessownerdashboard.html",

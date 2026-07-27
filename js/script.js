@@ -1,4 +1,5 @@
-const API_BASE = window.LUMILABS_API_BASE || '/api';
+const API_BASE = window.LUMILABS_API_BASE ||
+  (location.port === "5501" ? "http://127.0.0.1:3000/api" : "/api");
 
 const AUTH_LIMITS = Object.freeze({
   NAME_CHARS: 100,

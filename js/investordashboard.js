@@ -39,8 +39,8 @@ function managedChatAction(interest) {
     return `<a class="managed-chat-action managed-chat-action--compact managed-chat-archived" href="messages.html?conversation=${conversationId}"><i class="ti ti-archive"></i> View Archived Chat</a>`;
   }
   const guidance = interest.relationship_manager_id
-    ? "Awaiting relationship manager to create group chat"
-    : "Awaiting relationship manager assignment";
+    ? "Chat pending"
+    : "Pending match";
   return `<span class="managed-chat-awaiting managed-chat-awaiting--compact"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 

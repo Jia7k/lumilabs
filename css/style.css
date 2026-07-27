@@ -4102,15 +4102,16 @@ body.rm-dashboard .rm-stats-grid {
 }
 
 .managed-chat-action {
-  border: 1px solid #A7F3D0;
-  background: #ECFDF5;
-  color: #166534;
+  border: 1px solid #C4B5FD;
+  background: #F3F0FF;
+  color: #6D28D9;
+  white-space: nowrap;
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 
 .managed-chat-action:hover {
-  border-color: #6EE7B7;
-  background: #D1FAE5;
+  border-color: #A78BFA;
+  background: #EDE9FE;
   transform: translateY(-1px);
 }
 
@@ -4129,15 +4130,18 @@ body.rm-dashboard .rm-stats-grid {
   border: 1px dashed #D1D5DB;
   background: #F9FAFB;
   color: #6B7280;
+  white-space: nowrap;
   cursor: default;
 }
 
 .managed-chat-action--compact,
 .managed-chat-awaiting--compact {
-  min-height: 30px;
+  min-height: 26px;
   margin-left: auto;
-  padding: 5px 8px;
-  font-size: 10px;
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 20px;
 }
 
 .managed-chat-action--icon,
