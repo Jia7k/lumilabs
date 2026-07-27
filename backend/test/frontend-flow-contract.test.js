@@ -70,6 +70,22 @@ function assertAttribute(tag, name, value = true) {
   assert.match(tag, new RegExp(`\\b${name}=["']${String(value).replaceAll('.', '\\.')}["']`, 'i'));
 }
 
+function relativeLuminance(hexColor) {
+  const channels = hexColor.slice(1).match(/.{2}/g).map((channel) => {
+    const value = Number.parseInt(channel, 16) / 255;
+    return value <= 0.04045
+      ? value / 12.92
+      : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+}
+
+function contrastRatio(firstColor, secondColor) {
+  const first = relativeLuminance(firstColor);
+  const second = relativeLuminance(secondColor);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
 test('every literal local html target exists', () => {
   for (const page of pages) {
     const source = read(page);
@@ -707,4 +723,48 @@ test('authentication pages expose the Connected Horizon shell accessibly', () =>
   assert.equal(roleButtons.length, 2);
   assertAttribute(roleButtons[0], 'aria-pressed', 'true');
   assertAttribute(roleButtons[1], 'aria-pressed', 'false');
+});
+
+test('authentication text and focus tokens meet WCAG contrast thresholds', () => {
+  const css = read('css/style.css');
+  const authTokenBlock = css.match(/\.auth-shell-page\s*\{([^}]+)\}/s)?.[1];
+  assert.ok(authTokenBlock, 'missing authentication token block');
+
+  const token = (name) => {
+    const value = authTokenBlock.match(
+      new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'),
+    )?.[1];
+    assert.ok(value, `missing --${name} token`);
+    return value;
+  };
+
+  const muted = token('auth-muted');
+  assert.ok(
+    contrastRatio(muted, '#ffffff') >= 4.5,
+    `--auth-muted ${muted} must reach 4.5:1 against white`,
+  );
+  const focus = token('auth-focus');
+  assert.ok(
+    contrastRatio(focus, '#ffffff') >= 3,
+    `--auth-focus ${focus} must reach 3:1 against white`,
+  );
+  assert.match(
+    css,
+    /\.auth-shell-page \.form-hint\s*\{[^}]*color:\s*var\(--auth-muted\)/s,
+  );
+  assert.match(
+    css,
+    /\.auth-shell-page (?:a|button|input):focus-visible,[\s\S]*?\{[^}]*outline:\s*3px solid var\(--auth-focus\)/,
+  );
+  for (const storyToken of ['auth-indigo-deep', 'auth-indigo', 'auth-violet']) {
+    const storyColor = token(storyToken);
+    assert.ok(
+      contrastRatio('#ffffff', storyColor) >= 3,
+      `white brand focus must reach 3:1 against --${storyToken} ${storyColor}`,
+    );
+  }
+  assert.match(
+    css,
+    /\.auth-shell-page \.auth-brand:focus-visible\s*\{[^}]*outline-color:\s*#fff;[^}]*box-shadow:\s*0 0 0 6px var\(--auth-focus\)/s,
+  );
 });
