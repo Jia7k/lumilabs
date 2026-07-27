@@ -102,7 +102,7 @@ router.get('/audit-logs', authenticate, requireRole('admin'), async (req, res) =
        JOIN users u ON u.id = al.admin_id
        JOIN portfolios p ON p.id = al.portfolio_id
        JOIN users o ON o.id = p.owner_id
-       ORDER BY al.created_at DESC
+       ORDER BY al.created_at DESC, al.id DESC
        LIMIT 100`
     );
     res.json(rows);

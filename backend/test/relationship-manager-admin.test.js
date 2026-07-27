@@ -84,6 +84,30 @@ test('admin staff and general-user endpoints are removed', { concurrency: false 
   assert.equal(calls.length, 0);
 });
 
+test('admin audit route orders timestamp ties by newest ID', {
+  concurrency: false,
+}, async (t) => {
+  const tiedRows = [
+    { id: 12, created_at: '2026-07-27 12:00:00', action: 'rejected' },
+    { id: 11, created_at: '2026-07-27 12:00:00', action: 'approved' },
+  ];
+  const calls = stubQueries(t, async (sql) => {
+    assert.match(
+      String(sql),
+      /ORDER BY al\.created_at DESC,\s*al\.id DESC\s+LIMIT 100/,
+    );
+    return [tiedRows, []];
+  });
+
+  const { response, payload } = await request(t, 'GET', '/api/admin/audit-logs', {
+    role: 'admin',
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload, tiedRows);
+  assert.equal(calls.length, 1);
+});
+
 test('superadmins cannot approve or reject portfolios', { concurrency: false }, async (t) => {
   const calls = stubQueries(t, async () => {
     throw new Error('database should not be queried');
