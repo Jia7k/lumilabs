@@ -455,9 +455,9 @@ test('assignment workspace pins assets and keeps mobile overflow inside the tabl
     /https:\/\/cdn\.jsdelivr\.net\/npm\/@tabler\/icons-webfont@3\.0\.0\/dist\/tabler-icons\.min\.css/,
   );
   for (const asset of [
-    'css/style.css?v=20260728.1',
-    'js/api.js?v=20260728.1',
-    'js/assignments.js?v=20260728.1',
+    'css/style.css?v=20260728.2',
+    'js/api.js?v=20260728.2',
+    'js/assignments.js?v=20260728.2',
   ]) assert.match(html, new RegExp(escapeRegex(asset)));
   assert.match(css, /\.table-scroll\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto/s);
   assert.match(css, /\.assignment-dialog-card\s*\{[^}]*max-height:\s*(?:calc\()?[^;}]*100(?:d?vh)/s);

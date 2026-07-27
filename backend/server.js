@@ -113,8 +113,12 @@ function createApp(options = {}) {
   const {
     createSuperadminRouter,
   } = require('./src/routes/superadmin');
+  const {
+    createContactRouter,
+  } = require('./src/routes/contact');
 
   const app = express();
+  app.set('trust proxy', 1);
   app.disable('x-powered-by');
 
   app.use(express.json({ limit: DB_LIMITS.JSON_LIMIT }));
@@ -144,6 +148,10 @@ function createApp(options = {}) {
     createRelationshipManagerRouter({ database }),
   );
   app.use('/api/superadmin', createSuperadminRouter({ database }));
+  app.use('/api/contact', createContactRouter({
+    database,
+    limiter: options.contactLimiter,
+  }));
 
   app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
   app.use((error, req, res, next) => {
