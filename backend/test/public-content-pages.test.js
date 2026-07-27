@@ -1835,7 +1835,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
   )).map((script) => script.attributes.src);
   assert.deepEqual(
     scripts,
-    ['js/api.js?v=20260728.2', 'js/contact.js?v=20260728.2'],
+    ['js/api.js?v=20260728.3', 'js/contact.js?v=20260728.3'],
     'Contact scripts load in API-then-form order',
   );
 });
