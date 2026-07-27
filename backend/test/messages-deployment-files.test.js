@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -8,10 +9,12 @@ const deployDir = path.join(backendDir, 'deploy');
 const repositoryDir = path.join(backendDir, '..');
 
 const expectedRuntimeFiles = [
+  'about.html',
   'assignments.html',
   'audit-logs.html',
   'browse.html',
   'businessownerdashboard.html',
+  'contact.html',
   'createportfolio.html',
   'index.html',
   'investordashboard.html',
@@ -24,10 +27,13 @@ const expectedRuntimeFiles = [
   'signup.html',
   'superadmindashboard.html',
   'css/style.css',
+  'images/raveen.webp',
+  'images/victor.webp',
   'js/api.js',
   'js/assignments.js',
   'js/audit-logs.js',
   'js/browse.js',
+  'js/contact.js',
   'js/createportfolio.js',
   'js/investordashboard.js',
   'js/messages.js',
@@ -39,8 +45,10 @@ const expectedRuntimeFiles = [
   'js/superadmindashboard.js',
   'backend/server.js',
   'backend/migrate.js',
+  'backend/migrate-contact.js',
   'backend/package.json',
   'backend/package-lock.json',
+  'backend/scripts/migrate-contact-submissions.js',
   'backend/scripts/migrate-five-role-workflow.js',
   'backend/scripts/seed-managed-chat.js',
   'backend/scripts/live-five-role-smoke.js',
@@ -107,6 +115,21 @@ function staticRequiresReachableFrom(entryRelativePath) {
     .sort();
 }
 
+function localPageReferences(pageRelativePath) {
+  const source = fs.readFileSync(path.join(repositoryDir, pageRelativePath), 'utf8');
+  const references = [];
+  for (const match of source.matchAll(/\b(?:href|src)=["']([^"']+)["']/g)) {
+    const target = match[1].replace(/&amp;/g, '&');
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) continue;
+    const localPath = target.split(/[?#]/, 1)[0];
+    if (!localPath) continue;
+    references.push(
+      path.posix.normalize(path.posix.join(path.posix.dirname(pageRelativePath), localPath))
+    );
+  }
+  return references;
+}
+
 test('systemd unit runs the unified API on a private loopback port', () => {
   const service = fs.readFileSync(
     path.join(deployDir, 'lumilabs-backend.service'),
@@ -171,10 +194,31 @@ test('runtime manifest contains every local dependency reachable from the backen
   }
 });
 
+test('About and Contact local routes, assets and scripts are deployable', () => {
+  const manifest = new Set(readManifest());
+  for (const page of ['about.html', 'contact.html']) {
+    assert.ok(manifest.has(page), `missing public page: ${page}`);
+    for (const dependency of localPageReferences(page)) {
+      assert.ok(
+        manifest.has(dependency),
+        `${page} references an undeployed local dependency: ${dependency}`
+      );
+      const absolute = path.join(repositoryDir, ...dependency.split('/'));
+      assert.equal(
+        fs.existsSync(absolute) && fs.statSync(absolute).isFile(),
+        true,
+        `${page} references a missing local file: ${dependency}`
+      );
+    }
+  }
+});
+
 test('runtime manifest keeps operational release commands and excludes retired artifacts', () => {
   const manifest = new Set(readManifest());
   for (const required of [
     'backend/migrate.js',
+    'backend/migrate-contact.js',
+    'backend/scripts/migrate-contact-submissions.js',
     'backend/scripts/migrate-five-role-workflow.js',
     'backend/scripts/seed-managed-chat.js',
     'backend/scripts/live-five-role-smoke.js',
@@ -187,6 +231,16 @@ test('runtime manifest keeps operational release commands and excludes retired a
   ]) {
     assert.equal(manifest.has(forbidden), false);
   }
+  for (const entry of [
+    'backend/migrate.js',
+    'backend/migrate-contact.js',
+    'backend/scripts/seed-managed-chat.js',
+    'backend/scripts/live-five-role-smoke.js',
+  ]) {
+    for (const dependency of staticRequiresReachableFrom(entry)) {
+      assert.ok(manifest.has(dependency), `${entry} requires undeployed file: ${dependency}`);
+    }
+  }
 });
 
 test('package scripts expose only the final release entry points', () => {
@@ -196,9 +250,37 @@ test('package scripts expose only the final release entry points', () => {
     dev: 'nodemon server.js',
     test: 'node --test test/*.test.js',
     'migrate:five-role-workflow': 'node migrate.js',
+    'migrate:contact-submissions': 'node migrate-contact.js',
     'seed:managed-chat': 'node scripts/seed-managed-chat.js',
     'smoke:live': 'node scripts/live-five-role-smoke.js',
   });
+});
+
+test('focused Contact migration command executes and fails closed without credentials', () => {
+  const script = require('../package.json').scripts['migrate:contact-submissions'];
+  assert.equal(typeof script, 'string');
+  const [runtime, entry, ...args] = script.split(/\s+/);
+  assert.equal(runtime, 'node');
+
+  const result = spawnSync(process.execPath, [entry, ...args], {
+    cwd: backendDir,
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: 'test',
+      DB_USER: '',
+      DB_PASSWORD: '',
+      DB_NAME: '',
+      SSH_HOST: '',
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /Contact migration failed: Missing migration environment variables: DB_USER, DB_PASSWORD, DB_NAME/
+  );
+  assert.doesNotMatch(result.stderr, /ECONN|connect|password@|access denied/i);
 });
 
 test('production package does not depend on browser CORS middleware', () => {

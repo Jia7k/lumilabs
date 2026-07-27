@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test": "node --test test/*.test.js",
     "migrate:five-role-workflow": "node migrate.js",
+    "migrate:contact-submissions": "node migrate-contact.js",
     "seed:managed-chat": "node scripts/seed-managed-chat.js",
     "smoke:live": "node scripts/live-five-role-smoke.js"
   },
