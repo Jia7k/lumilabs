@@ -99,7 +99,11 @@ function initSignupPage() {
 
   function setRole(role) {
     roleInput.value = role;
-    roleButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.role === role));
+    roleButtons.forEach((btn) => {
+      const isActive = btn.dataset.role === role;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
     submitBtn.textContent = role === 'business_owner' ? 'Create Account & Add Startup' : 'Create Account';
     if (hintEl) {
       hintEl.textContent =
