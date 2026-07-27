@@ -355,6 +355,86 @@ test('homepage contains the approved semantic content and orbit description', ()
   assert.match(html, /<script src=["']js\/script\.js\?v=20260727\.1["']/i);
 });
 
+test('homepage styles are scoped and follow the approved breakpoints', () => {
+  const css = read('css/style.css');
+
+  assert.match(
+    css,
+    /body\.landing-page\s*\{[^}]*overflow-x:\s*hidden/s,
+  );
+  assert.match(
+    css,
+    /\.landing-page \.landing-hero\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.05fr\)\s+minmax\(280px,\s*0\.95fr\)/s,
+  );
+  assert.match(
+    css,
+    /\.landing-page \.landing-orbit-card\s*\{[^}]*overflow:\s*hidden/s,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*899px\)[\s\S]*?\.landing-page \.landing-hero\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*899px\)[\s\S]*?\.landing-page \.landing-audience-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-trust-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-steps-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    css,
+    /\.landing-page [^{]*:focus-visible\s*\{[^}]*outline:/s,
+  );
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.landing-page \*,\s*\.landing-page \*::before,\s*\.landing-page \*::after\s*\{[^}]*animation-duration:\s*0\.01ms\s*!important;[^}]*transition-duration:\s*0\.01ms\s*!important;/,
+  );
+});
+
+test('homepage accessibility styles preserve contrast and touch targets', () => {
+  const css = read('css/style.css');
+
+  assert.match(
+    css,
+    /\.landing-page \.landing-brand\s*\{[^}]*min-height:\s*44px/s,
+  );
+  assert.match(
+    css,
+    /\.landing-page \.landing-audience-card a\s*\{[^}]*min-height:\s*44px/s,
+  );
+  assert.match(
+    css,
+    /\.landing-page [^{]*:focus-visible\s*\{[^}]*outline:\s*3px solid #1F2A44;[^}]*box-shadow:\s*0 0 0 6px #FFFFFF;/s,
+  );
+
+  for (const selector of [
+    '\\.landing-support',
+    '\\.landing-section-heading > p:last-child',
+    '\\.landing-audience-card p',
+    '\\.landing-steps-grid p',
+    '\\.landing-footer',
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.landing-page ${selector}\\s*\\{[^}]*color:\\s*#5F687A`, 's'),
+    );
+  }
+
+  assert.match(
+    css,
+    /\.landing-page \.landing-final-cta p\s*\{[^}]*color:\s*#FFFFFF/s,
+  );
+  assert.match(
+    css,
+    /\.landing-page \.landing-final-cta\s*\{[^}]*rgba\(255,\s*255,\s*255,\s*0\.10\)[^}]*linear-gradient\(135deg,\s*#4346B8,\s*#5749C2\)/s,
+  );
+});
+
 test('shared hidden attribute always overrides component display rules', () => {
   assert.match(read('css/style.css'), /\[hidden\]\s*\{[^}]*display:\s*none\s*!important;/s);
 });
