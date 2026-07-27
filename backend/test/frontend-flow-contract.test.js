@@ -406,7 +406,7 @@ test('homepage exposes exact public journeys and navigation routes', () => {
 test('homepage contains the approved semantic content and orbit description', () => {
   const html = read('index.html');
 
-  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260728\.3["']/i);
+  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260728\.4["']/i);
   assert.match(html, /<body class=["']landing-page["']/i);
   assert.equal([...html.matchAll(/<h1\b/gi)].length, 1);
   assert.match(html, /<main\b[^>]*>/i);
@@ -419,7 +419,7 @@ test('homepage contains the approved semantic content and orbit description', ()
     html,
     /role=["']img["'][^>]*aria-label=["']Lumi5 Labs connects businesses and investors around shared sector, stage, geography, and capital priorities\.["']/i,
   );
-  assert.match(html, /<script src=["']js\/script\.js\?v=20260728\.3["']/i);
+  assert.match(html, /<script src=["']js\/script\.js\?v=20260728\.4["']/i);
 });
 
 test('homepage styles are scoped and follow the approved breakpoints', () => {
@@ -656,7 +656,7 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260728.3';
+  const releaseKey = '20260728.4';
   const changedSharedClientPages = [
     'audit-logs.html',
     'assignments.html',

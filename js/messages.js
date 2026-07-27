@@ -19,7 +19,7 @@ const ARCHIVE_REASON_LABELS = Object.freeze({
   portfolio_deleted: 'The portfolio was removed. This history is retained for reference.',
 });
 
-const MESSAGES_API_SCRIPT_SRC = 'js/api.js?v=20260728.3';
+const MESSAGES_API_SCRIPT_SRC = 'js/api.js?v=20260728.4';
 
 const state = {
   user: null,
