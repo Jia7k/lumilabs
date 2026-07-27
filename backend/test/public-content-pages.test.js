@@ -576,11 +576,18 @@ function compareCssCandidates(left, right) {
   return left.declarationOrder - right.declarationOrder;
 }
 
-function cssCascadeCandidates(css, ancestry, viewportWidth, auditedProperties) {
+function cssCascadeCandidates(
+  css,
+  ancestry,
+  viewportWidth,
+  auditedProperties,
+  styleRules = cssStyleRules(css),
+) {
   const candidates = [];
-  for (const rule of cssStyleRules(css)) {
+  for (const rule of styleRules) {
     if (!cssMediaApplies(rule.media, viewportWidth)) continue;
-    const declarations = cssDeclarationList(rule)
+    rule.declarations ||= cssDeclarationList(rule);
+    const declarations = rule.declarations
       .filter((declaration) => auditedProperties.includes(declaration.property));
     if (declarations.length === 0) continue;
     for (const selector of cssSelectors(rule)) {
@@ -615,9 +622,15 @@ function winningCssCandidate(candidates, label) {
   ));
 }
 
-function effectiveCssProperty(css, ancestry, property, viewportWidth = 1024) {
+function effectiveCssProperty(
+  css,
+  ancestry,
+  property,
+  viewportWidth = 1024,
+  styleRules = cssStyleRules(css),
+) {
   return winningCssCandidate(
-    cssCascadeCandidates(css, ancestry, viewportWidth, [property]),
+    cssCascadeCandidates(css, ancestry, viewportWidth, [property], styleRules),
     property,
   ).value;
 }
@@ -657,12 +670,13 @@ function parseBorderShorthand(value) {
   };
 }
 
-function effectiveControlBorder(css, ancestry) {
+function effectiveControlBorder(css, ancestry, styleRules = cssStyleRules(css)) {
   const candidates = cssCascadeCandidates(
     css,
     ancestry,
     1024,
     ['border', 'border-width', 'border-style', 'border-color'],
+    styleRules,
   );
   const componentCandidates = (component) => candidates.flatMap((candidate) => {
     if (candidate.property === `border-${component}`) return [candidate];
@@ -706,27 +720,98 @@ const publicMenuAncestry = [
   element('header', ['public-header']),
   element('details', ['public-menu']),
 ];
-const contactControlAncestry = (tag) => [
-  element('body', ['public-content-page', 'contact-page']),
-  element('main'),
-  element('section', ['public-section', 'contact-layout']),
-  element('form', ['contact-form'], 'contact-form'),
-  element('div', ['form-group']),
-  element(
-    tag,
-    [],
-    null,
-    tag === 'input' ? { required: '' } : {},
-    tag === 'label'
-      ? ['first-child', 'first-of-type', 'last-of-type', 'only-of-type']
-      : [
-        'first-of-type',
-        'last-of-type',
-        'only-of-type',
-        tag === 'input' ? 'required' : 'optional',
-      ],
-  ),
-];
+
+function elementFromHtmlNode(node, pseudos = []) {
+  return element(
+    node.tagName,
+    (node.attributes.class || '').split(/\s+/).filter(Boolean),
+    node.attributes.id || null,
+    { ...node.attributes },
+    pseudos,
+  );
+}
+
+function contactControlStateVariants(control) {
+  const required = hasAttribute(control, 'required');
+  const staticPseudos = [
+    'first-of-type',
+    'last-of-type',
+    'only-of-type',
+    required ? 'required' : 'optional',
+  ];
+  const placeholderShown = hasAttribute(control, 'placeholder')
+    ? ['placeholder-shown']
+    : [];
+  const valueStates = required
+    ? [
+      ['invalid', ...placeholderShown],
+      ['invalid'],
+      ['valid'],
+    ]
+    : [
+      ['valid', ...placeholderShown],
+      ['valid'],
+      ['invalid'],
+    ];
+  const stateGroups = [
+    [[], ['focus'], ['focus', 'focus-visible']],
+    [[], ['hover']],
+    [[], ['active']],
+    valueStates,
+  ];
+  let variants = [[]];
+  for (const group of stateGroups) {
+    variants = variants.flatMap((variant) => (
+      group.map((states) => [...variant, ...states])
+    ));
+  }
+  return variants.map((states) => [...staticPseudos, ...states]);
+}
+
+function contactFormFieldTargets() {
+  const document = parseHtml(read('contact.html'));
+  const body = findOne(document, (node) => node.tagName === 'body', 'Contact body');
+  const main = findOne(body, (node) => node.tagName === 'main', 'Contact main');
+  const section = findOne(main, (node) => (
+    node.tagName === 'section' && hasClass(node, 'contact-layout')
+  ), 'Contact layout');
+  const form = findOne(section, (node) => (
+    node.tagName === 'form' && hasClass(node, 'contact-form')
+  ), 'Contact form');
+  const baseAncestry = [
+    elementFromHtmlNode(body),
+    elementFromHtmlNode(main),
+    elementFromHtmlNode(section),
+    elementFromHtmlNode(form),
+  ];
+  const groups = findAll(form, (node) => (
+    node.tagName === 'div' && hasClass(node, 'form-group')
+  ));
+
+  return groups.map((group) => {
+    const label = findOne(group, (node) => node.tagName === 'label', 'Contact label');
+    const control = findOne(
+      group,
+      (node) => ['input', 'textarea'].includes(node.tagName),
+      'Contact control',
+    );
+    const groupAncestry = [...baseAncestry, elementFromHtmlNode(group)];
+    const labelStates = [
+      ['first-child', 'first-of-type', 'last-of-type', 'only-of-type'],
+      ['first-child', 'first-of-type', 'last-of-type', 'only-of-type', 'hover'],
+      ['first-child', 'first-of-type', 'last-of-type', 'only-of-type', 'active'],
+    ];
+    return {
+      controlId: control.attributes.id,
+      controlAncestries: contactControlStateVariants(control).map((pseudos) => (
+        [...groupAncestry, elementFromHtmlNode(control, pseudos)]
+      )),
+      labelAncestries: labelStates.map((pseudos) => (
+        [...groupAncestry, elementFromHtmlNode(label, pseudos)]
+      )),
+    };
+  });
+}
 
 function publicClassNames(publicCss) {
   const sharedClasses = new Set([
@@ -833,37 +918,47 @@ function assertPublicStylesheetContract(css) {
 
 function assertContactContrastContract(css) {
   const wash = cssHexVariable(css, '--public-wash');
-  const labelAncestry = contactControlAncestry('label');
-  const label = cssColorFromValue(
-    css,
-    effectiveCssProperty(css, labelAncestry, 'color'),
-    'effective contact label color',
-  );
+  const styleRules = cssStyleRules(css);
+  const fields = contactFormFieldTargets();
 
-  assert.ok(contrastRatio(label, wash) >= 4.5, 'form label on form wash');
-  for (const tag of ['input', 'textarea']) {
-    const border = effectiveControlBorder(css, contactControlAncestry(tag));
-    const width = border.width.match(/^((?:\d*\.)?\d+)(?:px|rem|em)?$/i);
-    assert.ok(
-      width && Number(width[1]) > 0,
-      `${tag} has a visible control border with non-zero width`,
-    );
-    assert.ok(
-      borderStyles.has(border.style) && !['none', 'hidden'].includes(border.style),
-      `${tag} has a visible control border style`,
-    );
-    const borderColor = cssColorFromValue(css, border.color, `${tag} border`);
-    assert.ok(contrastRatio(borderColor, wash) >= 3, 'control border on form wash');
-    assert.ok(contrastRatio(borderColor, '#ffffff') >= 3, 'control border on input fill');
+  for (const field of fields) {
+    for (const labelAncestry of field.labelAncestries) {
+      const label = cssColorFromValue(
+        css,
+        effectiveCssProperty(css, labelAncestry, 'color', 1024, styleRules),
+        `effective label color for ${field.controlId}`,
+      );
+      assert.ok(contrastRatio(label, wash) >= 4.5, 'form label on form wash');
+      assert.match(
+        effectiveCssProperty(css, labelAncestry, 'font-size', 1024, styleRules),
+        /^(?:0\.\d+rem|1rem)$/,
+      );
+      assert.notEqual(
+        effectiveCssProperty(css, labelAncestry, 'line-height', 1024, styleRules),
+        'normal',
+      );
+    }
+
+    for (const controlAncestry of field.controlAncestries) {
+      const border = effectiveControlBorder(css, controlAncestry, styleRules);
+      const width = border.width.match(/^((?:\d*\.)?\d+)(?:px|rem|em)?$/i);
+      assert.ok(
+        width && Number(width[1]) > 0,
+        `${field.controlId} has a visible control border with non-zero width`,
+      );
+      assert.ok(
+        borderStyles.has(border.style) && !['none', 'hidden'].includes(border.style),
+        `${field.controlId} has a visible control border style`,
+      );
+      const borderColor = cssColorFromValue(
+        css,
+        border.color,
+        `${field.controlId} border`,
+      );
+      assert.ok(contrastRatio(borderColor, wash) >= 3, 'control border on form wash');
+      assert.ok(contrastRatio(borderColor, '#ffffff') >= 3, 'control border on input fill');
+    }
   }
-  assert.match(
-    effectiveCssProperty(css, labelAncestry, 'font-size'),
-    /^(?:0\.\d+rem|1rem)$/,
-  );
-  assert.notEqual(
-    effectiveCssProperty(css, labelAncestry, 'line-height'),
-    'normal',
-  );
 }
 
 function moveCssRuleOutsideMedia(publicCss, condition, selector) {
@@ -1634,6 +1729,66 @@ body.public-content-page .contact-form .form-group input { border-color: #cdd3df
   await t.test('important RGBA border override', () => {
     const mutated = `${css}
 .form-group input { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('matching input type attribute override', () => {
+    const mutated = `${css}
+input[type="text"] { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('matching input name attribute override', () => {
+    const mutated = `${css}
+input[name="name"] { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('matching placeholder attribute override', () => {
+    const mutated = `${css}
+input[placeholder="Your name"] { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('reachable invalid state override', () => {
+    const mutated = `${css}
+input:invalid { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('reachable placeholder-shown state override', () => {
+    const mutated = `${css}
+input:placeholder-shown { border: 1px solid rgba(205,211,223,1) !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('reachable focus state override', () => {
+    const mutated = `${css}
+input:focus { border: 1px solid rgba(205,211,223,1) !important; }
 `;
     assert.throws(
       () => assertContactContrastContract(mutated),
