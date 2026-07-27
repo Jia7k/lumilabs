@@ -725,6 +725,32 @@ test('authentication pages expose the Connected Horizon shell accessibly', () =>
   assertAttribute(roleButtons[1], 'aria-pressed', 'false');
 });
 
+test('authentication pages use distinct approved story copy', () => {
+  const signin = read('signin.html');
+  const signup = read('signup.html');
+
+  assert.match(
+    signin,
+    /<p class="auth-eyebrow">Private markets, made human<\/p>/,
+  );
+  assert.match(
+    signin,
+    /<h2 id="auth-story-title">Where ambition meets opportunity\.<\/h2>/,
+  );
+  assert.match(
+    signup,
+    /<p class="auth-eyebrow">Your next move awaits<\/p>/,
+  );
+  assert.match(
+    signup,
+    /<h2 id="auth-story-title">Keep opportunity moving forward\.<\/h2>/,
+  );
+  assert.doesNotMatch(
+    signup,
+    /Private markets, made human|Where ambition meets opportunity\./,
+  );
+});
+
 test('authentication source order and responsive grid placement keep focus aligned with the layout', () => {
   for (const page of ['signin.html', 'signup.html']) {
     const html = read(page);
