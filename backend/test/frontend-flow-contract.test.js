@@ -692,6 +692,79 @@ test('managed-chat guidance wraps inside narrow dashboard cards', () => {
   );
 });
 
+test('investor action labels meet WCAG AA contrast', () => {
+  const browse = read('browse.html');
+  const dashboard = read('investordashboard.html');
+  const declaration = (source, selector, property) => {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const body = source.match(new RegExp(`${escapedSelector}\\s*\\{([^}]+)\\}`, 's'))?.[1];
+    assert.ok(body, `missing ${selector} rule`);
+    const value = body.match(new RegExp(`${property}:\\s*([^;]+);`, 'i'))?.[1].trim();
+    assert.ok(value, `missing ${property} in ${selector}`);
+    const token = value.match(/^var\(--([a-z0-9-]+)\)$/i)?.[1];
+    if (!token) return value;
+    const resolved = source.match(new RegExp(`--${token}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+    assert.ok(resolved, `missing --${token} color token`);
+    return resolved;
+  };
+  const requireTextContrast = (label, foreground, background) => {
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${label} ${foreground}/${background} must reach 4.5:1`,
+    );
+  };
+
+  const removeText = declaration(browse, '.btn-remove-interest', 'color');
+  requireTextContrast(
+    'Remove Interest',
+    removeText,
+    declaration(browse, '.btn-remove-interest', 'background'),
+  );
+  requireTextContrast(
+    'Remove Interest hover',
+    removeText,
+    declaration(browse, '.btn-remove-interest:hover', 'background'),
+  );
+  const openChatText = declaration(browse, '.managed-chat-action', 'color');
+  requireTextContrast(
+    'Open Managed Chat',
+    openChatText,
+    declaration(browse, '.managed-chat-action', 'background'),
+  );
+  requireTextContrast(
+    'Open Managed Chat hover',
+    openChatText,
+    declaration(browse, '.managed-chat-action:hover', 'background'),
+  );
+  const archivedText = declaration(browse, '.managed-chat-archived', 'color');
+  requireTextContrast(
+    'Archived chat',
+    archivedText,
+    declaration(browse, '.managed-chat-archived', 'background'),
+  );
+  requireTextContrast(
+    'Archived chat hover',
+    archivedText,
+    declaration(browse, '.managed-chat-archived:hover', 'background'),
+  );
+  requireTextContrast(
+    'Compact archived chat',
+    declaration(dashboard, '.managed-chat-action--compact.managed-chat-archived', 'color'),
+    declaration(dashboard, '.managed-chat-action--compact.managed-chat-archived', 'background'),
+  );
+  const compactOpenText = declaration(dashboard, '.managed-chat-action--compact', 'color');
+  requireTextContrast(
+    'Compact Open Managed Chat',
+    compactOpenText,
+    declaration(dashboard, '.managed-chat-action--compact', 'background'),
+  );
+  requireTextContrast(
+    'Compact Open Managed Chat hover',
+    compactOpenText,
+    declaration(dashboard, '.managed-chat-action--compact:hover', 'background'),
+  );
+});
+
 test('authentication pages expose the Connected Horizon shell accessibly', () => {
   const cases = [
     {
