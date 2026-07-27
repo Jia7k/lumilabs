@@ -654,7 +654,7 @@ function renderActiveHeader() {
     : 'Retained conversation history';
   els.threadParticipants.innerHTML = participants.map((participant) => `
     <span class="participant-chip" title="${escapeHtml(roleLabel(participant.role))}">
-      <span class="participant-dot" aria-hidden="true"></span>
+      <span class="${participantDotClass(participant.role)}" aria-hidden="true"></span>
       ${escapeHtml(participant.name)}
       <span class="participant-role">${escapeHtml(roleLabel(participant.role))}</span>
     </span>
@@ -898,6 +898,19 @@ function signOutMessages() {
 
 function roleLabel(role) {
   return ROLE_LABELS[role] || role || 'User';
+}
+
+function participantDotClass(role) {
+  if (role === 'relationship_manager') {
+    return 'participant-dot participant-dot--relationship-manager';
+  }
+  if (role === 'investor') {
+    return 'participant-dot participant-dot--investor';
+  }
+  if (role === 'business_owner') {
+    return 'participant-dot participant-dot--business-owner';
+  }
+  return 'participant-dot';
 }
 
 function initials(name = '') {

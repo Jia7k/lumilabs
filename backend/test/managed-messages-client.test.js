@@ -217,7 +217,43 @@ test('participant rail renders only active members and escapes their identity', 
   const rendered = vm.runInContext('els.threadParticipants.innerHTML', sandbox);
   assert.match(rendered, /&lt;Current Owner&gt;/);
   assert.match(rendered, /Active Investor/);
+  assert.match(rendered, /participant-dot--business-owner/);
+  assert.match(rendered, /participant-dot--investor/);
   assert.doesNotMatch(rendered, /Removed Manager/);
+});
+
+test('participant dots use fixed role classes with a safe fallback', () => {
+  const sandbox = {
+    window: { LUMILABS_API_BASE: undefined, location: { search: '', href: '' } },
+    document: { addEventListener() {} },
+    localStorage: { getItem() { return ''; }, removeItem() {} },
+    console,
+    setTimeout,
+    clearTimeout,
+    URLSearchParams,
+    encodeURIComponent,
+    Intl,
+    Date,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+
+  assert.equal(
+    vm.runInContext("participantDotClass('relationship_manager')", sandbox),
+    'participant-dot participant-dot--relationship-manager',
+  );
+  assert.equal(
+    vm.runInContext("participantDotClass('investor')", sandbox),
+    'participant-dot participant-dot--investor',
+  );
+  assert.equal(
+    vm.runInContext("participantDotClass('business_owner')", sandbox),
+    'participant-dot participant-dot--business-owner',
+  );
+  assert.equal(
+    vm.runInContext("participantDotClass('future_role')", sandbox),
+    'participant-dot',
+  );
 });
 
 test('archived rooms stay readable while composer is disabled with explanation', () => {

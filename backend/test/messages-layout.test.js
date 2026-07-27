@@ -46,6 +46,21 @@ test('participant rail and archive notice remain inside the fixed thread shell',
   assert.match(firstRule('.composer-zone'), /border-top:\s*1px solid var\(--border\)/);
 });
 
+test('participant dot modifiers use the approved role palette', () => {
+  assert.match(
+    firstRule('.participant-dot--relationship-manager'),
+    /background:\s*#8B5E3C\s*;/i,
+  );
+  assert.match(
+    firstRule('.participant-dot--investor'),
+    /background:\s*#2E8B57\s*;/i,
+  );
+  assert.match(
+    firstRule('.participant-dot--business-owner'),
+    /background:\s*#3B82F6\s*;/i,
+  );
+});
+
 test('message thread and composer use shrinkable explicit columns', () => {
   assert.match(
     firstRule('.thread-panel'),
