@@ -1654,7 +1654,7 @@ test('public content pages receive the homepage desktop navbar styling', () => {
   }
 });
 
-test('About preserves the complete story, vision, leadership and connect copy', () => {
+test('About preserves its complete story, vision and leadership without the retired CTA', () => {
   const source = read('about.html');
   const text = visibleBodyText(parseHtml(source));
   const required = [
@@ -1676,10 +1676,13 @@ test('About preserves the complete story, vision, leadership and connect copy', 
     'COO & CMO',
     'Victor Chow is a seasoned entrepreneur and corporate leader with over 30 years of experience in investments, startups, telecommunications, cloud computing and blockchain technologies. He has held C-level positions across general management, strategic planning, and global operations in Asia Pacific, Europe, and North America.',
     "Victor's roles include CEO of Aristagora International, a multi-family office subsidiary of Aristagora Advisors based in Tokyo. He also served as Venture Partner for Fatfish Group. Previously, Victor was the Global COO for Cloud Computing at Huawei Technologies and the Global Business Director for SingTel-NCS Group. His expertise in fintech led him to become the Founding CEO of InspirAsia Fintech Accelerator.",
-    "Let's Innovate Together",
-    'Connect with us to explore how we can make your vision a reality. Join us in shaping the future.',
   ];
   for (const value of required) assert.ok(text.includes(value), value);
+  assert.doesNotMatch(
+    source,
+    /\babout-connect\b|Let's Innovate Together|Join us in shaping the future|>Get Started</,
+    'About excludes the retired connect CTA',
+  );
 
   for (const target of [
     'images/raveen.webp',
@@ -1697,57 +1700,38 @@ test('About preserves the complete story, vision, leadership and connect copy', 
   assert.match(source, /src=["']images\/victor\.webp["'][^>]*width=["']600["'][^>]*height=["']600["'][^>]*loading=["']lazy["']/);
 });
 
-test('Contact hero presents one accessible Singapore Horizon scene', () => {
+test('Contact hero intentionally leaves its visual column empty', () => {
   const source = read('contact.html');
   const document = parseHtml(source);
-  const horizons = findAll(document, (node) => (
-    node.tagName === 'figure' && hasClass(node, 'contact-horizon')
-  ));
-
-  assert.equal(horizons.length, 1, 'Contact has one Singapore Horizon figure');
-  const horizon = horizons[0];
-  assert.match(
-    horizon.attributes['aria-label'] || '',
-    /Lumi5 Labs.*Singapore/i,
-    'scene label identifies Lumi5 Labs and Singapore',
-  );
-
-  const requiredClasses = [
-    'contact-horizon-scene',
-    'contact-horizon-glow',
-    'contact-horizon-arc--outer',
-    'contact-horizon-arc--inner',
-    'contact-horizon-pin',
-    'contact-horizon-skyline',
-    'contact-horizon-building',
-    'contact-horizon-landmark',
-    'contact-horizon-reflections',
-  ];
-  for (const className of requiredClasses) {
-    assert.ok(
-      findAll(horizon, (node) => hasClass(node, className)).length > 0,
-      `${className}: decorative scene element`,
-    );
-  }
-
-  const decorativeElements = findAll(horizon, (node) => (
-    node !== horizon && node.tagName === 'span'
-  ));
-  assert.ok(decorativeElements.length >= 20, 'scene has enough detail to read as a skyline');
-  for (const element of decorativeElements) {
-    assert.equal(
-      element.attributes['aria-hidden'],
-      'true',
-      `${element.attributes.class || element.tagName}: hidden decorative element`,
-    );
-  }
+  const hero = findOne(document, (node) => (
+    node.tagName === 'section'
+    && hasClass(node, 'public-hero')
+    && hasClass(node, 'contact-hero')
+  ), 'Contact hero');
+  const copy = findOne(hero, (node) => (
+    node.tagName === 'div' && hasClass(node, 'public-hero-copy')
+  ), 'Contact hero copy');
 
   assert.equal(
-    findAll(horizon, (node) => hasClass(node, 'contact-horizon-building')).length,
-    5,
-    'scene has five supporting buildings',
+    visibleTextContent(copy),
+    '01 · Connect Contact Us Here is how you can contact us for any questions or concerns.',
+    'Contact hero copy remains unchanged',
   );
-  assert.doesNotMatch(source, /\bcontact-orbit\b|\bnode-(?:visit|email|call)\b/);
+  assert.equal(
+    findAll(hero, (node) => node.tagName === 'figure').length,
+    0,
+    'Contact hero has no visual figure',
+  );
+  assert.equal(
+    findAll(hero, (node) => node !== hero && node.tagName === 'div').length,
+    1,
+    'Contact hero contains only its copy column',
+  );
+  assert.doesNotMatch(
+    source,
+    /\bcontact-horizon\b|\bcontact-orbit\b|\bnode-(?:visit|email|call)\b/,
+    'Contact excludes every retired visual',
+  );
 });
 
 test('Contact preserves its details, map fallback and accessible form contract', () => {
