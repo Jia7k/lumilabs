@@ -25,6 +25,8 @@
     "tunnel-ssh": "^5.2.0"
   },
   "devDependencies": {
+    "acorn": "8.17.0",
+    "acorn-walk": "8.3.5",
     "nodemon": "^3.1.4"
   }
 }

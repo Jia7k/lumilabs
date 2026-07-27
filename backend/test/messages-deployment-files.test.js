@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const acorn = require('acorn');
+const walk = require('acorn-walk');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -9,7 +11,7 @@ const backendDir = path.join(__dirname, '..');
 const deployDir = path.join(backendDir, 'deploy');
 const repositoryDir = path.join(backendDir, '..');
 const MAX_DEPENDENCY_SOURCE_BYTES = 1024 * 1024;
-const MAX_DEPENDENCY_TOKENS = 200000;
+const MAX_DEPENDENCY_NODES = 200000;
 
 const expectedRuntimeFiles = [
   'about.html',
@@ -100,7 +102,22 @@ function resolveLocalRequire(fromFile, specifier) {
   throw new Error(`Cannot resolve ${specifier} from ${fromFile}`);
 }
 
-function tokenizeModuleSyntax(source, sourceLabel) {
+function moduleSpecifierValue(node, sourceLabel) {
+  if (node?.type === 'Literal' && typeof node.value === 'string') {
+    return node.value;
+  }
+  if (
+    node?.type === 'TemplateLiteral'
+    && node.expressions.length === 0
+    && node.quasis.length === 1
+    && typeof node.quasis[0].value.cooked === 'string'
+  ) {
+    return node.quasis[0].value.cooked;
+  }
+  throw new Error(`nonliteral module load in ${sourceLabel}`);
+}
+
+function literalModuleSpecifiers(source, sourceLabel = '<source>') {
   const sourceBytes = Buffer.byteLength(source, 'utf8');
   if (sourceBytes > MAX_DEPENDENCY_SOURCE_BYTES) {
     throw new Error(
@@ -108,255 +125,56 @@ function tokenizeModuleSyntax(source, sourceLabel) {
     );
   }
 
-  const tokens = [];
-  let index = 0;
-
-  function addToken(type, value) {
-    tokens.push({ type, value });
-    if (tokens.length > MAX_DEPENDENCY_TOKENS) {
-      throw new Error(`dependency source has too many tokens: ${sourceLabel}`);
-    }
+  let ast;
+  try {
+    ast = acorn.parse(source, {
+      allowHashBang: true,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+    });
+  } catch (error) {
+    throw new Error(`cannot parse dependency source ${sourceLabel}: ${error.message}`);
   }
 
-  function readQuotedString(quote) {
-    let value = '';
-    index += 1;
-    while (index < source.length) {
-      const character = source[index];
-      if (character === quote) {
-        index += 1;
-        addToken('string', value);
-        return;
-      }
-      if (character === '\\') {
-        index += 1;
-        if (index >= source.length) break;
-        const escaped = source[index];
-        const simpleEscapes = {
-          b: '\b',
-          f: '\f',
-          n: '\n',
-          r: '\r',
-          t: '\t',
-          v: '\v',
-        };
-        value += simpleEscapes[escaped] ?? escaped;
-        index += 1;
-        continue;
-      }
-      value += character;
-      index += 1;
-    }
-    throw new Error(`unterminated string while scanning dependencies: ${sourceLabel}`);
-  }
-
-  function readTemplate() {
-    index += 1;
-    while (index < source.length) {
-      if (source[index] === '\\') {
-        index += 2;
-        continue;
-      }
-      if (source[index] === '`') {
-        index += 1;
-        addToken('template', '');
-        return;
-      }
-      index += 1;
-    }
-    throw new Error(`unterminated template while scanning dependencies: ${sourceLabel}`);
-  }
-
-  function regexCanStart() {
-    const previous = tokens.at(-1);
-    if (!previous) return true;
-    if (previous.type === 'identifier') {
-      return new Set([
-        'await',
-        'case',
-        'delete',
-        'do',
-        'else',
-        'in',
-        'instanceof',
-        'of',
-        'return',
-        'throw',
-        'typeof',
-        'void',
-        'yield',
-      ]).has(previous.value);
-    }
-    return (
-      previous.type === 'punctuator'
-      && /[([{,;:=!?&|+\-*%^~<>]/.test(previous.value)
-    );
-  }
-
-  function readRegex() {
-    let inCharacterClass = false;
-    index += 1;
-    while (index < source.length) {
-      const character = source[index];
-      if (/[\r\n]/.test(character)) {
-        throw new Error(`unterminated regex while scanning dependencies: ${sourceLabel}`);
-      }
-      if (character === '\\') {
-        index += 2;
-        continue;
-      }
-      if (character === '[') {
-        inCharacterClass = true;
-        index += 1;
-        continue;
-      }
-      if (character === ']') {
-        inCharacterClass = false;
-        index += 1;
-        continue;
-      }
-      if (character === '/' && !inCharacterClass) {
-        index += 1;
-        while (index < source.length && /[A-Za-z]/.test(source[index])) index += 1;
-        addToken('regex', '');
-        return;
-      }
-      index += 1;
-    }
-    throw new Error(`unterminated regex while scanning dependencies: ${sourceLabel}`);
-  }
-
-  while (index < source.length) {
-    const character = source[index];
-    const next = source[index + 1];
-
-    if (/\s/.test(character)) {
-      index += 1;
-      continue;
-    }
-    if (character === '/' && next === '/') {
-      index += 2;
-      while (index < source.length && !/[\r\n]/.test(source[index])) index += 1;
-      continue;
-    }
-    if (character === '/' && next === '*') {
-      index += 2;
-      while (
-        index < source.length
-        && !(source[index] === '*' && source[index + 1] === '/')
-      ) {
-        index += 1;
-      }
-      if (index >= source.length) {
-        throw new Error(`unterminated comment while scanning dependencies: ${sourceLabel}`);
-      }
-      index += 2;
-      continue;
-    }
-    if (character === '/' && regexCanStart()) {
-      readRegex();
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      readQuotedString(character);
-      continue;
-    }
-    if (character === '`') {
-      readTemplate();
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(character)) {
-      const start = index;
-      index += 1;
-      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) {
-        index += 1;
-      }
-      addToken('identifier', source.slice(start, index));
-      continue;
-    }
-    addToken('punctuator', character);
-    index += 1;
-  }
-
-  return tokens;
-}
-
-function literalModuleSpecifiers(source, sourceLabel = '<source>') {
-  const tokens = tokenizeModuleSyntax(source, sourceLabel);
-  const specifiers = [];
-
-  function addCallSpecifier(tokenIndex) {
-    const argument = tokens[tokenIndex + 2];
-    const close = tokens[tokenIndex + 3];
-    if (argument?.type !== 'string' || close?.value !== ')') {
-      throw new Error(`nonliteral module load in ${sourceLabel}`);
-    }
-    specifiers.push(argument.value);
-    return tokenIndex + 3;
-  }
-
-  function addStaticSpecifier(tokenIndex) {
-    const immediate = tokens[tokenIndex + 1];
-    if (immediate?.type === 'string') {
-      specifiers.push(immediate.value);
-      return tokenIndex + 1;
+  const dependencies = [];
+  let visitedNodes = 0;
+  walk.full(ast, (node) => {
+    visitedNodes += 1;
+    if (visitedNodes > MAX_DEPENDENCY_NODES) {
+      throw new Error(`dependency source has too many AST nodes: ${sourceLabel}`);
     }
 
-    for (
-      let cursor = tokenIndex + 1;
-      cursor < tokens.length && tokens[cursor].value !== ';';
-      cursor += 1
+    let sourceNode;
+    if (
+      node.type === 'ImportDeclaration'
+      || node.type === 'ExportAllDeclaration'
+      || (node.type === 'ExportNamedDeclaration' && node.source)
     ) {
-      if (tokens[cursor].type !== 'identifier' || tokens[cursor].value !== 'from') {
-        continue;
-      }
-      const specifier = tokens[cursor + 1];
-      if (specifier?.type !== 'string') {
+      sourceNode = node.source;
+    } else if (node.type === 'ImportExpression') {
+      sourceNode = node.source;
+    } else if (
+      node.type === 'CallExpression'
+      && node.callee.type === 'Identifier'
+      && node.callee.name === 'require'
+    ) {
+      if (node.arguments.length !== 1) {
         throw new Error(`nonliteral module load in ${sourceLabel}`);
       }
-      specifiers.push(specifier.value);
-      return cursor + 1;
+      [sourceNode] = node.arguments;
     }
-    throw new Error(`nonliteral module load in ${sourceLabel}`);
-  }
 
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    const previous = tokens[index - 1];
-    const next = tokens[index + 1];
-    if (token.type !== 'identifier') continue;
+    if (sourceNode) {
+      dependencies.push({
+        start: node.start,
+        specifier: moduleSpecifierValue(sourceNode, sourceLabel),
+      });
+    }
+  });
 
-    if (token.value === 'require' && previous?.value !== '.' && next?.value === '(') {
-      index = addCallSpecifier(index);
-      continue;
-    }
-    if (token.value === 'import') {
-      if (next?.value === '.') continue;
-      index = next?.value === '('
-        ? addCallSpecifier(index)
-        : addStaticSpecifier(index);
-      continue;
-    }
-    if (token.value === 'export') {
-      for (
-        let cursor = index + 1;
-        cursor < tokens.length && tokens[cursor].value !== ';';
-        cursor += 1
-      ) {
-        if (tokens[cursor].type !== 'identifier' || tokens[cursor].value !== 'from') {
-          continue;
-        }
-        const specifier = tokens[cursor + 1];
-        if (specifier?.type !== 'string') {
-          throw new Error(`nonliteral module load in ${sourceLabel}`);
-        }
-        specifiers.push(specifier.value);
-        index = cursor + 1;
-        break;
-      }
-    }
-  }
-  return specifiers;
+  return dependencies
+    .sort((left, right) => left.start - right.start)
+    .map(({ specifier }) => specifier);
 }
 
 function staticRequiresReachableFrom(entryRelativePath) {
@@ -421,18 +239,24 @@ function assertRuntimeFileSafe(file, root = repositoryDir) {
     || segment === 'certificate'
     || segment === 'certificates'
     || segment === '.git'
+    || segment === '.idea'
+    || segment === '.fleet'
+    || segment === '.vs'
     || segment === '.vscode'
     || segment.startsWith('.env')
   ));
   const forbiddenName = (
     /[*?[\]{}]/.test(file)
     || /^readme(?:\.|$)/i.test(basename)
-    || /\.(?:sql|dump|sqlite|sqlite3|db)(?:$|\.)/i.test(basename)
-    || /\.(?:pem|key|crt|cer|p12|pfx|jks)$/i.test(basename)
+    || /(?:^|\.)env(?:\.|$)/i.test(basename)
+    || /^\.[a-z0-9_-]+rc(?:\.|$)/i.test(basename)
+    || /(?:^|[._-])(?:test|tests|spec|specs)(?:[._-]|$)/i.test(basename)
+    || /\.(?:sql|psql|pgsql|dump|sqlite|sqlite3|db)(?:$|\.)/i.test(basename)
+    || /\.(?:pem|key|crt|cer|der|p12|pfx|jks)$/i.test(basename)
     || /(?:^|[-_.])(?:secret|secrets|credential|credentials|api[-_.]?key|private[-_.]?key|id_rsa|id_ed25519)(?:[-_.]|$)/i
       .test(basename)
-    || /\.(?:zip|tar|tgz|gz|bz2|xz|7z|rar)$/i.test(basename)
-    || /(?:~|\.sw[op]|\.tmp|\.temp|\.bak|\.backup|\.old|\.orig|\.rej|\.save|\.ds_store)$/i
+    || /\.(?:zip|tar|tgz|gz|bz2|xz|zst|7z|rar)$/i.test(basename)
+    || /(?:~|\.sw[op]|\.tmp|\.temp|\.bak|\.bkp|\.backup|\.old|\.orig|\.rej|\.save|\.ds_store)$/i
       .test(basename)
   );
   assert.equal(
@@ -537,19 +361,27 @@ test('runtime manifest is the exact public deployment allowlist', () => {
 test('runtime file safety rejects private, generated and broad deployment artifacts', () => {
   const forbidden = [
     'backend/schema.sql',
+    'backend/schema.psql',
     'backups/schema-20260727.sql.gz',
     'backups/server.js',
     'uploads/contact/message.txt',
     'backend/.env.production',
+    'backend/production.env',
     'backend/secrets.json',
     'secrets/runtime.json',
     'backend/private.key',
     'keys/runtime.json',
     'backend/api-key.json',
     'backend/certificate.pem',
+    'backend/certificate.der',
     'release/runtime.zip',
+    'release/runtime.zst',
     'temp/server.js',
+    'backend/example.test.js',
+    'backend/.idea/workspace.xml',
+    'backend/.npmrc',
     'backend/server.js.bak',
+    'backend/server.js.bkp',
     'backend/server.js.tmp',
     'backend/server.js~',
     'backend/node_modules/express/index.js',
@@ -623,6 +455,53 @@ test('dependency scanner fails closed on computed module loads', () => {
       /nonliteral module load in fixture\.js/
     );
   }
+});
+
+test('dependency scanner decodes escaped and static-template local specifiers', () => {
+  const source = [
+    "const escaped = require('\\u002e\\u002fhidden.js');",
+    "const hexEscaped = require('\\x2e\\x2fhex-hidden.js');",
+    'const staticRequire = require(`./static-require.js`);',
+    'const staticImport = import(`./static-import.js`);',
+  ].join('\n');
+
+  assert.deepEqual(literalModuleSpecifiers(source, 'escaped.js'), [
+    './hidden.js',
+    './hex-hidden.js',
+    './static-require.js',
+    './static-import.js',
+  ]);
+});
+
+test('dependency scanner walks executable template interpolations', () => {
+  const source = [
+    "const required = `${require('./hidden.js')}`;",
+    "const imported = `${import('./also-hidden.js')}`;",
+  ].join('\n');
+  assert.deepEqual(
+    literalModuleSpecifiers(source, 'template-interpolation.js'),
+    ['./hidden.js', './also-hidden.js']
+  );
+});
+
+test('dependency scanner does not treat metadata, regex or ordinary templates as imports', () => {
+  const source = [
+    "export const metadata = { from: './not-a-module.js' };",
+    'if (ready) /require\\([\'"]\\.\\/regex-content/.test(value);',
+    "const example = `require('./template-content.js')`;",
+  ].join('\n');
+
+  assert.deepEqual(literalModuleSpecifiers(source, 'non-dependencies.js'), []);
+});
+
+test('dependency scanner accepts literal dynamic import options', () => {
+  const source = `
+    const data = import('./data.json', { with: { type: 'json' } });
+  `;
+  assert.deepEqual(
+    literalModuleSpecifiers(source, 'dynamic-options.js'),
+    ['./data.json']
+  );
 });
 
 test('dependency scanner rejects an oversized source instead of scanning without a bound', () => {
@@ -722,6 +601,15 @@ test('node entry runner terminates a child that exceeds its timeout', () => {
   assert.equal(result.status, null);
   assert.equal(result.error?.code, 'ETIMEDOUT');
   assert.equal(result.signal, 'SIGTERM');
+});
+
+test('release parser dev dependencies are exact direct pins', () => {
+  const packageJson = require('../package.json');
+  assert.deepEqual(packageJson.devDependencies, {
+    acorn: '8.17.0',
+    'acorn-walk': '8.3.5',
+    nodemon: '^3.1.4',
+  });
 });
 
 test('production package does not depend on browser CORS middleware', () => {
