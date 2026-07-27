@@ -368,7 +368,7 @@ test('homepage contains the approved semantic content and orbit description', ()
     html,
     /role=["']img["'][^>]*aria-label=["']Lumi5 Labs connects businesses and investors around shared sector, stage, geography, and capital priorities\.["']/i,
   );
-  assert.match(html, /<script src=["']js\/script\.js\?v=20260727\.1["']/i);
+  assert.match(html, /<script src=["']js\/script\.js\?v=20260728\.1["']/i);
 });
 
 test('homepage styles are scoped and follow the approved breakpoints', () => {
@@ -535,7 +535,7 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260727.1';
+  const releaseKey = '20260728.1';
   const changedSharedClientPages = [
     'audit-logs.html',
     'assignments.html',
