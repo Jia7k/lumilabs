@@ -17,6 +17,15 @@ const EXPECTED_SUPERADMIN_ACTIONS = [
   'portfolio_reassigned',
 ];
 
+const CLEANUP_PHASES = Object.freeze({
+  PENDING: 'pending',
+  TRANSACTION_OPEN: 'transaction_open',
+  DB_ROLLED_BACK: 'db_rolled_back',
+  DB_COMMITTED: 'db_committed',
+  INDETERMINATE: 'indeterminate',
+  COMPLETE: 'complete',
+});
+
 function positiveId(value, label) {
   const id = Number(value);
   assert.ok(Number.isSafeInteger(id) && id > 0, `${label} must be a positive integer`);
@@ -64,6 +73,9 @@ function resourceSets() {
 
 function createRunContext() {
   const runId = `smoke-${crypto.randomUUID()}`;
+  const documentBytes = Buffer.from(
+    `%PDF-1.4\n% LumiLabs ${runId} ${crypto.randomBytes(32).toString('hex')}\n%%EOF\n`,
+  );
   const labels = ['superadmin', 'admin', 'manager1', 'manager2', 'owner', 'investor1', 'investor2'];
   const emails = Object.fromEntries(labels.map((label) => [label, generatedEmail(runId, label)]));
   const reported = resourceSets();
@@ -102,6 +114,18 @@ function createRunContext() {
     database: null,
     abortController: new AbortController(),
     interruptedBy: null,
+    expectedDocument: {
+      id: null,
+      portfolioId: null,
+      fileName: `${runId}.pdf`,
+      fileType: 'application/pdf',
+      downloadUrl: null,
+      bytes: documentBytes,
+      size: documentBytes.length,
+      sha256: crypto.createHash('sha256').update(documentBytes).digest('hex'),
+    },
+    trustedPortfolioId: null,
+    cleanupPhase: CLEANUP_PHASES.PENDING,
     stagedFiles: [],
   };
   return context;
@@ -171,6 +195,22 @@ function assertExactAuditEvents(actual, expected, label = 'audit events') {
     actual.map(withoutGeneratedFields),
     expected.map(withoutGeneratedFields),
     `${label} changed`,
+  );
+}
+
+function assertAuditApiMatchesDatabase(apiRows, databaseRows, fields, label = 'audit API') {
+  const normalize = (row) => Object.fromEntries(['id', ...fields].map((field) => {
+    const value = row[field];
+    if (field === 'id') return [field, String(value)];
+    if (/_id(?:_snapshot)?$/.test(field)) {
+      return [field, value == null ? null : Number(value)];
+    }
+    return [field, value ?? null];
+  }));
+  assert.deepEqual(
+    apiRows.map(normalize),
+    databaseRows.map(normalize),
+    `${label} ordered projection changed`,
   );
 }
 
@@ -264,25 +304,59 @@ async function requestApi(origin, requestPath, {
   maxBytes = 1024 * 1024,
   signal,
 } = {}, { fetchImpl = fetch } = {}) {
+  const normalizedMethod = String(method).toUpperCase();
+  const mutating = normalizedMethod !== 'GET';
+  if (signal?.aborted) {
+    throw new Error(`${normalizedMethod} ${requestPath} was interrupted before dispatch`, {
+      cause: signal.reason,
+    });
+  }
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const controller = new AbortController();
-  const onExternalAbort = () => controller.abort(signal.reason);
+  let deferredAbort;
+  let deferredTimeout = false;
+  let dispatched = false;
+  let responseReceived = false;
+  const onExternalAbort = () => {
+    if (mutating && dispatched) {
+      deferredAbort = signal.reason || new Error('request aborted');
+      return;
+    }
+    controller.abort(signal.reason);
+  };
   if (signal) {
-    if (signal.aborted) onExternalAbort();
-    else signal.addEventListener('abort', onExternalAbort, { once: true });
+    signal.addEventListener('abort', onExternalAbort, { once: true });
   }
-  const timer = setTimeout(() => controller.abort(new Error('request timeout')), timeoutMs);
+  const timer = setTimeout(() => {
+    if (mutating && dispatched) {
+      deferredTimeout = true;
+      return;
+    }
+    controller.abort(new Error('request timeout'));
+  }, timeoutMs);
   try {
+    dispatched = true;
     const response = await fetchImpl(`${origin}/api${requestPath}`, {
-      method,
+      method: normalizedMethod,
       headers,
       body: form || (body === undefined ? undefined : JSON.stringify(body)),
       redirect: 'error',
-      signal: controller.signal,
+      signal: mutating ? undefined : controller.signal,
     });
-    if (response.redirected) throw new Error(`${method} ${requestPath} redirected unexpectedly`);
+    responseReceived = true;
+    if (response.redirected) {
+      throw new Error(`${normalizedMethod} ${requestPath} redirected unexpectedly`);
+    }
     const bytes = await readBoundedBody(response, maxBytes);
+    if (deferredTimeout) {
+      throw new Error(`${normalizedMethod} ${requestPath} timed out after dispatch`);
+    }
+    if (deferredAbort) {
+      throw new Error(`${normalizedMethod} ${requestPath} was interrupted after dispatch`, {
+        cause: deferredAbort,
+      });
+    }
     const contentType = String(response.headers?.get?.('content-type') || '').toLowerCase();
     let payload;
     if (binary) {
@@ -298,12 +372,15 @@ async function requestApi(origin, requestPath, {
       try {
         payload = JSON.parse(bytes.toString('utf8'));
       } catch (error) {
-        throw new Error(`${method} ${requestPath} did not return valid JSON`, { cause: error });
+        throw new Error(
+          `${normalizedMethod} ${requestPath} did not return valid JSON`,
+          { cause: error },
+        );
       }
     }
     if (response.status !== expectedStatus) {
       const error = new Error(
-        `${method} ${requestPath} expected ${expectedStatus} but received ${response.status}`,
+        `${normalizedMethod} ${requestPath} expected ${expectedStatus} but received ${response.status}`,
       );
       error.status = response.status;
       error.payload = payload;
@@ -312,7 +389,24 @@ async function requestApi(origin, requestPath, {
     return { status: response.status, data: payload };
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error(`${method} ${requestPath} timed out or was aborted`, { cause: error });
+      throw new Error(
+        `${normalizedMethod} ${requestPath} timed out or was aborted`,
+        { cause: error },
+      );
+    }
+    if (
+      mutating
+      && dispatched
+      && !responseReceived
+      && !deferredTimeout
+      && !deferredAbort
+    ) {
+      const unknown = new Error(
+        `${normalizedMethod} ${requestPath} mutation outcome is indeterminate after transport failure`,
+        { cause: error },
+      );
+      unknown.code = 'MUTATION_OUTCOME_INDETERMINATE';
+      throw unknown;
     }
     throw error;
   } finally {
@@ -402,10 +496,39 @@ function combinedError(primary, secondary, message) {
   return primary || secondary;
 }
 
-async function stageDocumentFiles(documentRows, { fileSystem = fs } = {}) {
+function documentDigest(bytes) {
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
+async function assertFileMatchesEvidence(filePath, evidence, fileSystem, label) {
+  const bytes = Buffer.from(await fileSystem.readFile(filePath));
+  assert.equal(bytes.length, evidence.size, `${label} byte length changed`);
+  assert.equal(documentDigest(bytes), evidence.sha256, `${label} content hash changed`);
+}
+
+function assertDocumentRowMatchesExpected(row, expectedDocument) {
+  assert.equal(row.file_name, expectedDocument.fileName, 'document file_name changed');
+  assert.equal(row.file_type, expectedDocument.fileType, 'document file_type changed');
+  if (expectedDocument.id != null) {
+    assert.equal(Number(row.id), Number(expectedDocument.id), 'document ID changed');
+  }
+  if (expectedDocument.portfolioId != null) {
+    assert.equal(
+      Number(row.portfolio_id),
+      Number(expectedDocument.portfolioId),
+      'document portfolio_id changed',
+    );
+  }
+}
+
+async function stageDocumentFiles(documentRows, {
+  expectedDocument,
+  fileSystem = fs,
+} = {}) {
   const staged = [];
   try {
     for (const row of documentRows) {
+      if (expectedDocument) assertDocumentRowMatchesExpected(row, expectedDocument);
       const original = resolveTemporaryDocument(row.file_url);
       const source = await fileSystem.stat(original).catch((error) => {
         throw new Error(`uploaded document must exist: ${original}`, { cause: error });
@@ -413,9 +536,25 @@ async function stageDocumentFiles(documentRows, { fileSystem = fs } = {}) {
       assert.ok(!source.isFile || source.isFile(), `uploaded document must be a file: ${original}`);
       const stagedPath = `${original}.cleanup-${crypto.randomUUID()}`;
       await fileSystem.rename(original, stagedPath);
-      const entry = { original, staged: stagedPath, state: 'staged' };
+      const entry = {
+        original,
+        staged: stagedPath,
+        state: 'staged',
+        verifiedOwnership: false,
+        size: expectedDocument?.size,
+        sha256: expectedDocument?.sha256,
+      };
       staged.push(entry);
       assert.equal(await pathExists(stagedPath, fileSystem), true, 'staged document is missing');
+      if (expectedDocument) {
+        await assertFileMatchesEvidence(
+          stagedPath,
+          expectedDocument,
+          fileSystem,
+          'uploaded document',
+        );
+        entry.verifiedOwnership = true;
+      }
     }
     return staged;
   } catch (error) {
@@ -426,7 +565,7 @@ async function stageDocumentFiles(documentRows, { fileSystem = fs } = {}) {
       restoreError = failure;
     }
     const failure = combinedError(error, restoreError, 'Document staging and restoration failed');
-    failure.stagedFiles = staged;
+    failure.stagedFiles = staged.filter(({ state }) => state !== 'restored');
     throw failure;
   }
 }
@@ -496,6 +635,38 @@ async function settleStagedFiles(staged, {
   if (error) throw error;
 }
 
+async function resumeCleanupFiles(context, { fileSystem = fs } = {}) {
+  const staged = context.stagedFiles || [];
+  if (!staged.length) return;
+  assert.ok(
+    [CLEANUP_PHASES.DB_ROLLED_BACK, CLEANUP_PHASES.DB_COMMITTED]
+      .includes(context.cleanupPhase),
+    `staged files cannot be settled from cleanup phase ${context.cleanupPhase}`,
+  );
+  for (const file of staged) {
+    assert.equal(
+      file.verifiedOwnership,
+      true,
+      `staged file lacks verified ownership evidence: ${file.staged}`,
+    );
+    assert.match(String(file.sha256 || ''), /^[0-9a-f]{64}$/, 'staged file SHA-256 is missing');
+    assert.ok(Number.isSafeInteger(file.size) && file.size >= 0, 'staged file size is missing');
+    const stagedExists = await pathExists(file.staged, fileSystem);
+    const originalExists = await pathExists(file.original, fileSystem);
+    if (stagedExists) {
+      await assertFileMatchesEvidence(file.staged, file, fileSystem, 'staged document');
+    } else if (originalExists) {
+      await assertFileMatchesEvidence(file.original, file, fileSystem, 'restored document');
+    }
+  }
+  if (context.cleanupPhase === CLEANUP_PHASES.DB_COMMITTED) {
+    await purgeStagedFiles(staged, { fileSystem });
+  } else {
+    await restoreStagedFiles(staged, { fileSystem });
+  }
+  context.stagedFiles = [];
+}
+
 async function captureNonTemporaryCounts(database, runId) {
   const like = `${runId}%`;
   const [[portfolioRow]] = await database.query(
@@ -549,27 +720,79 @@ function assertRowsWithin(rows, ownedIds, label) {
   }
 }
 
+function verifiedIdentityForEmail(context, email, label) {
+  const normalizedEmail = String(email || '').toLowerCase();
+  const expected = context.expectedUsers.get(normalizedEmail);
+  assert.ok(expected, `${label} email snapshot escaped scope`);
+  const matches = [...context.userEmails]
+    .filter(([id, issuedEmail]) => (
+      issuedEmail === normalizedEmail && context.verified.userIds.has(Number(id))
+    ));
+  assert.equal(matches.length, 1, `${label} snapshot identity is not uniquely verified`);
+  return { ...expected, id: Number(matches[0][0]) };
+}
+
+function assertLiveForeignKey(row, liveColumn, snapshotId) {
+  assert.ok(
+    row[liveColumn] == null || Number(row[liveColumn]) === Number(snapshotId),
+    `${liveColumn} must be null or equal its exact snapshot ID`,
+  );
+}
+
+function assertManagerSnapshot(context, row, prefix, required) {
+  const idColumn = `${prefix}_relationship_manager_id_snapshot`;
+  const nameColumn = `${prefix}_relationship_manager_name_snapshot`;
+  const emailColumn = `${prefix}_relationship_manager_email_snapshot`;
+  const liveColumn = `${prefix}_relationship_manager_id`;
+  if (!required) {
+    for (const column of [liveColumn, idColumn, nameColumn, emailColumn]) {
+      assert.equal(row[column] ?? null, null, `${column} must be null`);
+    }
+    return null;
+  }
+  const expected = verifiedIdentityForEmail(context, row[emailColumn], prefix);
+  assert.equal(expected.role, 'relationship_manager', `${emailColumn} escaped manager scope`);
+  assert.equal(
+    Number(row[idColumn]),
+    expected.id,
+    `${idColumn} must match the exact verified snapshot identity`,
+  );
+  assert.equal(row[nameColumn], expected.name, `${nameColumn} changed`);
+  assertLiveForeignKey(row, liveColumn, expected.id);
+  return expected;
+}
+
 function assertNaturalSuperadminAudit(context, row) {
-  if (row.action === undefined) return;
-  assert.equal(
-    String(row.superadmin_email_snapshot).toLowerCase(),
-    context.emails.superadmin,
-    'superadmin audit actor email snapshot escaped scope',
+  assert.equal(typeof row.action, 'string', 'superadmin audit action is missing');
+  const actor = verifiedIdentityForEmail(
+    context,
+    row.superadmin_email_snapshot,
+    'superadmin audit actor',
   );
+  assert.equal(actor.email, context.emails.superadmin, 'superadmin audit actor escaped scope');
+  assert.equal(actor.role, 'superadmin', 'superadmin audit actor role changed');
   assert.equal(
-    row.superadmin_name_snapshot,
-    context.names.superadmin,
-    'superadmin audit actor name snapshot escaped scope',
+    Number(row.superadmin_id_snapshot),
+    actor.id,
+    'superadmin_id_snapshot must match the exact verified snapshot identity',
   );
+  assert.equal(row.superadmin_name_snapshot, actor.name, 'superadmin actor name snapshot changed');
+  assertLiveForeignKey(row, 'superadmin_id', actor.id);
   if (row.action.endsWith('_account_created')) {
     const email = String(row.created_user_email_snapshot || '').toLowerCase();
-    const expected = context.expectedUsers.get(email);
+    const expected = verifiedIdentityForEmail(context, email, 'created staff');
     assert.ok(
-      expected && ['admin', 'relationship_manager'].includes(expected.role),
+      ['admin', 'relationship_manager'].includes(expected.role),
       'superadmin staff audit escaped issued staff scope',
+    );
+    assert.equal(
+      Number(row.created_user_id_snapshot),
+      expected.id,
+      'created_user_id_snapshot must match the exact verified snapshot identity',
     );
     assert.equal(row.created_user_name_snapshot, expected.name);
     assert.equal(row.created_user_role, expected.role);
+    assertLiveForeignKey(row, 'created_user_id', expected.id);
     assert.equal(
       row.action,
       expected.role === 'admin'
@@ -585,6 +808,9 @@ function assertNaturalSuperadminAudit(context, row) {
       'new_relationship_manager_id_snapshot',
       'new_relationship_manager_name_snapshot',
       'new_relationship_manager_email_snapshot',
+      'portfolio_id',
+      'previous_relationship_manager_id',
+      'new_relationship_manager_id',
     ]) {
       assert.equal(row[column] ?? null, null, `${column} must be null for a staff audit`);
     }
@@ -594,8 +820,19 @@ function assertNaturalSuperadminAudit(context, row) {
     ['portfolio_assigned', 'portfolio_unassigned', 'portfolio_reassigned'].includes(row.action),
     `unexpected superadmin audit action ${row.action}`,
   );
+  assert.ok(
+    Number.isSafeInteger(context.trustedPortfolioId) && context.trustedPortfolioId > 0,
+    'assignment audit portfolio snapshot identity is not verified',
+  );
+  assert.equal(
+    Number(row.portfolio_id_snapshot),
+    context.trustedPortfolioId,
+    'portfolio_id_snapshot must match the exact verified portfolio snapshot identity',
+  );
+  assertLiveForeignKey(row, 'portfolio_id', context.trustedPortfolioId);
   assert.equal(row.portfolio_name_snapshot, `${context.runId} Portfolio`);
   for (const column of [
+    'created_user_id',
     'created_user_id_snapshot',
     'created_user_name_snapshot',
     'created_user_email_snapshot',
@@ -603,22 +840,21 @@ function assertNaturalSuperadminAudit(context, row) {
   ]) {
     assert.equal(row[column] ?? null, null, `${column} must be null for an assignment audit`);
   }
-  for (const [emailColumn, nameColumn] of [
-    [
-      'previous_relationship_manager_email_snapshot',
-      'previous_relationship_manager_name_snapshot',
-    ],
-    ['new_relationship_manager_email_snapshot', 'new_relationship_manager_name_snapshot'],
-  ]) {
-    if (row[emailColumn] == null) continue;
-    const expected = context.expectedUsers.get(String(row[emailColumn]).toLowerCase());
-    assert.equal(expected?.role, 'relationship_manager', `${emailColumn} escaped scope`);
-    assert.equal(row[nameColumn], expected.name);
+  const previous = assertManagerSnapshot(
+    context,
+    row,
+    'previous',
+    row.action !== 'portfolio_assigned',
+  );
+  const next = assertManagerSnapshot(
+    context,
+    row,
+    'new',
+    row.action !== 'portfolio_unassigned',
+  );
+  if (row.action === 'portfolio_reassigned') {
+    assert.notEqual(previous.id, next.id, 'reassignment manager snapshot IDs must differ');
   }
-  const hasPrevious = row.previous_relationship_manager_email_snapshot != null;
-  const hasNew = row.new_relationship_manager_email_snapshot != null;
-  assert.equal(hasPrevious, row.action !== 'portfolio_assigned');
-  assert.equal(hasNew, row.action !== 'portfolio_unassigned');
 }
 
 async function assertCompleteForeignKeyFootprint(context, resources) {
@@ -850,8 +1086,9 @@ async function reconcileTemporaryRecords(context, { lock = false } = {}) {
       FROM superadmin_audit_logs
       WHERE superadmin_email_snapshot=?
          OR created_user_email_snapshot IN (${placeholders(staffEmails)})
+         OR portfolio_name_snapshot=?
       ORDER BY id${suffix}`,
-    [emails.superadmin, ...staffEmails],
+    [emails.superadmin, ...staffEmails, `${runId} Portfolio`],
   );
   for (const row of resources.superadminAudits) {
     assertNaturalSuperadminAudit(context, row);
@@ -934,14 +1171,21 @@ async function reconcileTemporaryRecords(context, { lock = false } = {}) {
   }
 
   const portfolioId = Number(resources.portfolios[0].id);
+  if (context.trustedPortfolioId == null) context.trustedPortfolioId = portfolioId;
+  assert.equal(
+    context.trustedPortfolioId,
+    portfolioId,
+    'verified portfolio identity changed during cleanup',
+  );
+  for (const row of resources.superadminAudits) assertNaturalSuperadminAudit(context, row);
   [resources.documents] = await database.query(
-    `SELECT id,portfolio_id,file_name,file_url FROM portfolio_documents
+    `SELECT id,portfolio_id,file_name,file_url,file_type FROM portfolio_documents
       WHERE portfolio_id=? AND file_name=?${suffix}`,
     [portfolioId, `${runId}.pdf`],
   );
+  assert.ok(resources.documents.length <= 1, 'temporary document identity is ambiguous');
   for (const row of resources.documents) {
-    assert.equal(Number(row.portfolio_id), portfolioId);
-    assert.equal(row.file_name, `${runId}.pdf`);
+    assertDocumentRowMatchesExpected(row, context.expectedDocument);
     verified.documentIds.add(positiveId(row.id, 'document ID'));
   }
 
@@ -1136,18 +1380,50 @@ async function deleteRows(database, sql, params, expected, label) {
   requireAffectedRows(result, expected, label);
 }
 
-async function cleanTemporaryRecords(context) {
+function preserveStagedFiles(context, stagedFiles) {
+  for (const entry of stagedFiles || []) {
+    if (!context.stagedFiles.some(({ staged }) => staged === entry.staged)) {
+      context.stagedFiles.push(entry);
+    }
+  }
+}
+
+async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
   const { database, runId } = context;
   if (!database) return;
+  if (context.cleanupPhase === CLEANUP_PHASES.COMPLETE) return;
+  if (context.cleanupPhase === CLEANUP_PHASES.INDETERMINATE) {
+    throw new Error(`cleanup outcome is indeterminate for ${runId}; destructive cleanup is disabled`);
+  }
+  if (context.cleanupPhase === CLEANUP_PHASES.DB_COMMITTED) {
+    await resumeCleanupFiles(context, { fileSystem });
+    await assertCleanupComplete(context);
+    context.cleanupPhase = CLEANUP_PHASES.COMPLETE;
+    return;
+  }
+  if (context.cleanupPhase === CLEANUP_PHASES.DB_ROLLED_BACK) {
+    await resumeCleanupFiles(context, { fileSystem });
+    context.cleanupPhase = CLEANUP_PHASES.PENDING;
+  }
+  assert.equal(
+    context.cleanupPhase,
+    CLEANUP_PHASES.PENDING,
+    `cleanup cannot start from phase ${context.cleanupPhase}`,
+  );
+  assert.equal(context.stagedFiles.length, 0, 'cleanup cannot overwrite unsettled staged files');
   let transactionOpen = false;
-  let committed = false;
-  let primaryError;
   try {
     await reconcileTemporaryRecords(context);
     await database.beginTransaction();
     transactionOpen = true;
+    context.cleanupPhase = CLEANUP_PHASES.TRANSACTION_OPEN;
     const resources = await verifyTemporaryResources(context);
-    context.stagedFiles = await stageDocumentFiles(resources.documents);
+    const newlyStaged = await stageDocumentFiles(resources.documents, {
+      expectedDocument: context.expectedDocument,
+      fileSystem,
+    });
+    assert.equal(context.stagedFiles.length, 0, 'cleanup cannot overwrite staged file evidence');
+    context.stagedFiles.push(...newlyStaged);
 
     if (resources.superadminAudits.length) {
       const ids = resources.superadminAudits.map(({ id }) => String(id));
@@ -1244,11 +1520,19 @@ async function cleanTemporaryRecords(context) {
     if (resources.documents.length) {
       const ids = resources.documents.map(({ id }) => Number(id));
       const portfolioIds = [...context.verified.portfolioIds];
+      const [document] = resources.documents;
       await deleteRows(
         database,
         `DELETE FROM portfolio_documents WHERE id IN (${placeholders(ids)})
-          AND portfolio_id IN (${placeholders(portfolioIds)}) AND file_name=?`,
-        [...ids, ...portfolioIds, `${runId}.pdf`],
+          AND portfolio_id IN (${placeholders(portfolioIds)})
+          AND file_name=? AND file_type=? AND file_url=?`,
+        [
+          ...ids,
+          ...portfolioIds,
+          context.expectedDocument.fileName,
+          context.expectedDocument.fileType,
+          document.file_url,
+        ],
         ids.length,
         'document cleanup',
       );
@@ -1284,30 +1568,36 @@ async function cleanTemporaryRecords(context) {
     }
     await database.commit();
     transactionOpen = false;
-    committed = true;
+    context.cleanupPhase = CLEANUP_PHASES.DB_COMMITTED;
   } catch (error) {
-    if (Array.isArray(error.stagedFiles)) context.stagedFiles = error.stagedFiles;
-    primaryError = error;
+    if (Array.isArray(error.stagedFiles)) preserveStagedFiles(context, error.stagedFiles);
     if (transactionOpen) {
       try {
         await database.rollback();
+        transactionOpen = false;
+        context.cleanupPhase = CLEANUP_PHASES.DB_ROLLED_BACK;
       } catch (rollbackError) {
-        primaryError = combinedError(
-          primaryError,
+        context.cleanupPhase = CLEANUP_PHASES.INDETERMINATE;
+        throw combinedError(
+          error,
           rollbackError,
-          'Cleanup and rollback failed',
+          `Cleanup rollback is indeterminate for ${runId}`,
         );
       }
+      let restorationError;
+      try {
+        await resumeCleanupFiles(context, { fileSystem });
+        context.cleanupPhase = CLEANUP_PHASES.PENDING;
+      } catch (failure) {
+        restorationError = failure;
+      }
+      throw combinedError(error, restorationError, 'Database rollback and file restoration failed');
     }
+    throw error;
   }
-  await settleStagedFiles(context.stagedFiles, {
-    committed,
-    primaryError,
-  });
-  context.stagedFiles = [];
-  if (committed) {
-    await assertCleanupComplete(context);
-  }
+  await resumeCleanupFiles(context, { fileSystem });
+  await assertCleanupComplete(context);
+  context.cleanupPhase = CLEANUP_PHASES.COMPLETE;
 }
 
 function assertAssignmentResult(result, {
@@ -1523,8 +1813,8 @@ async function runFiveRoleFlow(context, origin) {
   const form = new FormData();
   form.append(
     'documents',
-    new Blob([Buffer.from('%PDF-1.4\n%%EOF\n')], { type: 'application/pdf' }),
-    `${runId}.pdf`,
+    new Blob([context.expectedDocument.bytes], { type: context.expectedDocument.fileType }),
+    context.expectedDocument.fileName,
   );
   const upload = (await api(`/portfolios/${portfolioId}/documents`, {
     method: 'POST',
@@ -1533,9 +1823,31 @@ async function runFiveRoleFlow(context, origin) {
     form,
   })).data;
   assert.equal(upload.documents.length, 1);
-  const documentId = positiveId(upload.documents[0].id, 'document ID');
+  const uploadedDocument = upload.documents[0];
+  const documentId = positiveId(uploadedDocument.id, 'document ID');
+  context.expectedDocument.id = documentId;
+  context.expectedDocument.portfolioId = portfolioId;
+  context.expectedDocument.downloadUrl = (
+    `/api/portfolios/${portfolioId}/documents/${documentId}/download`
+  );
   reported.documentIds.add(documentId);
-  assert.equal(upload.documents[0].file_name, `${runId}.pdf`);
+  assert.deepEqual(
+    {
+      id: documentId,
+      portfolio_id: Number(uploadedDocument.portfolio_id),
+      file_name: uploadedDocument.file_name,
+      file_type: uploadedDocument.file_type,
+      download_url: uploadedDocument.download_url,
+    },
+    {
+      id: documentId,
+      portfolio_id: portfolioId,
+      file_name: context.expectedDocument.fileName,
+      file_type: context.expectedDocument.fileType,
+      download_url: context.expectedDocument.downloadUrl,
+    },
+    'uploaded document metadata changed',
+  );
   await bindReportedId(context, 'documentIds', documentId, 'document');
 
   const [allAdmins] = await database.query("SELECT id FROM users WHERE role='admin' ORDER BY id");
@@ -1598,7 +1910,7 @@ async function runFiveRoleFlow(context, origin) {
     `/portfolios/${portfolioId}/documents/${documentId}/download`,
     { token: manager1.token, binary: true },
   )).data;
-  assert.equal(downloaded.subarray(0, 4).toString(), '%PDF');
+  assert.deepEqual(downloaded, context.expectedDocument.bytes, 'downloaded PDF bytes changed');
   await expectStatus(api(`/relationship-manager/portfolios/${portfolioId}`, {
     token: manager2.token,
   }), 403);
@@ -2003,17 +2315,19 @@ async function runFiveRoleFlow(context, origin) {
 
   const moderationApiRows = (await api('/admin/audit-logs', { token: admin.token })).data;
   assert.ok(Array.isArray(moderationApiRows), 'moderation audit API shape changed');
-  const superadminApi = (await api('/superadmin/audit-logs?limit=100', {
+  const superadminApi = (await api('/superadmin/audit-logs?page=1&limit=100', {
     token: superadmin.token,
   })).data;
   assert.ok(Array.isArray(superadminApi.items), 'superadmin audit API shape changed');
+  assert.equal(Number(superadminApi.pagination?.page), 1, 'superadmin audit page changed');
+  assert.equal(Number(superadminApi.pagination?.limit), 100, 'superadmin audit limit changed');
 
   const [moderationRows] = await database.query(
     `SELECT id,admin_id,action,portfolio_id,reason FROM audit_logs
       WHERE portfolio_id=? ORDER BY id`,
     [portfolioId],
   );
-  assertExactAuditEvents(moderationRows, [
+  const expectedModerationRows = [
     {
       admin_id: identities.admin.id,
       action: 'approved',
@@ -2032,7 +2346,17 @@ async function runFiveRoleFlow(context, origin) {
       portfolio_id: portfolioId,
       reason: null,
     },
-  ], 'moderation audit');
+  ];
+  assertExactAuditEvents(moderationRows, expectedModerationRows, 'moderation audit');
+  const moderationApiForRun = moderationApiRows.filter((row) => (
+    Number(row.portfolio_id) === portfolioId
+  ));
+  assertAuditApiMatchesDatabase(
+    moderationApiForRun,
+    [...moderationRows].reverse(),
+    ['admin_id', 'action', 'portfolio_id', 'reason'],
+    'moderation audit API',
+  );
   trackRows(reported.moderationAuditIds, moderationRows, 'moderation audit');
 
   const [superadminRows] = await database.query(
@@ -2088,7 +2412,7 @@ async function runFiveRoleFlow(context, origin) {
     created_user_email_snapshot: null,
     created_user_role: null,
   });
-  assertExactAuditEvents(superadminRows, [
+  const expectedSuperadminRows = [
     staffAudit(identities.admin, 'admin', 'admin_account_created'),
     staffAudit(
       identities.manager1,
@@ -2104,7 +2428,35 @@ async function runFiveRoleFlow(context, origin) {
     assignmentAudit('portfolio_unassigned', identities.manager1, null),
     assignmentAudit('portfolio_assigned', null, identities.manager1),
     assignmentAudit('portfolio_reassigned', identities.manager1, identities.manager2),
-  ], 'superadmin audit');
+  ];
+  assertExactAuditEvents(superadminRows, expectedSuperadminRows, 'superadmin audit');
+  const superadminApiForRun = superadminApi.items.filter((row) => (
+    String(row.superadmin_email_snapshot).toLowerCase() === emails.superadmin
+  ));
+  assert.equal(superadminApiForRun.length, 7, 'superadmin audit API run event count changed');
+  assertAuditApiMatchesDatabase(
+    superadminApiForRun,
+    [...superadminRows].reverse(),
+    [
+      'superadmin_id_snapshot',
+      'superadmin_name_snapshot',
+      'superadmin_email_snapshot',
+      'action',
+      'portfolio_id_snapshot',
+      'portfolio_name_snapshot',
+      'previous_relationship_manager_id_snapshot',
+      'previous_relationship_manager_name_snapshot',
+      'previous_relationship_manager_email_snapshot',
+      'new_relationship_manager_id_snapshot',
+      'new_relationship_manager_name_snapshot',
+      'new_relationship_manager_email_snapshot',
+      'created_user_id_snapshot',
+      'created_user_name_snapshot',
+      'created_user_email_snapshot',
+      'created_user_role',
+    ],
+    'superadmin audit API',
+  );
   trackRows(reported.superadminAuditIds, superadminRows, 'superadmin audit', auditId);
   await reconcileTemporaryRecords(context);
   console.log('Live five-role workflow smoke passed');
@@ -2114,19 +2466,60 @@ function createCleanupController(context, {
   cleanup = cleanTemporaryRecords,
   captureCounts = captureNonTemporaryCounts,
 } = {}) {
+  const maximumCleanupAttempts = 3;
   let cleanupPromise;
   let completed = false;
+  const stagedEvidence = () => (
+    context.stagedFiles.length
+      ? `; staged paths requiring manual recovery: ${
+        context.stagedFiles.map(({ staged }) => staged).join(', ')
+      }`
+      : ''
+  );
   const cleanupAndClose = () => {
     if (cleanupPromise) return cleanupPromise;
     if (completed) return Promise.resolve();
     cleanupPromise = (async () => {
       const errors = [];
-      try {
-        await cleanup(context);
-      } catch (error) {
-        errors.push(error);
+      const cleanupFailures = [];
+      if (context.cleanupPhase === CLEANUP_PHASES.INDETERMINATE) {
+        cleanupFailures.push(new Error(
+          `mutation or cleanup outcome is indeterminate for ${context.runId}; `
+            + `destructive cleanup was skipped${stagedEvidence()}`,
+        ));
+      } else {
+        for (let attempt = 1; attempt <= maximumCleanupAttempts; attempt += 1) {
+          try {
+            await cleanup(context);
+            cleanupFailures.length = 0;
+            break;
+          } catch (error) {
+            cleanupFailures.push(error);
+            const settlementCanRetry = (
+              context.stagedFiles.length > 0
+              && [
+                CLEANUP_PHASES.DB_ROLLED_BACK,
+                CLEANUP_PHASES.DB_COMMITTED,
+              ].includes(context.cleanupPhase)
+            );
+            if (!settlementCanRetry || attempt === maximumCleanupAttempts) break;
+          }
+        }
       }
-      if (!errors.length && context.baselineCounts) {
+      if (cleanupFailures.length === 1) {
+        const [failure] = cleanupFailures;
+        if (context.stagedFiles.length) {
+          errors.push(new Error(`${failure.message}${stagedEvidence()}`, { cause: failure }));
+        } else {
+          errors.push(failure);
+        }
+      } else if (cleanupFailures.length > 1) {
+        errors.push(new AggregateError(
+          cleanupFailures,
+          `Cleanup failed after ${cleanupFailures.length} attempts${stagedEvidence()}`,
+        ));
+      }
+      if (context.baselineCounts) {
         try {
           const finalCounts = await captureCounts(context.database, context.runId);
           assertNonTemporaryCountsUnchanged(context.baselineCounts, finalCounts);
@@ -2144,7 +2537,10 @@ function createCleanupController(context, {
         }
       }
       if (errors.length > 1) {
-        throw new AggregateError(errors, 'Five-role smoke teardown failed');
+        throw new AggregateError(
+          errors,
+          `Five-role smoke teardown failed${stagedEvidence()}`,
+        );
       }
       if (errors.length === 1) throw errors[0];
       completed = true;
@@ -2161,6 +2557,7 @@ async function main(environment = process.env, dependencies = {}) {
     cleanup = cleanTemporaryRecords,
     runFlow = runFiveRoleFlow,
     processTarget = process,
+    forceTerminate: injectedForceTerminate,
     installSignalHandlers = true,
   } = dependencies;
   const context = createRunContext();
@@ -2172,13 +2569,40 @@ async function main(environment = process.env, dependencies = {}) {
   }
   let primaryError;
   let cleanupController;
+  let signalCount = 0;
+  const installedSignalHandlers = {};
+  const forceTerminate = injectedForceTerminate || ((signal) => {
+    if (typeof processTarget.kill === 'function' && processTarget.pid != null) {
+      processTarget.kill(processTarget.pid, signal);
+      return;
+    }
+    process.kill(process.pid, signal);
+  });
+  const removeSignalHandlers = () => {
+    if (!installSignalHandlers) return;
+    processTarget.removeListener('SIGINT', installedSignalHandlers.SIGINT);
+    processTarget.removeListener('SIGTERM', installedSignalHandlers.SIGTERM);
+  };
+  const interruptionError = () => {
+    const error = new Error(`Smoke interrupted by ${context.interruptedBy}`);
+    error.code = 'SMOKE_INTERRUPTED';
+    return error;
+  };
   const signalHandler = (signal) => {
+    signalCount += 1;
+    if (signalCount > 1) {
+      removeSignalHandlers();
+      forceTerminate(signal);
+      return;
+    }
     context.interruptedBy = signal;
     context.abortController.abort(new Error(`Smoke interrupted by ${signal}`));
   };
   if (installSignalHandlers) {
-    processTarget.on('SIGINT', signalHandler);
-    processTarget.on('SIGTERM', signalHandler);
+    installedSignalHandlers.SIGINT = () => signalHandler('SIGINT');
+    installedSignalHandlers.SIGTERM = () => signalHandler('SIGTERM');
+    processTarget.on('SIGINT', installedSignalHandlers.SIGINT);
+    processTarget.on('SIGTERM', installedSignalHandlers.SIGTERM);
   }
   try {
     context.database = await createConnection({
@@ -2189,13 +2613,16 @@ async function main(environment = process.env, dependencies = {}) {
       database: environment.DB_NAME,
     });
     cleanupController = createCleanupController(context, { cleanup, captureCounts });
+    if (context.interruptedBy) throw interruptionError();
     context.baselineCounts = await captureCounts(context.database, context.runId);
+    if (context.interruptedBy) throw interruptionError();
     await runFlow(context, origin);
-    if (context.interruptedBy) {
-      throw new Error(`Smoke interrupted by ${context.interruptedBy}`);
-    }
+    if (context.interruptedBy) throw interruptionError();
   } catch (error) {
     primaryError = error;
+    if (error.code === 'MUTATION_OUTCOME_INDETERMINATE') {
+      context.cleanupPhase = CLEANUP_PHASES.INDETERMINATE;
+    }
   } finally {
     if (context.database) {
       cleanupController ||= createCleanupController(context, { cleanup, captureCounts });
@@ -2205,13 +2632,18 @@ async function main(environment = process.env, dependencies = {}) {
         primaryError = combinedError(
           primaryError,
           error,
-          'Five-role smoke and teardown failed',
+          `Five-role smoke and teardown failed: `
+            + `${primaryError?.message || 'no primary failure'}; ${error.message}`,
         );
       }
     }
-    if (installSignalHandlers) {
-      processTarget.removeListener('SIGINT', signalHandler);
-      processTarget.removeListener('SIGTERM', signalHandler);
+    removeSignalHandlers();
+    if (context.interruptedBy && primaryError?.code !== 'SMOKE_INTERRUPTED') {
+      primaryError = combinedError(
+        primaryError,
+        interruptionError(),
+        `Five-role smoke interrupted during teardown by ${context.interruptedBy}`,
+      );
     }
   }
   if (primaryError) throw primaryError;
@@ -2225,13 +2657,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CLEANUP_PHASES,
   EXPECTED_SUPERADMIN_ACTIONS,
+  assertAuditApiMatchesDatabase,
   assertCleanupComplete,
   assertExactAuditEvents,
   assertExactIds,
   assertExactNotificationTuples,
   assertExactRecipientIds,
   assertExactUser,
+  assertNaturalSuperadminAudit,
   assertNonTemporaryCountsUnchanged,
   captureNonTemporaryCounts,
   cleanTemporaryRecords,
@@ -2243,6 +2678,7 @@ module.exports = {
   requestApi,
   requireAffectedRows,
   resolveOrigin,
+  resumeCleanupFiles,
   restoreStagedFiles,
   settleStagedFiles,
   stageDocumentFiles,

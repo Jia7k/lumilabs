@@ -52,23 +52,33 @@ function jsonResponse(body, {
 }
 
 function memoryFileSystem(initialPaths = []) {
-  const files = new Map(initialPaths.map((file) => [file, Buffer.from('pdf')]));
+  const files = new Map(initialPaths.map((entry) => (
+    Array.isArray(entry) ? [entry[0], Buffer.from(entry[1])] : [entry, Buffer.from('pdf')]
+  )));
   const failures = { rename: null, unlink: null };
+  const operations = [];
   const missing = (file) => Object.assign(new Error(`missing ${file}`), { code: 'ENOENT' });
   return {
     files,
     failures,
+    operations,
     async stat(file) {
       if (!files.has(file)) throw missing(file);
       return { isFile: () => true };
     },
+    async readFile(file) {
+      if (!files.has(file)) throw missing(file);
+      return Buffer.from(files.get(file));
+    },
     async rename(from, to) {
+      operations.push(['rename', from, to]);
       if (failures.rename && failures.rename(from, to)) throw new Error('rename failed');
       if (!files.has(from)) throw missing(from);
       files.set(to, files.get(from));
       files.delete(from);
     },
     async unlink(file) {
+      operations.push(['unlink', file]);
       if (failures.unlink && failures.unlink(file)) throw new Error('unlink failed');
       if (!files.has(file)) throw missing(file);
       files.delete(file);
@@ -380,6 +390,128 @@ test('request helper aborts on timeout and validates PDF headers separately', as
   );
 });
 
+test('mutating requests wait for a late server result before cleanup starts', async () => {
+  const {
+    main,
+    requestApi,
+  } = loadSmoke();
+  const events = [];
+  const origin = 'http://127.0.0.1:3100';
+  await assert.rejects(
+    main({
+      DB_USER: 'generated',
+      DB_PASSWORD: 'generated',
+      DB_NAME: 'generated',
+      LUMILABS_E2E_ORIGIN: origin,
+    }, {
+      createConnection: async () => ({
+        async end() { events.push('close'); },
+      }),
+      captureCounts: async () => ({ portfolios: 0, conversation_members: 0, messages: 0 }),
+      cleanup: async () => {
+        assert.deepEqual(events, ['write'], 'cleanup raced a dispatched mutation');
+        events.push('cleanup');
+      },
+      installSignalHandlers: false,
+      runFlow: async (context) => {
+        await requestApi(origin, '/late-write', {
+          method: 'POST',
+          expectedStatus: 201,
+          timeoutMs: 5,
+          signal: context.abortController.signal,
+        }, {
+          fetchImpl: async (url, { signal }) => new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              events.push('write');
+              resolve(jsonResponse({ created: true }, { status: 201 }));
+            }, 25);
+            signal?.addEventListener('abort', () => {
+              reject(Object.assign(new Error('client aborted'), { name: 'AbortError' }));
+              // The localhost server operation still commits after the client aborts.
+              void timer;
+            }, { once: true });
+          }),
+        });
+      },
+    }),
+    /timed out/i,
+  );
+  assert.deepEqual(events, ['write', 'cleanup', 'close']);
+
+  const preAborted = new AbortController();
+  preAborted.abort(new Error('already interrupted'));
+  let dispatches = 0;
+  await assert.rejects(
+    requestApi(origin, '/must-not-dispatch', {
+      method: 'DELETE',
+      signal: preAborted.signal,
+    }, {
+      fetchImpl: async () => {
+        dispatches += 1;
+        return jsonResponse({});
+      },
+    }),
+    /before dispatch|interrupted|aborted/i,
+  );
+  assert.equal(dispatches, 0);
+
+  const interrupted = new AbortController();
+  const signalEvents = [];
+  const interruptedRequest = requestApi(origin, '/late-denial', {
+    method: 'DELETE',
+    expectedStatus: 409,
+    timeoutMs: 100,
+    signal: interrupted.signal,
+  }, {
+    fetchImpl: async () => new Promise((resolve) => {
+      setTimeout(() => {
+        signalEvents.push('denial');
+        resolve(jsonResponse({ error: 'controlled' }, { status: 409 }));
+      }, 20);
+    }),
+  });
+  setTimeout(() => interrupted.abort(new Error('signal')), 5);
+  await assert.rejects(interruptedRequest, /interrupted after dispatch/i);
+  assert.deepEqual(signalEvents, ['denial']);
+});
+
+test('an organic mutation transport failure fails closed without destructive cleanup', async () => {
+  const {
+    main,
+    requestApi,
+  } = loadSmoke();
+  const origin = 'http://127.0.0.1:3100';
+  const counts = { cleanup: 0, count: 0, close: 0 };
+  await assert.rejects(
+    main({
+      DB_USER: 'generated',
+      DB_PASSWORD: 'generated',
+      DB_NAME: 'generated',
+      LUMILABS_E2E_ORIGIN: origin,
+    }, {
+      createConnection: async () => ({
+        async end() { counts.close += 1; },
+      }),
+      captureCounts: async () => {
+        counts.count += 1;
+        return { portfolios: 0, conversation_members: 0, messages: 0 };
+      },
+      cleanup: async () => { counts.cleanup += 1; },
+      installSignalHandlers: false,
+      runFlow: async (context) => requestApi(origin, '/unknown-write', {
+        method: 'POST',
+        signal: context.abortController.signal,
+      }, {
+        fetchImpl: async () => {
+          throw new Error('socket closed after dispatch');
+        },
+      }),
+    }),
+    /mutation outcome.*indeterminate|outcome.*unknown/i,
+  );
+  assert.deepEqual(counts, { cleanup: 0, count: 2, close: 1 });
+});
+
 test('reported IDs cannot widen verified deletion scope and affected rows are exact', async () => {
   const {
     requireAffectedRows,
@@ -433,20 +565,46 @@ test('partial pre-portfolio reconciliation discovers natural users and staff aud
       const normalized = String(sql).replace(/\s+/g, ' ').trim();
       queries.push(normalized);
       if (/FROM users WHERE email IN/.test(normalized)) {
-        return [[{
-          id: 7,
-          email: superadminEmail,
-          name: `${context.runId} Superadmin`,
-          role: 'superadmin',
-        }], []];
+        return [[
+          {
+            id: 7,
+            email: superadminEmail,
+            name: context.names.superadmin,
+            role: 'superadmin',
+          },
+          {
+            id: 8,
+            email: context.emails.admin,
+            name: context.names.admin,
+            role: 'admin',
+          },
+        ], []];
       }
       if (/FROM users WHERE id IN/.test(normalized)) return [[], []];
       if (/FROM superadmin_audit_logs/.test(normalized)) {
         return [[{
           id: '44',
+          superadmin_id: 7,
+          superadmin_id_snapshot: 7,
+          superadmin_name_snapshot: context.names.superadmin,
           superadmin_email_snapshot: superadminEmail,
-          created_user_email_snapshot: null,
+          action: 'admin_account_created',
+          portfolio_id: null,
           portfolio_id_snapshot: null,
+          portfolio_name_snapshot: null,
+          previous_relationship_manager_id: null,
+          previous_relationship_manager_id_snapshot: null,
+          previous_relationship_manager_name_snapshot: null,
+          previous_relationship_manager_email_snapshot: null,
+          new_relationship_manager_id: null,
+          new_relationship_manager_id_snapshot: null,
+          new_relationship_manager_name_snapshot: null,
+          new_relationship_manager_email_snapshot: null,
+          created_user_id: 8,
+          created_user_id_snapshot: 8,
+          created_user_name_snapshot: context.names.admin,
+          created_user_email_snapshot: context.emails.admin,
+          created_user_role: 'admin',
         }], []];
       }
       throw new Error(`Unexpected query: ${normalized}`);
@@ -455,9 +613,133 @@ test('partial pre-portfolio reconciliation discovers natural users and staff aud
 
   await reconcileTemporaryRecords(context);
 
-  assert.deepEqual([...context.verified.userIds], [7]);
+  assert.deepEqual([...context.verified.userIds], [7, 8]);
   assert.deepEqual([...context.verified.superadminAuditIds], ['44']);
   assert.equal(queries.some((sql) => /FROM portfolios/.test(sql)), false);
+});
+
+test('immutable audit IDs and live FKs must match exact snapshot identities before any delete', async () => {
+  const {
+    cleanTemporaryRecords,
+    createRunContext,
+  } = loadSmoke();
+  for (const mismatch of [
+    { created_user_id_snapshot: 999, created_user_id: 2 },
+    { created_user_id_snapshot: 2, created_user_id: 1 },
+  ]) {
+    const context = createRunContext();
+    const users = [
+      {
+        id: 1,
+        email: context.emails.superadmin,
+        name: context.names.superadmin,
+        role: 'superadmin',
+      },
+      {
+        id: 2,
+        email: context.emails.admin,
+        name: context.names.admin,
+        role: 'admin',
+      },
+    ];
+    const audit = {
+      id: '44',
+      superadmin_id: 1,
+      superadmin_id_snapshot: 1,
+      superadmin_name_snapshot: context.names.superadmin,
+      superadmin_email_snapshot: context.emails.superadmin,
+      action: 'admin_account_created',
+      portfolio_id: null,
+      portfolio_id_snapshot: null,
+      portfolio_name_snapshot: null,
+      previous_relationship_manager_id: null,
+      previous_relationship_manager_id_snapshot: null,
+      previous_relationship_manager_name_snapshot: null,
+      previous_relationship_manager_email_snapshot: null,
+      new_relationship_manager_id: null,
+      new_relationship_manager_id_snapshot: null,
+      new_relationship_manager_name_snapshot: null,
+      new_relationship_manager_email_snapshot: null,
+      created_user_name_snapshot: context.names.admin,
+      created_user_email_snapshot: context.emails.admin,
+      created_user_role: 'admin',
+      ...mismatch,
+    };
+    let begins = 0;
+    let deletes = 0;
+    context.database = {
+      async query(sql) {
+        const normalized = String(sql).replace(/\s+/g, ' ').trim();
+        if (/FROM users WHERE email IN/.test(normalized)) return [users, []];
+        if (/FROM superadmin_audit_logs/.test(normalized)
+          && /superadmin_email_snapshot/.test(normalized)) return [[audit], []];
+        if (/^DELETE FROM/.test(normalized)) {
+          deletes += 1;
+          return [{ affectedRows: /DELETE FROM users/.test(normalized) ? 2 : 1 }, []];
+        }
+        if (/COUNT\(\*\)/.test(normalized)) return [[{ count: 0 }], []];
+        return [[], []];
+      },
+      async beginTransaction() { begins += 1; },
+      async commit() {},
+      async rollback() {},
+    };
+    await assert.rejects(
+      cleanTemporaryRecords(context),
+      /created_user_id_snapshot|created_user_id.*snapshot|snapshot ID/i,
+    );
+    assert.equal(begins, 0);
+    assert.equal(deletes, 0);
+  }
+});
+
+test('assignment audit snapshots bind portfolio and both managers to exact IDs', () => {
+  const {
+    assertNaturalSuperadminAudit,
+    createRunContext,
+  } = loadSmoke();
+  const context = createRunContext();
+  const identities = [
+    [1, 'superadmin'],
+    [2, 'manager1'],
+    [3, 'manager2'],
+  ];
+  for (const [id, label] of identities) {
+    context.verified.userIds.add(id);
+    context.userEmails.set(id, context.emails[label]);
+  }
+  context.trustedPortfolioId = 20;
+  const row = {
+    superadmin_id: 1,
+    superadmin_id_snapshot: 1,
+    superadmin_name_snapshot: context.names.superadmin,
+    superadmin_email_snapshot: context.emails.superadmin,
+    action: 'portfolio_reassigned',
+    portfolio_id: 20,
+    portfolio_id_snapshot: 20,
+    portfolio_name_snapshot: `${context.runId} Portfolio`,
+    previous_relationship_manager_id: 2,
+    previous_relationship_manager_id_snapshot: 2,
+    previous_relationship_manager_name_snapshot: context.names.manager1,
+    previous_relationship_manager_email_snapshot: context.emails.manager1,
+    new_relationship_manager_id: 3,
+    new_relationship_manager_id_snapshot: 3,
+    new_relationship_manager_name_snapshot: context.names.manager2,
+    new_relationship_manager_email_snapshot: context.emails.manager2,
+    created_user_id: null,
+    created_user_id_snapshot: null,
+    created_user_name_snapshot: null,
+    created_user_email_snapshot: null,
+    created_user_role: null,
+  };
+  assert.doesNotThrow(() => assertNaturalSuperadminAudit(context, row));
+  assert.throws(
+    () => assertNaturalSuperadminAudit(context, {
+      ...row,
+      new_relationship_manager_id: 2,
+    }),
+    /new_relationship_manager_id.*exact snapshot ID/i,
+  );
 });
 
 test('notification tuples reject extras and auth identity checks every field', () => {
@@ -523,6 +805,37 @@ test('notification tuples reject extras and auth identity checks every field', (
   );
 });
 
+test('audit API projections must equal the exact ordered database events', () => {
+  const { assertAuditApiMatchesDatabase } = loadSmoke();
+  assert.equal(typeof assertAuditApiMatchesDatabase, 'function');
+  const endpointOrderedDatabaseRows = [
+    { id: 11, admin_id: 2, action: 'rejected', portfolio_id: 20, reason: 'controlled' },
+    { id: 10, admin_id: 2, action: 'approved', portfolio_id: 20, reason: null },
+  ];
+  const fields = ['admin_id', 'action', 'portfolio_id', 'reason'];
+  assert.doesNotThrow(() => assertAuditApiMatchesDatabase(
+    [
+      { ...endpointOrderedDatabaseRows[0], admin_name: 'extra API field' },
+      { ...endpointOrderedDatabaseRows[1], admin_name: 'extra API field' },
+    ],
+    endpointOrderedDatabaseRows,
+    fields,
+    'moderation audit API',
+  ));
+  assert.throws(
+    () => assertAuditApiMatchesDatabase(
+      [
+        endpointOrderedDatabaseRows[1],
+        endpointOrderedDatabaseRows[0],
+      ],
+      endpointOrderedDatabaseRows,
+      fields,
+      'moderation audit API',
+    ),
+    /moderation audit API/i,
+  );
+});
+
 test('file staging requires the uploaded source and restores or purges final state', async () => {
   const {
     purgeStagedFiles,
@@ -579,6 +892,39 @@ test('file staging requires the uploaded source and restores or purges final sta
   assert.equal(commitFailureFs.files.has(stagedForFailure[0].staged), false);
 });
 
+test('document staging binds exact PDF metadata and bytes before deletion', async () => {
+  const {
+    createRunContext,
+    stageDocumentFiles,
+  } = loadSmoke();
+  const context = createRunContext();
+  assert.equal(context.expectedDocument.bytes.includes(Buffer.from(context.runId)), true);
+  const original = path.resolve(
+    __dirname,
+    '..',
+    'uploads',
+    'portfolio-documents',
+    'unrelated.pdf',
+  );
+  const unrelated = Buffer.from('%PDF-1.4\nunrelated existing file\n%%EOF\n');
+  const fileSystem = memoryFileSystem([[original, unrelated]]);
+  await assert.rejects(
+    stageDocumentFiles([{
+      file_name: context.expectedDocument.fileName,
+      file_type: context.expectedDocument.fileType,
+      file_url: '/uploads/portfolio-documents/unrelated.pdf',
+    }], {
+      expectedDocument: context.expectedDocument,
+      fileSystem,
+    }),
+    /content|hash|byte/i,
+  );
+  assert.deepEqual(fileSystem.files.get(original), unrelated);
+  assert.equal([...fileSystem.files.keys()].some((file) => file.includes('.cleanup-')), false);
+  assert.equal(fileSystem.operations.filter(([operation]) => operation === 'rename').length, 2);
+  assert.equal(fileSystem.operations.some(([operation]) => operation === 'unlink'), false);
+});
+
 test('file restoration failure is aggregated with the database failure', async () => {
   const {
     settleStagedFiles,
@@ -604,6 +950,258 @@ test('file restoration failure is aggregated with the database failure', async (
       && error.errors.some(({ message }) => message === 'rename failed')
     ),
   );
+});
+
+test('confirmed rollback restore and committed purge phases remain retryable', async () => {
+  const {
+    createCleanupController,
+    createRunContext,
+    resumeCleanupFiles,
+  } = loadSmoke();
+  assert.equal(typeof resumeCleanupFiles, 'function');
+  for (const mode of ['restore', 'purge']) {
+    const context = createRunContext();
+    const original = path.resolve(
+      __dirname,
+      '..',
+      'uploads',
+      'portfolio-documents',
+      `${mode}.pdf`,
+    );
+    const staged = `${original}.cleanup-test`;
+    const fileSystem = memoryFileSystem([[staged, context.expectedDocument.bytes]]);
+    context.cleanupPhase = mode === 'restore' ? 'db_rolled_back' : 'db_committed';
+    context.stagedFiles = [{
+      original,
+      staged,
+      state: 'staged',
+      verifiedOwnership: true,
+      size: context.expectedDocument.size,
+      sha256: context.expectedDocument.sha256,
+    }];
+    context.baselineCounts = { portfolios: 0, conversation_members: 0, messages: 0 };
+    let failed = false;
+    if (mode === 'restore') {
+      fileSystem.failures.rename = () => {
+        if (failed) return false;
+        failed = true;
+        return true;
+      };
+    } else {
+      fileSystem.failures.unlink = () => {
+        if (failed) return false;
+        failed = true;
+        return true;
+      };
+    }
+    const counts = { cleanup: 0, count: 0, close: 0 };
+    context.database = {
+      async end() { counts.close += 1; },
+    };
+    const controller = createCleanupController(context, {
+      cleanup: async () => {
+        counts.cleanup += 1;
+        await resumeCleanupFiles(context, { fileSystem });
+        context.cleanupPhase = 'complete';
+      },
+      captureCounts: async () => {
+        counts.count += 1;
+        return context.baselineCounts;
+      },
+    });
+    await controller.cleanupAndClose();
+    assert.deepEqual(counts, { cleanup: 2, count: 1, close: 1 });
+    assert.equal(context.cleanupPhase, 'complete');
+    assert.equal(context.stagedFiles.length, 0);
+    assert.equal(fileSystem.files.has(mode === 'restore' ? original : staged), mode === 'restore');
+  }
+});
+
+test('cleanup resumes settlement before SQL and never replays a committed transaction', async () => {
+  const {
+    cleanTemporaryRecords,
+    createRunContext,
+  } = loadSmoke();
+  const rollbackContext = createRunContext();
+  const rollbackOriginal = path.resolve(
+    __dirname,
+    '..',
+    'uploads',
+    'portfolio-documents',
+    'rollback-retry.pdf',
+  );
+  const rollbackStaged = `${rollbackOriginal}.cleanup-test`;
+  const rollbackFs = memoryFileSystem([[
+    rollbackStaged,
+    rollbackContext.expectedDocument.bytes,
+  ]]);
+  rollbackContext.cleanupPhase = 'db_rolled_back';
+  rollbackContext.stagedFiles = [{
+    original: rollbackOriginal,
+    staged: rollbackStaged,
+    state: 'staged',
+    verifiedOwnership: true,
+    size: rollbackContext.expectedDocument.size,
+    sha256: rollbackContext.expectedDocument.sha256,
+  }];
+  const rollbackCalls = { begin: 0, commit: 0 };
+  rollbackContext.database = {
+    async query(sql) {
+      if (/COUNT\(\*\).*FROM users WHERE email LIKE/s.test(String(sql))) {
+        return [[{ count: 0 }], []];
+      }
+      return [[], []];
+    },
+    async beginTransaction() { rollbackCalls.begin += 1; },
+    async commit() { rollbackCalls.commit += 1; },
+    async rollback() {},
+  };
+  let restoreFailed = false;
+  rollbackFs.failures.rename = () => {
+    if (restoreFailed) return false;
+    restoreFailed = true;
+    return true;
+  };
+  await assert.rejects(
+    cleanTemporaryRecords(rollbackContext, { fileSystem: rollbackFs }),
+    /rename failed/,
+  );
+  assert.deepEqual(rollbackCalls, { begin: 0, commit: 0 });
+  await cleanTemporaryRecords(rollbackContext, { fileSystem: rollbackFs });
+  assert.deepEqual(rollbackCalls, { begin: 1, commit: 1 });
+  assert.equal(rollbackContext.cleanupPhase, 'complete');
+
+  const committedContext = createRunContext();
+  const committedStaged = `${rollbackOriginal}.committed`;
+  const committedFs = memoryFileSystem([[
+    committedStaged,
+    committedContext.expectedDocument.bytes,
+  ]]);
+  committedContext.cleanupPhase = 'db_committed';
+  committedContext.stagedFiles = [{
+    original: rollbackOriginal,
+    staged: committedStaged,
+    state: 'staged',
+    verifiedOwnership: true,
+    size: committedContext.expectedDocument.size,
+    sha256: committedContext.expectedDocument.sha256,
+  }];
+  committedContext.database = {
+    async query() { return [[{ count: 0 }], []]; },
+    async beginTransaction() { throw new Error('committed cleanup replayed SQL'); },
+  };
+  await cleanTemporaryRecords(committedContext, { fileSystem: committedFs });
+  assert.equal(committedContext.cleanupPhase, 'complete');
+  assert.equal(committedFs.files.has(committedStaged), false);
+});
+
+test('ambiguous rollback and unverified staged evidence both fail closed', async () => {
+  const {
+    cleanTemporaryRecords,
+    createRunContext,
+    resumeCleanupFiles,
+  } = loadSmoke();
+  const context = createRunContext();
+  let begins = 0;
+  context.database = {
+    async query(sql) {
+      if (/COUNT\(\*\).*FROM users WHERE email LIKE/s.test(String(sql))) {
+        return [[{ count: 0 }], []];
+      }
+      return [[], []];
+    },
+    async beginTransaction() { begins += 1; },
+    async commit() { throw new Error('commit result lost'); },
+    async rollback() { throw new Error('rollback result lost'); },
+  };
+  await assert.rejects(
+    cleanTemporaryRecords(context),
+    /indeterminate|rollback/i,
+  );
+  assert.equal(context.cleanupPhase, 'indeterminate');
+  await assert.rejects(cleanTemporaryRecords(context), /indeterminate/i);
+  assert.equal(begins, 1);
+
+  const evidenceContext = createRunContext();
+  const original = path.resolve(
+    __dirname,
+    '..',
+    'uploads',
+    'portfolio-documents',
+    'unverified.pdf',
+  );
+  const staged = `${original}.cleanup-test`;
+  const fileSystem = memoryFileSystem([[staged, evidenceContext.expectedDocument.bytes]]);
+  evidenceContext.cleanupPhase = 'db_committed';
+  evidenceContext.stagedFiles = [{ original, staged, state: 'staged' }];
+  await assert.rejects(
+    resumeCleanupFiles(evidenceContext, { fileSystem }),
+    /verified ownership evidence/i,
+  );
+  assert.equal(fileSystem.files.has(staged), true);
+  assert.equal(fileSystem.operations.some(([operation]) => operation === 'unlink'), false);
+});
+
+test('cleanup retries are bounded, counts still run, and staged paths are reported', async () => {
+  const {
+    createCleanupController,
+    createRunContext,
+  } = loadSmoke();
+  const context = createRunContext();
+  context.baselineCounts = { portfolios: 0, conversation_members: 0, messages: 0 };
+  context.cleanupPhase = 'db_committed';
+  context.stagedFiles = [{
+    original: '/tmp/original-run.pdf',
+    staged: '/tmp/original-run.pdf.cleanup-stuck',
+    state: 'staged',
+    verifiedOwnership: true,
+    size: context.expectedDocument.size,
+    sha256: context.expectedDocument.sha256,
+  }];
+  const counts = { cleanup: 0, count: 0, close: 0 };
+  context.database = {
+    async end() { counts.close += 1; },
+  };
+  const controller = createCleanupController(context, {
+    cleanup: async () => {
+      counts.cleanup += 1;
+      throw new Error('still failing');
+    },
+    captureCounts: async () => {
+      counts.count += 1;
+      return context.baselineCounts;
+    },
+  });
+  await assert.rejects(
+    controller.cleanupAndClose(),
+    /cleanup-stuck/,
+  );
+  assert.deepEqual(counts, { cleanup: 3, count: 1, close: 1 });
+});
+
+test('arbitrary cleanup failures are not retried as destructive SQL', async () => {
+  const {
+    createCleanupController,
+    createRunContext,
+  } = loadSmoke();
+  const context = createRunContext();
+  context.baselineCounts = { portfolios: 0, conversation_members: 0, messages: 0 };
+  const counts = { cleanup: 0, count: 0, close: 0 };
+  context.database = {
+    async end() { counts.close += 1; },
+  };
+  const controller = createCleanupController(context, {
+    cleanup: async () => {
+      counts.cleanup += 1;
+      throw new Error('arbitrary delete failure');
+    },
+    captureCounts: async () => {
+      counts.count += 1;
+      return context.baselineCounts;
+    },
+  });
+  await assert.rejects(controller.cleanupAndClose(), /arbitrary delete failure/);
+  assert.deepEqual(counts, { cleanup: 1, count: 1, close: 1 });
 });
 
 test('cleanup controller is idempotent and main closes after baseline failure', async () => {
@@ -680,6 +1278,62 @@ test('signal handlers only abort the flow and outer finally owns teardown', asyn
   assert.deepEqual(counts, { cleanup: 1, close: 1 });
   assert.equal(processTarget.listenerCount('SIGINT'), 0);
   assert.equal(processTarget.listenerCount('SIGTERM'), 0);
+});
+
+test('a signal during cleanup still fails main after teardown', async () => {
+  const { main } = loadSmoke();
+  const processTarget = new EventEmitter();
+  let closed = 0;
+  await assert.rejects(
+    main({
+      DB_USER: 'generated',
+      DB_PASSWORD: 'generated',
+      DB_NAME: 'generated',
+      LUMILABS_E2E_ORIGIN: 'http://127.0.0.1:3100',
+    }, {
+      createConnection: async () => ({
+        async end() { closed += 1; },
+      }),
+      captureCounts: async () => ({ portfolios: 0, conversation_members: 0, messages: 0 }),
+      cleanup: async () => {
+        processTarget.emit('SIGINT', 'SIGINT');
+      },
+      processTarget,
+      runFlow: async () => {},
+    }),
+    /SIGINT/,
+  );
+  assert.equal(closed, 1);
+});
+
+test('a second signal removes handlers and invokes the force-termination escape', async () => {
+  const { main } = loadSmoke();
+  const processTarget = new EventEmitter();
+  let releaseConnection;
+  const connectionReady = new Promise((resolve) => { releaseConnection = resolve; });
+  const forced = [];
+  let flowCalls = 0;
+  const running = main({
+    DB_USER: 'generated',
+    DB_PASSWORD: 'generated',
+    DB_NAME: 'generated',
+    LUMILABS_E2E_ORIGIN: 'http://127.0.0.1:3100',
+  }, {
+    createConnection: async () => connectionReady,
+    captureCounts: async () => ({ portfolios: 0, conversation_members: 0, messages: 0 }),
+    cleanup: async () => {},
+    forceTerminate: (signal) => { forced.push(signal); },
+    processTarget,
+    runFlow: async () => { flowCalls += 1; },
+  });
+  processTarget.emit('SIGTERM', 'SIGTERM');
+  processTarget.emit('SIGTERM', 'SIGTERM');
+  assert.deepEqual(forced, ['SIGTERM']);
+  assert.equal(processTarget.listenerCount('SIGINT'), 0);
+  assert.equal(processTarget.listenerCount('SIGTERM'), 0);
+  releaseConnection({ async end() {} });
+  await assert.rejects(running, /SIGTERM/);
+  assert.equal(flowCalls, 0);
 });
 
 test('smoke source contains no fixed credential, email address, or token', () => {
