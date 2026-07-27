@@ -11,7 +11,9 @@
 
 <body class="dashboard protected-page">
 
-  <nav class="nav">
+  <a class="skip-link" id="moderation-skip-link" href="#moderation-main">Skip to main content</a>
+
+  <nav class="nav" id="moderation-nav">
     <a class="nav-logo" href="index.html">
       <div class="logo-icon"><i class="ti ti-trending-up"></i></div>Lumi5 Labs
     </a>
@@ -47,7 +49,7 @@
     </div>
   </nav>
 
-  <main class="main">
+  <main class="main" id="moderation-main" tabindex="-1">
     <h1 class="welcome-heading" id="page-title"></h1>
     <p class="welcome-sub" id="page-subtitle"></p>
 
@@ -92,6 +94,7 @@
              id="moderation-status"
              role="status"
              aria-live="polite"
+             tabindex="-1"
              hidden></p>
           <button class="btn btn-outline admin-retry-btn"
                   id="moderation-retry-btn"
@@ -132,18 +135,28 @@
          tabindex="-1"></div>
   </div>
 
-  <div class="reason-overlay" id="reason-overlay">
-    <div class="reason-card">
-      <h3>Reject Portfolio</h3>
-      <p>Please provide a reason for rejection. This feedback will be sent to the business owner.</p>
-      <textarea class="reason-textarea" id="reason-textarea" placeholder="e.g. Weak market traction"></textarea>
+  <div class="reason-overlay" id="reason-overlay" aria-hidden="true" inert>
+    <div class="reason-card"
+         id="reason-card"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="reason-title"
+         aria-describedby="reason-description"
+         tabindex="-1">
+      <h3 id="reason-title">Reject Portfolio</h3>
+      <p id="reason-description">Please provide a reason for rejection. This feedback will be sent to the business owner.</p>
+      <textarea class="reason-textarea"
+                id="reason-textarea"
+                aria-label="Rejection reason"
+                aria-describedby="reason-description reason-error"
+                placeholder="e.g. Weak market traction"></textarea>
       <div class="form-message reason-error"
            id="reason-error"
            role="alert"
            aria-live="assertive"></div>
       <div class="reason-footer">
-        <button class="btn-cancel-outline" id="reason-cancel-btn">Cancel</button>
-        <button class="btn-confirm-reject" id="reason-confirm-btn">Reject Portfolio</button>
+        <button class="btn-cancel-outline" id="reason-cancel-btn" type="button">Cancel</button>
+        <button class="btn-confirm-reject" id="reason-confirm-btn" type="button">Reject Portfolio</button>
       </div>
     </div>
   </div>

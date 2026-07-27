@@ -42,6 +42,7 @@ let activeReviewTrigger = null;
 let activeReviewPortfolio = null;
 let activeReviewDetail = null;
 let decisionInFlight = false;
+let activeRejectTrigger = null;
 
 function normalizePortfolioId(value) {
   if (typeof value === "number") {
@@ -494,8 +495,39 @@ function renderReviewDetails(full, p) {
   `;
 }
 
-function closeReviewModal() {
+function reviewFocusContext() {
+  return {
+    trigger: activeReviewTrigger,
+    portfolioId: activeReviewId,
+  };
+}
+
+function restoreReviewFocus(context) {
+  const portfolioId = normalizePortfolioId(context?.portfolioId);
+  const replacement = portfolioId === null
+    ? null
+    : document.querySelector(
+      `#queue-list [data-portfolio-id="${portfolioId}"]`,
+    );
+  const status = document.getElementById("moderation-status");
+  const main = document.getElementById("moderation-main");
+  const target = canRestoreFocus(context?.trigger)
+    ? context.trigger
+    : canRestoreFocus(replacement)
+      ? replacement
+      : canRestoreFocus(status)
+        ? status
+        : main;
+  target?.focus();
+}
+
+function closeReviewModal(options = {}) {
   if (decisionInFlight) return false;
+  const restoreFocus = options.restoreFocus !== false;
+  const focusContext = reviewFocusContext();
+  if (document.getElementById("reason-overlay").classList.contains("open")) {
+    closeRejectPopup({ restoreFocus: false });
+  }
   reviewRequestVersion += 1;
   reviewLoadInFlight = false;
   activeReviewId = null;
@@ -503,9 +535,8 @@ function closeReviewModal() {
   activeReviewDetail = null;
   setReviewOverlayOpen(false);
   document.getElementById("review-card").innerHTML = "";
-  const trigger = activeReviewTrigger;
   activeReviewTrigger = null;
-  if (trigger && !trigger.disabled) trigger.focus();
+  if (restoreFocus) restoreReviewFocus(focusContext);
   return true;
 }
 
@@ -543,7 +574,7 @@ document.getElementById("review-card").addEventListener("click", async (event) =
   else if (action === "retry" && activeReviewId !== null) await loadReviewDetails(activeReviewId);
   else if (action === "score-info") showScoreInfo();
   else if (action === "approve") await handleApprove();
-  else if (action === "reject") openRejectPopup();
+  else if (action === "reject") openRejectPopup(control);
 });
 
 function setReviewActionMessage(message, type = "") {
@@ -558,6 +589,8 @@ function setReasonError(message) {
   if (!error) return;
   error.textContent = message;
   error.className = message ? "form-message reason-error show error" : "form-message reason-error";
+  document.getElementById("reason-textarea")
+    ?.setAttribute("aria-invalid", String(Boolean(message)));
 }
 
 function setDecisionState(inFlight, { action = "", message = "" } = {}) {
@@ -600,26 +633,112 @@ async function handleApprove() {
   }
 
   setDecisionState(false);
-  closeReviewModal();
-  return loadModeration({
+  const focusContext = reviewFocusContext();
+  closeReviewModal({ restoreFocus: false });
+  const refreshed = await loadModeration({
     successMessage: "Portfolio approved.",
     failureMessage: "Portfolio approved, but the dashboard could not refresh.",
   });
+  restoreReviewFocus(focusContext);
+  return refreshed;
 }
 
 // Reject reason popup
-function openRejectPopup() {
+function setReasonOverlayOpen(open) {
+  const overlay = document.getElementById("reason-overlay");
+  overlay.classList.toggle("open", open);
+  overlay.setAttribute("aria-hidden", String(!open));
+  overlay.inert = !open;
+
+  for (const id of [
+    "moderation-skip-link",
+    "moderation-nav",
+    "moderation-main",
+    "review-overlay",
+  ]) {
+    const background = document.getElementById(id);
+    if (!background) continue;
+    background.inert = open;
+    if (open) {
+      background.setAttribute("aria-hidden", "true");
+    } else if (id === "review-overlay") {
+      background.setAttribute(
+        "aria-hidden",
+        String(!background.classList.contains("open")),
+      );
+    } else {
+      background.removeAttribute("aria-hidden");
+    }
+  }
+}
+
+function canRestoreFocus(element) {
+  return Boolean(
+    element
+    && element.isConnected !== false
+    && !element.disabled
+    && !element.hidden,
+  );
+}
+
+function restoreRejectFocus() {
+  const currentReject = document.getElementById("review-reject-btn");
+  const target = canRestoreFocus(activeRejectTrigger)
+    ? activeRejectTrigger
+    : canRestoreFocus(currentReject)
+      ? currentReject
+      : null;
+  activeRejectTrigger = null;
+  target?.focus();
+}
+
+function reasonFocusableControls() {
+  return [
+    document.getElementById("reason-textarea"),
+    document.getElementById("reason-cancel-btn"),
+    document.getElementById("reason-confirm-btn"),
+  ].filter(canRestoreFocus);
+}
+
+function trapReasonFocus(event) {
+  const dialog = document.getElementById("reason-card");
+  const focusable = reasonFocusableControls();
+  if (!focusable.length) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+
+  const currentIndex = focusable.indexOf(document.activeElement);
+  const movingBeforeFirst = event.shiftKey && currentIndex <= 0;
+  const movingPastLast = !event.shiftKey && (
+    currentIndex === -1 || currentIndex === focusable.length - 1
+  );
+  if (!movingBeforeFirst && !movingPastLast) return;
+
+  event.preventDefault();
+  (movingBeforeFirst ? focusable.at(-1) : focusable[0]).focus();
+}
+
+function openRejectPopup(trigger = document.activeElement) {
   if (decisionInFlight || activeReviewId === null) return false;
+  const candidate = trigger?.closest?.("[data-review-action]") || trigger;
+  activeRejectTrigger = canRestoreFocus(candidate)
+    ? candidate
+    : document.getElementById("review-reject-btn");
   document.getElementById("reason-textarea").value = "";
   setReasonError("");
-  document.getElementById("reason-overlay").classList.add("open");
+  setReasonOverlayOpen(true);
   document.getElementById("reason-textarea").focus();
   return true;
 }
 
-function closeRejectPopup() {
+function closeRejectPopup(options = {}) {
   if (decisionInFlight) return false;
-  document.getElementById("reason-overlay").classList.remove("open");
+  const restoreFocus = options.restoreFocus !== false;
+  setReasonOverlayOpen(false);
+  if (restoreFocus) restoreRejectFocus();
+  else activeRejectTrigger = null;
   return true;
 }
 
@@ -649,17 +768,27 @@ async function handleReject() {
   }
 
   setDecisionState(false);
-  closeRejectPopup();
-  closeReviewModal();
-  return loadModeration({
+  const focusContext = reviewFocusContext();
+  closeRejectPopup({ restoreFocus: false });
+  closeReviewModal({ restoreFocus: false });
+  const refreshed = await loadModeration({
     successMessage: "Portfolio rejected.",
     failureMessage: "Portfolio rejected, but the dashboard could not refresh.",
   });
+  restoreReviewFocus(focusContext);
+  return refreshed;
 }
 
 document.getElementById("reason-confirm-btn").addEventListener("click", handleReject);
 
 document.addEventListener("keydown", (e) => {
+  if (
+    e.key === "Tab"
+    && document.getElementById("reason-overlay").classList.contains("open")
+  ) {
+    trapReasonFocus(e);
+    return;
+  }
   if (e.key !== "Escape" || decisionInFlight) return;
   if (document.getElementById("reason-overlay").classList.contains("open")) {
     closeRejectPopup();

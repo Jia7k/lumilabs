@@ -142,16 +142,30 @@ test('staff form exposes only admin and relationship-manager roles and DB limits
   const html = read('superadmindashboard.html');
   assert.match(html, /<body class=["'][^"']*\bprotected-page\b/);
   assert.match(html, /id=["']superadmin-main["'][^>]*\bhidden\b/);
-  assert.match(html, /id=["']staff-name["'][^>]*maxlength=["']100["'][^>]*required/);
-  assert.match(html, /id=["']staff-email["'][^>]*maxlength=["']255["'][^>]*required/);
   assert.match(
     html,
-    /id=["']staff-password["'][^>]*minlength=["']6["'][^>]*maxlength=["']128["'][^>]*required/,
+    /id=["']staff-name["'][^>]*maxlength=["']100["'][^>]*required[^>]*aria-describedby=["']staff-name-error["']/,
+  );
+  assert.match(
+    html,
+    /id=["']staff-email["'][^>]*maxlength=["']255["'][^>]*required[^>]*aria-describedby=["']staff-email-error["']/,
+  );
+  assert.match(
+    html,
+    /id=["']staff-password["'][^>]*minlength=["']6["'][^>]*maxlength=["']128["'][^>]*required[^>]*aria-describedby=["']staff-password-help staff-password-error["']/,
+  );
+  assert.match(
+    html,
+    /id=["']staff-password-help["'][^>]*>Use 6–128 characters\./,
   );
   const roleSelect = html.match(
     /<select[^>]*id=["']staff-role["'][^>]*>([\s\S]*?)<\/select>/,
   );
   assert.ok(roleSelect);
+  assert.match(
+    roleSelect[0],
+    /aria-describedby=["']staff-role-error["']/,
+  );
   assert.match(roleSelect[1], /value=["']admin["']/);
   assert.match(roleSelect[1], /value=["']relationship_manager["']/);
   assert.doesNotMatch(roleSelect[1], /value=["']superadmin["']/);

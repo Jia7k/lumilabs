@@ -1,6 +1,36 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { adminHarness, deferred, flush } = require('./helpers/admin-dashboard-harness');
+
+const moderatorMarkup = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'moderatordashboard.html'),
+  'utf8',
+);
+
+test('rejection dialog markup exposes one labelled and described modal surface', () => {
+  assert.match(
+    moderatorMarkup,
+    /<a[^>]*id="moderation-skip-link"[^>]*href="#moderation-main"/,
+  );
+  assert.match(moderatorMarkup, /<nav[^>]*id="moderation-nav"/);
+  assert.match(moderatorMarkup, /<main[^>]*id="moderation-main"/);
+  assert.match(
+    moderatorMarkup,
+    /id="reason-overlay"[^>]*aria-hidden="true"/,
+  );
+  assert.match(
+    moderatorMarkup,
+    /id="reason-card"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="reason-title"[^>]*aria-describedby="reason-description"/,
+  );
+  assert.match(moderatorMarkup, /<h3[^>]*id="reason-title"/);
+  assert.match(moderatorMarkup, /<p[^>]*id="reason-description"/);
+  assert.match(
+    moderatorMarkup,
+    /id="moderation-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*tabindex="-1"/,
+  );
+});
 
 test('admin initialization loads moderation only', async () => {
   const page = adminHarness();
@@ -363,6 +393,138 @@ test('blank rejection never calls the API and failed rejection keeps its reason'
   assert.match(client.element('reason-error').textContent, /reject failed/i);
 });
 
+test('rejection dialog isolates the background, traps focus, and restores Reject on close paths', async () => {
+  const client = adminHarness();
+  await client.init();
+  await client.run('openReviewModal(42)');
+  const rejectControl = client.element('review-reject-btn');
+
+  for (const closePath of ['cancel', 'backdrop', 'escape']) {
+    assert.equal(
+      client.run("openRejectPopup(document.getElementById('review-reject-btn'))"),
+      true,
+    );
+    assert.equal(client.element('reason-overlay').getAttribute('aria-hidden'), 'false');
+    assert.equal(client.document.activeElement, client.element('reason-textarea'));
+    for (const id of [
+      'moderation-skip-link',
+      'moderation-nav',
+      'moderation-main',
+      'review-overlay',
+    ]) {
+      assert.equal(client.element(id).inert, true, `${id} is isolated`);
+      assert.equal(client.element(id).getAttribute('aria-hidden'), 'true');
+    }
+    assert.equal(client.element('reason-overlay').inert, false);
+
+    let prevented = false;
+    client.element('reason-confirm-btn').focus();
+    await client.document.dispatch('keydown', {
+      key: 'Tab',
+      shiftKey: false,
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    assert.equal(prevented, true);
+    assert.equal(client.document.activeElement, client.element('reason-textarea'));
+
+    prevented = false;
+    client.element('reason-textarea').focus();
+    await client.document.dispatch('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      preventDefault() {
+        prevented = true;
+      },
+    });
+    assert.equal(prevented, true);
+    assert.equal(client.document.activeElement, client.element('reason-confirm-btn'));
+
+    if (closePath === 'cancel') {
+      await client.element('reason-cancel-btn').dispatch('click');
+    } else if (closePath === 'backdrop') {
+      await client.element('reason-overlay').dispatch('click', {
+        target: client.element('reason-overlay'),
+      });
+    } else {
+      await client.document.dispatch('keydown', { key: 'Escape' });
+    }
+
+    assert.equal(client.element('reason-overlay').classList.contains('open'), false);
+    assert.equal(client.element('reason-overlay').getAttribute('aria-hidden'), 'true');
+    assert.equal(client.document.activeElement, rejectControl);
+    for (const id of [
+      'moderation-skip-link',
+      'moderation-nav',
+      'moderation-main',
+      'review-overlay',
+    ]) {
+      assert.equal(client.element(id).inert, false, `${id} resumes`);
+    }
+    assert.equal(client.element('review-overlay').getAttribute('aria-hidden'), 'false');
+  }
+});
+
+test('rejection close restores an equivalent Reject control after review rerender', async () => {
+  const client = adminHarness();
+  await client.init();
+  await client.run('openReviewModal(42)');
+  const original = client.element('review-reject-btn');
+  client.run("openRejectPopup(document.getElementById('review-reject-btn'))");
+
+  const replacement = client.replaceElement('review-reject-btn');
+  assert.equal(original.isConnected, false);
+  assert.equal(client.run('closeRejectPopup()'), true);
+  assert.equal(client.document.activeElement, replacement);
+});
+
+test('review close restores an equivalent queue trigger after its row rerenders', async () => {
+  const client = adminHarness();
+  await client.init();
+  const original = client.element('review-trigger');
+  original.dataset.portfolioId = '42';
+  await client.run("openReviewModal(42, document.getElementById('review-trigger'))");
+
+  const replacement = client.replaceElement('review-trigger');
+  replacement.dataset.portfolioId = '42';
+  assert.equal(client.run('closeReviewModal()'), true);
+  assert.equal(client.document.activeElement, replacement);
+});
+
+test('successful rejection restores focus after refresh when the queue item is removed', async () => {
+  let queueCalls = 0;
+  let client;
+  const queuedPortfolio = {
+    id: 42,
+    name: 'New Company',
+    owner_name: 'Owner',
+    sector: 'Technology',
+    submitted_at: '2026-07-23T00:00:00.000Z',
+    readiness_score: 60,
+  };
+  client = adminHarness({
+    getQueue: async () => {
+      queueCalls += 1;
+      return queueCalls === 1 ? [queuedPortfolio] : [];
+    },
+    rejectPortfolio: async () => {
+      client.element('review-trigger').isConnected = false;
+    },
+  });
+  await client.init();
+  const reviewTrigger = client.element('review-trigger');
+  reviewTrigger.dataset.portfolioId = '42';
+  await client.run("openReviewModal(42, document.getElementById('review-trigger'))");
+  client.run("openRejectPopup(document.getElementById('review-reject-btn'))");
+  client.element('reason-textarea').value = 'Needs stronger traction';
+
+  assert.equal(await client.run('handleReject()'), true);
+  assert.equal(client.document.activeElement, client.element('moderation-status'));
+  assert.equal(client.element('moderation-status').textContent, 'Portfolio rejected.');
+  assert.equal(client.element('moderation-status').hidden, false);
+});
+
 test('all close paths and duplicate rejection are blocked while rejection is pending', async () => {
   const reject = deferred();
   const client = adminHarness({ rejectPortfolio: async () => reject.promise });
@@ -387,6 +549,17 @@ test('all close paths and duplicate rejection are blocked while rejection is pen
   assert.equal(client.element('reason-overlay').classList.contains('open'), true);
   assert.equal(client.element('review-overlay').classList.contains('open'), true);
   assert.equal(client.element('reason-cancel-btn').disabled, true);
+
+  let tabPrevented = false;
+  await client.document.dispatch('keydown', {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault() {
+      tabPrevented = true;
+    },
+  });
+  assert.equal(tabPrevented, true);
+  assert.equal(client.document.activeElement, client.element('reason-card'));
 
   reject.resolve({});
   await Promise.all([saving, duplicate]);

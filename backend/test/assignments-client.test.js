@@ -431,6 +431,14 @@ test('assignment workspace uses delegated actions and accessible protected dialo
   assert.match(html, /aria-label=["']Portfolio assignments["']/);
   assert.match(html, /id=["']assignment-dialog["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
   assert.match(html, /id=["']unassign-dialog["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
+  assert.match(
+    html,
+    /id=["']assignment-dialog["'][^>]*aria-describedby=["']assignment-dialog-description["']/,
+  );
+  assert.match(
+    html,
+    /id=["']unassign-dialog["'][^>]*aria-describedby=["']unassign-dialog-description["']/,
+  );
   assert.match(html, /id=["']assignment-status["'][^>]*role=["']status["'][^>]*aria-live=["']polite["']/);
   assert.match(
     client,

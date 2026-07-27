@@ -51,6 +51,8 @@ class FakeElement {
     this.dataset = {};
     this.hidden = false;
     this.disabled = false;
+    this.inert = false;
+    this.isConnected = true;
     this.innerHTML = '';
     this.innerText = '';
     this.textContent = '';
@@ -85,6 +87,10 @@ class FakeElement {
     return this.attributes.get(name) ?? null;
   }
 
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
   closest(selector) {
     if (selector === '.form-group') return this.formGroup || this;
     if (selector === '[data-portfolio-id]' && this.dataset.portfolioId != null) return this;
@@ -110,6 +116,16 @@ function adminHarness(overrides = {}) {
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, new FakeElement(id, document));
       return elements.get(id);
+    },
+    querySelector(selector) {
+      const portfolioId = selector.match(/\[data-portfolio-id="([1-9]\d*)"\]/)?.[1];
+      if (!portfolioId) return null;
+      return [...elements.values()].find(
+        (element) => (
+          element.isConnected
+          && String(element.dataset.portfolioId) === portfolioId
+        ),
+      ) || null;
     },
     addEventListener(type, handler) {
       const list = this.listeners.get(type) || [];
@@ -210,6 +226,13 @@ function adminHarness(overrides = {}) {
     context,
     document,
     element: (id) => document.getElementById(id),
+    replaceElement(id) {
+      const previous = document.getElementById(id);
+      previous.isConnected = false;
+      const replacement = new FakeElement(id, document);
+      elements.set(id, replacement);
+      return replacement;
+    },
     init: () => context.__adminInitPromise,
     initialize: () => context.__adminInitPromise,
     run: (code) => vm.runInContext(code, context),

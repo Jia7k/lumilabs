@@ -177,23 +177,23 @@
         <form class="staff-form" id="staff-form" novalidate>
           <div class="form-group">
             <label for="staff-name">Name</label>
-            <input id="staff-name" name="name" type="text" maxlength="100" autocomplete="name" required />
+            <input id="staff-name" name="name" type="text" maxlength="100" autocomplete="name" required aria-describedby="staff-name-error" />
             <p class="field-error" id="staff-name-error" aria-live="polite"></p>
           </div>
           <div class="form-group">
             <label for="staff-email">Email</label>
-            <input id="staff-email" name="email" type="email" maxlength="255" autocomplete="email" required />
+            <input id="staff-email" name="email" type="email" maxlength="255" autocomplete="email" required aria-describedby="staff-email-error" />
             <p class="field-error" id="staff-email-error" aria-live="polite"></p>
           </div>
           <div class="form-group">
             <label for="staff-password">Temporary password</label>
-            <input id="staff-password" name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required />
-            <p class="field-help">Use 6–128 characters. The password is not shown again.</p>
+            <input id="staff-password" name="password" type="password" minlength="6" maxlength="128" autocomplete="new-password" required aria-describedby="staff-password-help staff-password-error" />
+            <p class="field-help" id="staff-password-help">Use 6–128 characters. The password is not shown again.</p>
             <p class="field-error" id="staff-password-error" aria-live="polite"></p>
           </div>
           <div class="form-group">
             <label for="staff-role">Role</label>
-            <select id="staff-role" name="role" required>
+            <select id="staff-role" name="role" required aria-describedby="staff-role-error">
               <option value="admin">Admin</option>
               <option value="relationship_manager">Relationship manager</option>
             </select>
