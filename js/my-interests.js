@@ -54,12 +54,12 @@ function render() {
   if (!interests.length) {
     list.innerHTML = `
       <div class="empty-state">
-        <i class="ti ti-heart-off"></i>
+        <div style="width:72px;height:72px;border-radius:50%;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+          <i class="ti ti-heart-off" style="font-size:32px;color:var(--pink-text);display:block;margin:0;"></i>
+        </div>
         <h3>No interests yet</h3>
         <p>Browse startups and express interest to see them here.</p>
-        <button class="btn-browse" onclick="window.location.href='browse.html'" style="margin:16px auto 0; display:inline-flex;">
-          <i class="ti ti-search"></i> Browse Startups
-        </button>
+        <button onclick="window.location.href='browse.html'" style="margin:16px auto 0;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 28px;background:var(--logo-purple);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;"><i class="ti ti-search"></i> Browse Startups</button>
       </div>`;
     return;
   }

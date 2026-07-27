@@ -261,15 +261,17 @@ function renderGrid(portfolios) {
     const score = rankingScore(p);
     const isHighPotential = readinessScore >= 75;
     return `
-      <div class="startup-card" id="card-${portfolioId}">
+      <div class="startup-card${isHighPotential ? " startup-card--high-potential" : ""}" id="card-${portfolioId}">
         <div class="card-top">
           <div class="card-icon"><i class="ti ti-briefcase"></i></div>
-          <span class="sector-badge">${escapeHtml(p.sector)}</span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+            <span class="sector-badge">${escapeHtml(p.sector)}</span>
+            ${isHighPotential ? `<span class="high-potential-badge"><i class="ti ti-star"></i> High Potential</span>` : ""}
+          </div>
         </div>
         <div>
           <div class="card-name">${escapeHtml(p.name)}</div>
           <div class="card-owner">by ${escapeHtml(p.owner_name)}</div>
-          ${isHighPotential ? `<span class="high-potential-badge" style="margin-top:6px;display:inline-flex;"><i class="ti ti-star"></i> High Potential</span>` : ""}
         </div>
         <div class="card-meta">
           <div class="meta-box">
