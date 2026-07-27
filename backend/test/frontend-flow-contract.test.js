@@ -76,6 +76,25 @@ function assertAttribute(tag, name, value = true) {
   assert.match(tag, new RegExp(`\\b${name}=["']${String(value).replaceAll('.', '\\.')}["']`, 'i'));
 }
 
+function balancedCssBlock(source, openingPattern, label) {
+  const start = source.search(openingPattern);
+  assert.notEqual(start, -1, `missing ${label}`);
+
+  const openingBrace = source.indexOf('{', start);
+  assert.notEqual(openingBrace, -1, `missing opening brace for ${label}`);
+
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] !== '}') continue;
+
+    depth -= 1;
+    if (depth === 0) return source.slice(openingBrace + 1, index);
+  }
+
+  assert.fail(`missing closing brace for ${label}`);
+}
+
 function relativeLuminance(hexColor) {
   const channels = hexColor.slice(1).match(/.{2}/g).map((channel) => {
     const value = Number.parseInt(channel, 16) / 255;
@@ -324,7 +343,7 @@ test('portfolio editor mirrors database-backed form limits', () => {
   );
 });
 
-test('homepage exposes only the two public audience journeys', () => {
+test('homepage exposes exact public journeys and navigation routes', () => {
   const html = read('index.html');
   const desktopNav = html.match(
     /<nav\b[^>]*class=["'][^"']*\blanding-page-links\b[^"']*["'][^>]*aria-label=["']Primary navigation["'][^>]*>[\s\S]*?<\/nav>/i,
@@ -387,6 +406,7 @@ test('homepage exposes only the two public audience journeys', () => {
 test('homepage contains the approved semantic content and orbit description', () => {
   const html = read('index.html');
 
+  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260727\.3["']/i);
   assert.match(html, /<body class=["']landing-page["']/i);
   assert.equal([...html.matchAll(/<h1\b/gi)].length, 1);
   assert.match(html, /<main\b[^>]*>/i);
@@ -404,6 +424,16 @@ test('homepage contains the approved semantic content and orbit description', ()
 
 test('homepage styles are scoped and follow the approved breakpoints', () => {
   const css = read('css/style.css');
+  const compactStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*719px\)/,
+    '719px homepage media query',
+  );
+  const narrowStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*599px\)/,
+    '599px homepage media query',
+  );
 
   assert.match(
     css,
@@ -426,33 +456,50 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
     /@media \(max-width:\s*899px\)[\s\S]*?\.landing-page \.landing-audience-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-trust-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    narrowStyles,
+    /\.landing-page \.landing-trust-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-steps-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    narrowStyles,
+    /\.landing-page \.landing-steps-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
     css,
     /\.landing-page \.landing-menu\s*\{[^}]*display:\s*none/s,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-page-links\s*\{[^}]*display:\s*none/,
+    compactStyles,
+    /\.landing-page \.landing-page-links\s*\{[^}]*display:\s*none/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-menu\s*\{[^}]*display:\s*block/,
+    compactStyles,
+    /\.landing-page \.landing-menu\s*\{[^}]*display:\s*block/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-nav-signin\s*\{[^}]*display:\s*none/,
+    compactStyles,
+    /\.landing-page \.landing-nav-signin\s*\{[^}]*display:\s*none/,
   );
-  assert.match(
-    css,
-    /\.landing-page [^{]*:focus-visible\s*\{[^}]*outline:/s,
+  assert.deepEqual(
+    [...compactStyles.matchAll(/([^{}]+)\{[^{}]*display:\s*none/g)]
+      .map((match) => match[1].trim()),
+    [
+      '.landing-page .landing-page-links',
+      '.landing-page .landing-nav-signin',
+    ],
+    'compact breakpoint must keep the Sign up action visible',
   );
+
+  const focusRule = css.match(
+    /([^{}]+)\{[^{}]*outline:\s*3px solid #1F2A44;[^{}]*box-shadow:\s*0 0 0 6px #FFFFFF;/,
+  );
+  assert.ok(focusRule, 'missing homepage focus-visible rule');
+  for (const selector of [
+    '.landing-page .landing-page-links a:focus-visible',
+    '.landing-page .landing-menu summary:focus-visible',
+    '.landing-page .landing-menu nav a:focus-visible',
+  ]) {
+    assert.ok(focusRule[1].includes(selector), `missing focus style for ${selector}`);
+  }
   assert.match(
     css,
     /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.landing-page \*,\s*\.landing-page \*::before,\s*\.landing-page \*::after\s*\{[^}]*animation-duration:\s*0\.01ms\s*!important;[^}]*transition-duration:\s*0\.01ms\s*!important;/,
@@ -461,6 +508,16 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
 
 test('homepage accessibility styles preserve contrast and touch targets', () => {
   const css = read('css/style.css');
+  const compactStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*719px\)/,
+    '719px homepage media query',
+  );
+  const narrowStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*599px\)/,
+    '599px homepage media query',
+  );
 
   assert.match(
     css,
@@ -481,12 +538,12 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
     );
   }
   assert.match(
-    css,
-    /@media \(max-width:\s*719px\)[\s\S]*?\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*32px;[^}]*right:\s*32px;/,
+    compactStyles,
+    /\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*32px;[^}]*right:\s*32px;/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*16px;[^}]*right:\s*16px;/,
+    narrowStyles,
+    /\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*16px;[^}]*right:\s*16px;/,
   );
   assert.match(
     css,
@@ -614,7 +671,6 @@ test('changed shared-client pages use one coherent frontend release key', () => 
     'mybusinesses.html',
     'relationshipmanagerdashboard.html',
     'superadmindashboard.html',
-    'index.html',
     'signin.html',
     'signup.html',
   ];
