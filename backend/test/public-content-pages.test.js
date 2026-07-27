@@ -1646,7 +1646,16 @@ test('public content pages receive the homepage desktop navbar styling', () => {
 
 test('About preserves its complete story, vision and leadership without the retired CTA', () => {
   const source = read('about.html');
-  const text = visibleBodyText(parseHtml(source));
+  const document = parseHtml(source);
+  const stylesheets = findAll(document, (node) => (
+    node.tagName === 'link' && node.attributes.rel === 'stylesheet'
+  )).map((link) => link.attributes.href);
+  assert.deepEqual(
+    stylesheets,
+    ['css/style.css?v=20260728.6'],
+    'About loads the visual-removal stylesheet release',
+  );
+  const text = visibleBodyText(document);
   const required = [
     'Ideas grow through connection.',
     'About Lumi5 Labs',
@@ -1739,8 +1748,8 @@ test('Contact preserves its details, map fallback and accessible form contract',
   )).map((link) => link.attributes.href);
   assert.deepEqual(
     stylesheets,
-    ['css/style.css?v=20260728.5'],
-    'Contact loads the Singapore Horizon stylesheet release',
+    ['css/style.css?v=20260728.6'],
+    'Contact loads the visual-removal stylesheet release',
   );
   const text = visibleBodyText(document);
   for (const value of [
