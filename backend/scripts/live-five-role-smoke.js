@@ -23,6 +23,7 @@ const CLEANUP_PHASES = Object.freeze({
   DB_ROLLED_BACK: 'db_rolled_back',
   DB_COMMITTED: 'db_committed',
   INDETERMINATE: 'indeterminate',
+  FAILED: 'failed',
   COMPLETE: 'complete',
 });
 
@@ -126,6 +127,7 @@ function createRunContext() {
     },
     trustedPortfolioId: null,
     cleanupPhase: CLEANUP_PHASES.PENDING,
+    cleanupFailure: null,
     stagedFiles: [],
   };
   return context;
@@ -301,6 +303,8 @@ async function requestApi(origin, requestPath, {
   binary = false,
   expectedStatus = 200,
   timeoutMs = 10_000,
+  mutationSettlementMs = 1_000,
+  abortSettlementMs = 100,
   maxBytes = 1024 * 1024,
   signal,
 } = {}, { fetchImpl = fetch } = {}) {
@@ -318,9 +322,32 @@ async function requestApi(origin, requestPath, {
   let deferredTimeout = false;
   let dispatched = false;
   let responseReceived = false;
+  let responseSettled = false;
+  let mutationAbortTimer;
+  let abortEscapeTimer;
+  let rejectAbortEscape;
+  const abortEscape = mutating
+    ? new Promise((resolve, reject) => {
+      rejectAbortEscape = reject;
+      void resolve;
+    })
+    : null;
+  const awaitSettlement = (promise) => (
+    mutating ? Promise.race([promise, abortEscape]) : promise
+  );
+  const scheduleMutationAbort = () => {
+    if (!mutating || mutationAbortTimer) return;
+    mutationAbortTimer = setTimeout(() => {
+      controller.abort(new Error('mutation settlement deadline exceeded'));
+      abortEscapeTimer = setTimeout(() => {
+        rejectAbortEscape(new Error('mutation fetch did not settle after abort'));
+      }, abortSettlementMs);
+    }, mutationSettlementMs);
+  };
   const onExternalAbort = () => {
     if (mutating && dispatched) {
       deferredAbort = signal.reason || new Error('request aborted');
+      scheduleMutationAbort();
       return;
     }
     controller.abort(signal.reason);
@@ -331,24 +358,29 @@ async function requestApi(origin, requestPath, {
   const timer = setTimeout(() => {
     if (mutating && dispatched) {
       deferredTimeout = true;
+      scheduleMutationAbort();
       return;
     }
     controller.abort(new Error('request timeout'));
   }, timeoutMs);
   try {
     dispatched = true;
-    const response = await fetchImpl(`${origin}/api${requestPath}`, {
-      method: normalizedMethod,
-      headers,
-      body: form || (body === undefined ? undefined : JSON.stringify(body)),
-      redirect: 'error',
-      signal: mutating ? undefined : controller.signal,
-    });
+    const response = await awaitSettlement(fetchImpl(
+      `${origin}/api${requestPath}`,
+      {
+        method: normalizedMethod,
+        headers,
+        body: form || (body === undefined ? undefined : JSON.stringify(body)),
+        redirect: 'error',
+        signal: controller.signal,
+      },
+    ));
     responseReceived = true;
     if (response.redirected) {
       throw new Error(`${normalizedMethod} ${requestPath} redirected unexpectedly`);
     }
-    const bytes = await readBoundedBody(response, maxBytes);
+    const bytes = await awaitSettlement(readBoundedBody(response, maxBytes));
+    responseSettled = true;
     if (deferredTimeout) {
       throw new Error(`${normalizedMethod} ${requestPath} timed out after dispatch`);
     }
@@ -388,20 +420,18 @@ async function requestApi(origin, requestPath, {
     }
     return { status: response.status, data: payload };
   } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(
-        `${normalizedMethod} ${requestPath} timed out or was aborted`,
-        { cause: error },
-      );
-    }
     if (
       mutating
       && dispatched
-      && !responseReceived
+      && !responseSettled
     ) {
       const transportContext = deferredTimeout
         ? 'after timeout'
-        : (deferredAbort ? 'after interruption' : 'after transport failure');
+        : (
+          deferredAbort
+            ? 'after interruption'
+            : (responseReceived ? 'before response settlement' : 'after transport failure')
+        );
       const unknown = new Error(
         `${normalizedMethod} ${requestPath} mutation outcome is indeterminate ${transportContext}`,
         { cause: error },
@@ -409,15 +439,34 @@ async function requestApi(origin, requestPath, {
       unknown.code = 'MUTATION_OUTCOME_INDETERMINATE';
       throw unknown;
     }
+    if (controller.signal.aborted) {
+      throw new Error(
+        `${normalizedMethod} ${requestPath} timed out or was aborted`,
+        { cause: error },
+      );
+    }
     throw error;
   } finally {
     clearTimeout(timer);
+    clearTimeout(mutationAbortTimer);
+    clearTimeout(abortEscapeTimer);
     if (signal) signal.removeEventListener('abort', onExternalAbort);
   }
 }
 
 async function expectStatus(request, status) {
-  await assert.rejects(request, (error) => error.status === status);
+  try {
+    await request;
+  } catch (error) {
+    const indeterminate = findErrorByCode(error, 'MUTATION_OUTCOME_INDETERMINATE');
+    if (indeterminate) throw indeterminate;
+    if (error.status === status) return;
+    throw new Error(
+      `expected HTTP ${status} denial but received ${error.status ?? 'no HTTP response'}`,
+      { cause: error },
+    );
+  }
+  throw new Error(`request unexpectedly succeeded; expected HTTP ${status}`);
 }
 
 async function tableMaximum(database, table) {
@@ -495,6 +544,22 @@ async function pathExists(filePath, fileSystem) {
 function combinedError(primary, secondary, message) {
   if (primary && secondary) return new AggregateError([primary, secondary], message);
   return primary || secondary;
+}
+
+function findErrorByCode(error, code, seen = new Set()) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return null;
+  if (seen.has(error)) return null;
+  seen.add(error);
+  if (error.code === code) return error;
+  for (const nested of [
+    error.cause,
+    error.actual,
+    ...(Array.isArray(error.errors) ? error.errors : []),
+  ]) {
+    const match = findErrorByCode(nested, code, seen);
+    if (match) return match;
+  }
+  return null;
 }
 
 function documentDigest(bytes) {
@@ -596,7 +661,10 @@ async function restoreStagedFiles(staged, { fileSystem = fs } = {}) {
   if (errors.length) throw new AggregateError(errors, 'Document restoration failed');
 }
 
-async function purgeStagedFiles(staged, { fileSystem = fs } = {}) {
+async function purgeStagedFiles(staged, {
+  fileSystem = fs,
+  revalidateEvidence = false,
+} = {}) {
   const errors = [];
   for (const file of staged) {
     if (file.state === 'purged') continue;
@@ -607,6 +675,14 @@ async function purgeStagedFiles(staged, { fileSystem = fs } = {}) {
       if (!stagedExists) {
         file.state = 'purged';
         continue;
+      }
+      if (revalidateEvidence) {
+        await assertFileMatchesEvidence(
+          file.staged,
+          file,
+          fileSystem,
+          'staged document immediately before purge',
+        );
       }
       await fileSystem.unlink(file.staged);
       assert.equal(await pathExists(file.staged, fileSystem), false, 'staged document remains');
@@ -661,7 +737,7 @@ async function resumeCleanupFiles(context, { fileSystem = fs } = {}) {
     }
   }
   if (context.cleanupPhase === CLEANUP_PHASES.DB_COMMITTED) {
-    await purgeStagedFiles(staged, { fileSystem });
+    await purgeStagedFiles(staged, { fileSystem, revalidateEvidence: true });
   } else {
     await restoreStagedFiles(staged, { fileSystem });
   }
@@ -1396,6 +1472,9 @@ async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
   if (context.cleanupPhase === CLEANUP_PHASES.INDETERMINATE) {
     throw new Error(`cleanup outcome is indeterminate for ${runId}; destructive cleanup is disabled`);
   }
+  if (context.cleanupPhase === CLEANUP_PHASES.FAILED) {
+    throw context.cleanupFailure || new Error(`cleanup previously failed for ${runId}`);
+  }
   if (context.cleanupPhase === CLEANUP_PHASES.DB_COMMITTED) {
     await resumeCleanupFiles(context, { fileSystem });
     await assertCleanupComplete(context);
@@ -1403,8 +1482,20 @@ async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
     return;
   }
   if (context.cleanupPhase === CLEANUP_PHASES.DB_ROLLED_BACK) {
-    await resumeCleanupFiles(context, { fileSystem });
-    context.cleanupPhase = CLEANUP_PHASES.PENDING;
+    const originalFailure = context.cleanupFailure
+      || new Error(`cleanup transaction previously rolled back for ${runId}`);
+    try {
+      await resumeCleanupFiles(context, { fileSystem });
+    } catch (settlementError) {
+      throw combinedError(
+        originalFailure,
+        settlementError,
+        'Cleanup file restoration remains incomplete',
+      );
+    }
+    context.cleanupPhase = CLEANUP_PHASES.FAILED;
+    context.cleanupFailure = originalFailure;
+    throw originalFailure;
   }
   assert.equal(
     context.cleanupPhase,
@@ -1413,6 +1504,7 @@ async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
   );
   assert.equal(context.stagedFiles.length, 0, 'cleanup cannot overwrite unsettled staged files');
   let transactionOpen = false;
+  let commitAttempted = false;
   try {
     await reconcileTemporaryRecords(context);
     await database.beginTransaction();
@@ -1567,12 +1659,32 @@ async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
         'user cleanup',
       );
     }
+    commitAttempted = true;
     await database.commit();
     transactionOpen = false;
     context.cleanupPhase = CLEANUP_PHASES.DB_COMMITTED;
   } catch (error) {
     if (Array.isArray(error.stagedFiles)) preserveStagedFiles(context, error.stagedFiles);
+    if (commitAttempted) {
+      context.cleanupFailure ||= error;
+      context.cleanupPhase = CLEANUP_PHASES.INDETERMINATE;
+      let rollbackError;
+      if (transactionOpen) {
+        try {
+          await database.rollback();
+          transactionOpen = false;
+        } catch (failure) {
+          rollbackError = failure;
+        }
+      }
+      throw combinedError(
+        error,
+        rollbackError,
+        `Cleanup commit outcome is indeterminate for ${runId}`,
+      );
+    }
     if (transactionOpen) {
+      context.cleanupFailure ||= error;
       try {
         await database.rollback();
         transactionOpen = false;
@@ -1588,11 +1700,15 @@ async function cleanTemporaryRecords(context, { fileSystem = fs } = {}) {
       let restorationError;
       try {
         await resumeCleanupFiles(context, { fileSystem });
-        context.cleanupPhase = CLEANUP_PHASES.PENDING;
+        context.cleanupPhase = CLEANUP_PHASES.FAILED;
       } catch (failure) {
         restorationError = failure;
       }
-      throw combinedError(error, restorationError, 'Database rollback and file restoration failed');
+      throw combinedError(
+        context.cleanupFailure,
+        restorationError,
+        'Database rollback and file restoration failed',
+      );
     }
     throw error;
   }
@@ -2621,7 +2737,7 @@ async function main(environment = process.env, dependencies = {}) {
     if (context.interruptedBy) throw interruptionError();
   } catch (error) {
     primaryError = error;
-    if (error.code === 'MUTATION_OUTCOME_INDETERMINATE') {
+    if (findErrorByCode(error, 'MUTATION_OUTCOME_INDETERMINATE')) {
       context.cleanupPhase = CLEANUP_PHASES.INDETERMINATE;
     }
   } finally {
@@ -2673,6 +2789,8 @@ module.exports = {
   cleanTemporaryRecords,
   createCleanupController,
   createRunContext,
+  expectStatus,
+  findErrorByCode,
   main,
   purgeStagedFiles,
   reconcileTemporaryRecords,

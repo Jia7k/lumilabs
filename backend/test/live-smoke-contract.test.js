@@ -514,6 +514,103 @@ test('an organic mutation transport failure fails closed without destructive cle
   assert.deepEqual(counts, { cleanup: 0, count: 2, close: 1 });
 });
 
+test('expected-denial wrappers preserve indeterminate mutation outcomes through main', async () => {
+  const {
+    expectStatus,
+    main,
+    requestApi,
+  } = loadSmoke();
+  assert.equal(typeof expectStatus, 'function');
+  const counts = { cleanup: 0, count: 0, close: 0 };
+  const origin = 'http://127.0.0.1:3100';
+  await assert.rejects(
+    main({
+      DB_USER: 'generated',
+      DB_PASSWORD: 'generated',
+      DB_NAME: 'generated',
+      LUMILABS_E2E_ORIGIN: origin,
+    }, {
+      createConnection: async () => ({
+        async end() { counts.close += 1; },
+      }),
+      captureCounts: async () => {
+        counts.count += 1;
+        return { portfolios: 0, conversation_members: 0, messages: 0 };
+      },
+      cleanup: async () => { counts.cleanup += 1; },
+      installSignalHandlers: false,
+      runFlow: async (context) => expectStatus(
+        requestApi(origin, '/expected-denial', {
+          method: 'PUT',
+          expectedStatus: 200,
+          timeoutMs: 100,
+          signal: context.abortController.signal,
+        }, {
+          fetchImpl: async () => {
+            throw new Error('transport failed before expected 403');
+          },
+        }),
+        403,
+      ),
+    }),
+    /mutation outcome.*indeterminate/i,
+  );
+  assert.deepEqual(counts, { cleanup: 0, count: 2, close: 1 });
+});
+
+test('a permanently pending mutation exits at a bounded fail-closed deadline', async () => {
+  const {
+    main,
+    requestApi,
+  } = loadSmoke();
+  const counts = {
+    aborted: 0, cleanup: 0, count: 0, close: 0,
+  };
+  const origin = 'http://127.0.0.1:3100';
+  const startedAt = Date.now();
+  await assert.rejects(
+    Promise.race([
+      main({
+        DB_USER: 'generated',
+        DB_PASSWORD: 'generated',
+        DB_NAME: 'generated',
+        LUMILABS_E2E_ORIGIN: origin,
+      }, {
+        createConnection: async () => ({
+          async end() { counts.close += 1; },
+        }),
+        captureCounts: async () => {
+          counts.count += 1;
+          return { portfolios: 0, conversation_members: 0, messages: 0 };
+        },
+        cleanup: async () => { counts.cleanup += 1; },
+        installSignalHandlers: false,
+        runFlow: async (context) => requestApi(origin, '/never-settles', {
+          method: 'POST',
+          timeoutMs: 5,
+          mutationSettlementMs: 10,
+          abortSettlementMs: 10,
+          signal: context.abortController.signal,
+        }, {
+          fetchImpl: async (url, { signal }) => {
+            signal?.addEventListener('abort', () => { counts.aborted += 1; }, { once: true });
+            return new Promise(() => {});
+          },
+        }),
+      }),
+      new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error('pending mutation exceeded test deadline')), 150);
+        void resolve;
+      }),
+    ]),
+    /mutation outcome.*indeterminate/i,
+  );
+  assert.ok(Date.now() - startedAt < 500, 'pending mutation exceeded its deterministic bound');
+  assert.deepEqual(counts, {
+    aborted: 1, cleanup: 0, count: 2, close: 1,
+  });
+});
+
 test('reported IDs cannot widen verified deletion scope and affected rows are exact', async () => {
   const {
     requireAffectedRows,
@@ -1019,7 +1116,7 @@ test('confirmed rollback restore and committed purge phases remain retryable', a
   }
 });
 
-test('cleanup resumes settlement before SQL and never replays a committed transaction', async () => {
+test('cleanup retries settlement only and never replays a destructive transaction', async () => {
   const {
     cleanTemporaryRecords,
     createRunContext,
@@ -1038,6 +1135,7 @@ test('cleanup resumes settlement before SQL and never replays a committed transa
     rollbackContext.expectedDocument.bytes,
   ]]);
   rollbackContext.cleanupPhase = 'db_rolled_back';
+  rollbackContext.cleanupFailure = new Error('original delete failure');
   rollbackContext.stagedFiles = [{
     original: rollbackOriginal,
     staged: rollbackStaged,
@@ -1066,12 +1164,19 @@ test('cleanup resumes settlement before SQL and never replays a committed transa
   };
   await assert.rejects(
     cleanTemporaryRecords(rollbackContext, { fileSystem: rollbackFs }),
-    /rename failed/,
+    (error) => (
+      error instanceof AggregateError
+      && error.errors.some(({ message }) => message === 'original delete failure')
+      && error.errors.some(({ message }) => message === 'rename failed')
+    ),
   );
   assert.deepEqual(rollbackCalls, { begin: 0, commit: 0 });
-  await cleanTemporaryRecords(rollbackContext, { fileSystem: rollbackFs });
-  assert.deepEqual(rollbackCalls, { begin: 1, commit: 1 });
-  assert.equal(rollbackContext.cleanupPhase, 'complete');
+  await assert.rejects(
+    cleanTemporaryRecords(rollbackContext, { fileSystem: rollbackFs }),
+    /original delete failure/,
+  );
+  assert.deepEqual(rollbackCalls, { begin: 0, commit: 0 });
+  assert.equal(rollbackContext.cleanupPhase, 'failed');
 
   const committedContext = createRunContext();
   const committedStaged = `${rollbackOriginal}.committed`;
@@ -1142,6 +1247,102 @@ test('ambiguous rollback and unverified staged evidence both fail closed', async
   );
   assert.equal(fileSystem.files.has(staged), true);
   assert.equal(fileSystem.operations.some(([operation]) => operation === 'unlink'), false);
+});
+
+test('committed purge revalidates staged bytes immediately before unlink', async () => {
+  const {
+    createRunContext,
+    resumeCleanupFiles,
+  } = loadSmoke();
+  const context = createRunContext();
+  const original = path.resolve(
+    __dirname,
+    '..',
+    'uploads',
+    'portfolio-documents',
+    'replaced-before-purge.pdf',
+  );
+  const staged = `${original}.cleanup-test`;
+  const fileSystem = memoryFileSystem([[staged, context.expectedDocument.bytes]]);
+  const readFile = fileSystem.readFile.bind(fileSystem);
+  let reads = 0;
+  fileSystem.readFile = async (file) => {
+    reads += 1;
+    if (reads === 2) fileSystem.files.set(file, Buffer.from('unrelated replacement'));
+    return readFile(file);
+  };
+  context.cleanupPhase = 'db_committed';
+  context.stagedFiles = [{
+    original,
+    staged,
+    state: 'staged',
+    verifiedOwnership: true,
+    size: context.expectedDocument.size,
+    sha256: context.expectedDocument.sha256,
+  }];
+
+  await assert.rejects(
+    resumeCleanupFiles(context, { fileSystem }),
+    /byte length|content hash/i,
+  );
+  assert.equal(reads, 2);
+  assert.equal(fileSystem.files.has(staged), true);
+  assert.equal(fileSystem.operations.some(([operation]) => operation === 'unlink'), false);
+  assert.equal(context.stagedFiles.length, 1);
+});
+
+test('a rejected commit is indeterminate even when rollback resolves', async () => {
+  const {
+    cleanTemporaryRecords,
+    createRunContext,
+  } = loadSmoke();
+  const context = createRunContext();
+  const original = path.resolve(
+    __dirname,
+    '..',
+    'uploads',
+    'portfolio-documents',
+    'commit-unknown.pdf',
+  );
+  const staged = `${original}.cleanup-test`;
+  const fileSystem = memoryFileSystem([[staged, context.expectedDocument.bytes]]);
+  const calls = { begin: 0, commit: 0, rollback: 0 };
+  context.database = {
+    async query(sql) {
+      if (/COUNT\(\*\).*FROM users WHERE email LIKE/s.test(String(sql))) {
+        return [[{ count: 0 }], []];
+      }
+      return [[], []];
+    },
+    async beginTransaction() { calls.begin += 1; },
+    async commit() {
+      calls.commit += 1;
+      context.stagedFiles.push({
+        original,
+        staged,
+        state: 'staged',
+        verifiedOwnership: true,
+        size: context.expectedDocument.size,
+        sha256: context.expectedDocument.sha256,
+      });
+      throw new Error('commit acknowledgement lost after apply');
+    },
+    async rollback() { calls.rollback += 1; },
+  };
+  await assert.rejects(
+    cleanTemporaryRecords(context, { fileSystem }),
+    /commit|indeterminate/i,
+  );
+  assert.equal(context.cleanupPhase, 'indeterminate');
+  assert.deepEqual(calls, { begin: 1, commit: 1, rollback: 1 });
+  assert.equal(context.stagedFiles.length, 1);
+  assert.equal(fileSystem.files.has(staged), true);
+  assert.equal(fileSystem.files.has(original), false);
+  await assert.rejects(
+    cleanTemporaryRecords(context, { fileSystem }),
+    /indeterminate/i,
+  );
+  assert.deepEqual(calls, { begin: 1, commit: 1, rollback: 1 });
 });
 
 test('cleanup retries are bounded, counts still run, and staged paths are reported', async () => {
