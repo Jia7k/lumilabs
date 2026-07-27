@@ -793,7 +793,7 @@ test('account menu binds before a deferred Browse workspace settles', async () =
 
 test('Browse navigation is hidden before auth and revealed after role resolution', async () => {
   assert.match(browsePage, /<div[^>]*id="investor-nav"[^>]*hidden[^>]*>/);
-  assert.match(browsePage, /js\/browse\.js\?v=20260728\.2/);
+  assert.match(browsePage, /js\/browse\.js\?v=20260728\.3/);
 
   const client = browseHarness({
     captureFilters: false,

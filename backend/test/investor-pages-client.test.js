@@ -403,7 +403,7 @@ test('investor notifications escape database text and link only accessible safe 
 test('investor navigation is hidden in markup, revealed after auth, and keeps the score circle', async () => {
   for (const page of [investorDashboardPage, interestsPage]) {
     assert.match(page, /<div[^>]*id="investor-nav"[^>]*hidden[^>]*>/);
-    assert.match(page, /js\/api\.js\?v=20260728\.2/);
+    assert.match(page, /js\/api\.js\?v=20260728\.3/);
   }
   assert.match(investorDashboardPage, /\.score-circle\s*\{/);
 
