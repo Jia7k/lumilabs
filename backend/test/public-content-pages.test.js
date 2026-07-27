@@ -635,6 +635,26 @@ function effectiveCssProperty(
   ).value;
 }
 
+function effectiveCssPropertyOrInitial(
+  css,
+  ancestry,
+  property,
+  initialValue,
+  viewportWidth = 1024,
+  styleRules = cssStyleRules(css),
+) {
+  const candidates = cssCascadeCandidates(
+    css,
+    ancestry,
+    viewportWidth,
+    [property],
+    styleRules,
+  );
+  return candidates.length === 0
+    ? initialValue
+    : winningCssCandidate(candidates, property).value;
+}
+
 function cssColorFromValue(css, value, label) {
   const match = value.match(
     /(#[\da-f]{8}(?![\da-f])|#[\da-f]{6}(?![\da-f])|#[\da-f]{4}(?![\da-f])|#[\da-f]{3}(?![\da-f])|var\((--[\w-]+)\)|rgba?\([^)]*\)|transparent)/i,
@@ -837,6 +857,21 @@ function contactFormFieldTargets() {
   });
 }
 
+function messageStateAncestry(file, id, stateClass = null) {
+  const path = findElementPath(
+    parseHtml(read(file)),
+    (node) => node.attributes.id === id,
+  );
+  assert.ok(path, `${file}: ${id} ancestry`);
+  const ancestry = path.map((node) => elementFromHtmlNode(node));
+  const message = ancestry.at(-1);
+  assert.ok(message.classes.includes('form-message'), `${id}: form-message class`);
+  message.classes = message.classes
+    .filter((className) => !['success', 'error'].includes(className));
+  if (stateClass) message.classes.push(stateClass);
+  return ancestry;
+}
+
 function publicClassNames(publicCss) {
   const sharedClasses = new Set([
     'btn',
@@ -985,6 +1020,84 @@ function assertContactContrastContract(css) {
   }
 }
 
+function assertContactStatusContract(css) {
+  const styleRules = cssStyleRules(css);
+  const base = messageStateAncestry('contact.html', 'contact-status');
+  assert.equal(base.at(-1).attributes.tabindex, '-1', 'Contact status is programmatically focusable');
+  assert.equal(
+    effectiveCssProperty(css, base, 'display', 1024, styleRules),
+    'none',
+    'empty Contact status remains intentionally hidden',
+  );
+
+  for (const state of ['success', 'error']) {
+    const ancestry = messageStateAncestry('contact.html', 'contact-status', state);
+    assert.equal(
+      ancestry.at(-1).attributes.tabindex,
+      '-1',
+      `${state} Contact status is programmatically focusable`,
+    );
+    assert.notEqual(
+      effectiveCssProperty(css, ancestry, 'display', 1024, styleRules),
+      'none',
+      `${state} Contact status is rendered`,
+    );
+    const visibility = effectiveCssPropertyOrInitial(
+      css,
+      ancestry,
+      'visibility',
+      'visible',
+      1024,
+      styleRules,
+    );
+    assert.ok(
+      !['hidden', 'collapse'].includes(visibility),
+      `${state} Contact status is visible`,
+    );
+    const opacity = effectiveCssPropertyOrInitial(
+      css,
+      ancestry,
+      'opacity',
+      '1',
+      1024,
+      styleRules,
+    );
+    assert.ok(
+      Number.parseFloat(opacity) > 0,
+      `${state} Contact status is opaque`,
+    );
+    assert.match(
+      effectiveCssProperty(css, ancestry, 'min-height', 1024, styleRules),
+      /^(?:\d*\.)?[1-9]\d*(?:px|rem|em)$/,
+      `${state} Contact status has a non-zero rendered height`,
+    );
+
+    const foreground = cssColorFromValue(
+      css,
+      effectiveCssProperty(css, ancestry, 'color', 1024, styleRules),
+      `${state} Contact status text`,
+    );
+    const background = cssColorFromValue(
+      css,
+      effectiveCssProperty(css, ancestry, 'background', 1024, styleRules),
+      `${state} Contact status background`,
+    );
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${state} Contact status text meets AA contrast`,
+    );
+  }
+
+  for (const state of [null, 'success', 'error']) {
+    const ancestry = messageStateAncestry('signin.html', 'signin-message', state);
+    assert.equal(
+      effectiveCssProperty(css, ancestry, 'display', 1024, styleRules),
+      'none',
+      `generic Sign-in ${state || 'base'} message behavior is unchanged`,
+    );
+  }
+}
+
 function moveCssRuleOutsideMedia(publicCss, condition, selector) {
   const mediaPrelude = `@media ${condition}`;
   const media = parseCssBlocks(publicCss)
@@ -1093,6 +1206,17 @@ function findOne(node, predicate, label) {
   const matches = findAll(node, predicate);
   assert.equal(matches.length, 1, `${label}: expected one element, found ${matches.length}`);
   return matches[0];
+}
+
+function findElementPath(node, predicate, ancestors = []) {
+  for (const child of node.children) {
+    if (child.tagName === '#text') continue;
+    const path = [...ancestors, child];
+    if (predicate(child)) return path;
+    const nested = findElementPath(child, predicate, path);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function hasClass(node, className) {
@@ -1748,6 +1872,10 @@ test('contact field errors remain visible after the full CSS cascade', () => {
       `${field.controlId}: error text display`,
     );
   }
+});
+
+test('contact status feedback remains visible and focusable after the full CSS cascade', () => {
+  assertContactStatusContract(read('css/style.css'));
 });
 
 test('contact contrast contract rejects effective overrides and invisible borders', async (t) => {

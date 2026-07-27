@@ -1893,10 +1893,12 @@ body.public-content-page {
 }
 
 .public-content-page .form-message.success {
+  display: block;
   color: #286745;
 }
 
 .public-content-page .form-message.error {
+  display: block;
   color: #9d2118;
 }
 
