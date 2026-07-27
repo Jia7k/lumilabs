@@ -30,6 +30,7 @@ function authHarness(page) {
   const elements = new Map();
   const makeElement = (id, value = '') => {
     const group = { classList: classList() };
+    const attributes = new Map();
     return {
       id,
       value,
@@ -39,6 +40,8 @@ function authHarness(page) {
       className: '',
       classList: classList(),
       closest() { return group; },
+      setAttribute(name, value) { attributes.set(name, String(value)); },
+      getAttribute(name) { return attributes.get(name) ?? null; },
       addEventListener(type, listener) {
         hooks.listeners[`${id}:${type}`] = listener;
       },
@@ -127,6 +130,7 @@ function authHarness(page) {
   return {
     elements,
     hooks,
+    roleButtons,
     async submit() {
       await hooks.listeners[`${page}-form:submit`]({
         preventDefault() {},
@@ -197,4 +201,18 @@ test('exact 100-character signup name proceeds through the existing API path', a
     JSON.parse(client.hooks.fetches[0].options.body).name,
     'n'.repeat(100),
   );
+});
+
+test('signup role selection keeps aria-pressed synchronized', () => {
+  const client = authHarness('signup');
+  const [ownerButton, investorButton] = client.roleButtons;
+
+  assert.equal(ownerButton.getAttribute('aria-pressed'), 'true');
+  assert.equal(investorButton.getAttribute('aria-pressed'), 'false');
+
+  client.hooks.listeners['role-investor:click']();
+
+  assert.equal(ownerButton.getAttribute('aria-pressed'), 'false');
+  assert.equal(investorButton.getAttribute('aria-pressed'), 'true');
+  assert.equal(client.elements.get('role-input').value, 'investor');
 });

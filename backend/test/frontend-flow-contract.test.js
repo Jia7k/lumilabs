@@ -651,3 +651,60 @@ test('standalone investor pages define narrow-screen layout contracts', () => {
     /@media \(max-width:\s*699px\)[\s\S]*?\.interest-card\s*\{[^}]*flex-direction:\s*column/,
   );
 });
+
+test('authentication pages expose the Connected Horizon shell accessibly', () => {
+  const cases = [
+    {
+      file: 'signin.html',
+      bodyClass: 'signin-page',
+      formId: 'signin-form',
+      messageId: 'signin-message',
+      fields: [
+        ['si-email', 'si-email-error'],
+        ['si-password', 'si-password-error'],
+      ],
+    },
+    {
+      file: 'signup.html',
+      bodyClass: 'signup-page',
+      formId: 'signup-form',
+      messageId: 'signup-message',
+      fields: [
+        ['su-name', 'su-name-error'],
+        ['su-email', 'su-email-error'],
+        ['su-password', 'su-password-error'],
+        ['su-confirm-password', 'su-confirm-password-error'],
+      ],
+    },
+  ];
+
+  for (const page of cases) {
+    const html = read(page.file);
+    assert.match(
+      html,
+      new RegExp(`<body[^>]*class=["'][^"']*auth-shell-page[^"']*${page.bodyClass}[^"']*["']`),
+      page.file,
+    );
+    assert.match(html, /class=["'][^"']*auth-shell[^"']*["']/);
+    assert.match(html, /class=["'][^"']*auth-story[^"']*["']/);
+    assert.match(html, /class=["'][^"']*auth-form-panel[^"']*["']/);
+    assert.match(html, new RegExp(`<form[^>]*id=["']${page.formId}["'][^>]*novalidate`));
+    assert.match(
+      html,
+      new RegExp(`id=["']${page.messageId}["'][^>]*role=["']status["'][^>]*aria-live=["']polite["']`),
+    );
+    assert.doesNotMatch(html, /<nav\b/i, `${page.file} must not retain the old shared nav`);
+
+    for (const [fieldId, errorId] of page.fields) {
+      assertAttribute(elementTag(html, fieldId), 'aria-describedby', errorId);
+    }
+  }
+
+  const signup = read('signup.html');
+  const roleButtons = [...signup.matchAll(
+    /<button\b[^>]*class=["'][^"']*role-toggle-btn[^"']*["'][^>]*>/gi,
+  )].map((match) => match[0]);
+  assert.equal(roleButtons.length, 2);
+  assertAttribute(roleButtons[0], 'aria-pressed', 'true');
+  assertAttribute(roleButtons[1], 'aria-pressed', 'false');
+});
