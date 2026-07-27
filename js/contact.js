@@ -140,6 +140,7 @@ function initializeContactForm({ root = document, api = API } = {}) {
 
   for (const name of Object.keys(fields)) {
     fields[name].addEventListener("blur", () => {
+      if (submissionPending) return;
       renderFieldError(name, validateContactPayload(payload())[name]);
     });
   }

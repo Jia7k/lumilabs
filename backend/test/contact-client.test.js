@@ -54,7 +54,19 @@ function element(value = '') {
       delete this.attributes[name];
     },
     focus() {
+      const previous = this.ownerDocument?.activeElement || null;
+      if (previous === this) return;
+      if (previous) {
+        dispatch(previous, 'blur', { target: previous, relatedTarget: this });
+      }
+      if (this.ownerDocument) this.ownerDocument.activeElement = this;
       this.focused += 1;
+      dispatch(this, 'focus', { target: this, relatedTarget: previous });
+    },
+    blur() {
+      if (this.ownerDocument?.activeElement !== this) return;
+      this.ownerDocument.activeElement = null;
+      dispatch(this, 'blur', { target: this, relatedTarget: null });
     },
   };
 }
@@ -106,7 +118,11 @@ function formHarness({
       return apiResult;
     },
   };
-  const root = { getElementById: (id) => nodes.get(id) || null };
+  const root = {
+    activeElement: null,
+    getElementById: (id) => nodes.get(id) || null,
+  };
+  for (const node of nodes.values()) node.ownerDocument = root;
   const context = vm.createContext({ document: root, API: api, console });
   vm.runInContext(automatic ? rawSource : source, context);
   if (!automatic) context.initializeContactForm({ root, api });
@@ -132,8 +148,11 @@ function formHarness({
       dispatch(form, 'input', { target: node });
       return true;
     },
+    focus(id) {
+      nodes.get(id).focus();
+    },
     blur(id) {
-      dispatch(nodes.get(id), 'blur', { target: nodes.get(id) });
+      nodes.get(id).blur();
     },
     submitEvent() {
       return Promise.all(dispatch(form, 'submit', { preventDefault() {} }));
@@ -191,6 +210,7 @@ test('code-point-only required-field errors are available on blur without focus 
   assert.equal(client.nodes.get('contact-submit').disabled, true);
   assert.equal(client.nodes.get('contact-name-error').textContent, '');
 
+  client.focus('contact-name');
   client.blur('contact-name');
 
   assert.equal(
@@ -198,12 +218,15 @@ test('code-point-only required-field errors are available on blur without focus 
     'Name must be 100 characters or fewer.',
   );
   assert.equal(client.nodes.get('contact-name').attributes['aria-invalid'], 'true');
-  assert.equal(client.nodes.get('contact-name').focused, 0);
+  assert.equal(client.nodes.get('contact-name').focused, 1);
+  assert.equal(client.root.activeElement, null);
+  assert.equal(client.nodes.get('contact-email').focused, 0);
 });
 
 test('typing in another field preserves a disclosed blocking error', () => {
   const client = formHarness();
   client.userInput('contact-name', '🙂'.repeat(101));
+  client.focus('contact-name');
   client.blur('contact-name');
 
   client.userInput('contact-email', 'visitor@example.com');
@@ -307,6 +330,29 @@ test('success submits once, clears every field and focuses the live status', asy
   assert.equal(client.nodes.get('contact-status').focused, 1);
   assert.equal(client.nodes.get('contact-submit').disabled, true);
   assert.equal(client.nodes.get('contact-submit').textContent, 'Send Message');
+});
+
+test('keyboard success leaves reset fields valid when focus moves to status', async () => {
+  const client = formHarness();
+  client.userInput('contact-name', 'Visitor');
+  client.userInput('contact-email', 'visitor@example.com');
+  client.focus('contact-email');
+
+  await client.submit();
+
+  assert.equal(client.root.activeElement, client.nodes.get('contact-status'));
+  assert.equal(
+    client.nodes.get('contact-status').textContent,
+    "Message received. We'll get back to you soon.",
+  );
+  assert.equal(client.nodes.get('contact-status').className, 'form-message success');
+  for (const name of ['name', 'email', 'message']) {
+    assert.equal(client.nodes.get(`contact-${name}-error`).textContent, '');
+    assert.equal(
+      'aria-invalid' in client.nodes.get(`contact-${name}`).attributes,
+      false,
+    );
+  }
 });
 
 test('failure preserves every value and restores retry state', async () => {
@@ -423,14 +469,23 @@ test('safe 400 validation fields render without clearing input', async () => {
   const client = formHarness({ apiResult: error });
   fillValidRequiredFields(client);
   client.nodes.get('contact-message').value = 'Keep me';
+  client.focus('contact-name');
   await client.submit();
 
   assert.equal(client.nodes.get('contact-email-error').textContent, error.fields.email);
   assert.equal(client.nodes.get('contact-email').attributes['aria-invalid'], 'true');
   assert.equal(client.nodes.get('contact-email').focused, 1);
+  assert.equal(client.root.activeElement, client.nodes.get('contact-email'));
   assert.equal(client.nodes.get('contact-message').value, 'Keep me');
   assert.equal(client.nodes.get('contact-status').textContent, '');
   assert.equal(client.nodes.get('contact-submit').disabled, false);
+
+  client.userInput('contact-email', '');
+  client.focus('contact-message');
+
+  assert.equal(client.nodes.get('contact-email-error').textContent, 'Enter your email address.');
+  assert.equal(client.nodes.get('contact-email').attributes['aria-invalid'], 'true');
+  assert.equal(client.root.activeElement, client.nodes.get('contact-message'));
 });
 
 for (const [label, error] of [
