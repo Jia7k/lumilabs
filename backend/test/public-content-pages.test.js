@@ -168,6 +168,251 @@ const contrastRatio = (foreground, background) => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
+function cssStyleRules(source, media = [], rules = []) {
+  for (const block of parseCssBlocks(source)) {
+    if (block.prelude.startsWith('@keyframes ')) continue;
+    if (block.prelude.startsWith('@media ')) {
+      cssStyleRules(block.body, [...media, block.prelude.slice(7)], rules);
+      continue;
+    }
+    if (block.prelude.startsWith('@')) continue;
+    rules.push({ ...block, media, order: rules.length });
+  }
+  return rules;
+}
+
+function cssDeclarationList(block) {
+  return block.body
+    .split(';')
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .map((declaration, order) => {
+      const separator = declaration.indexOf(':');
+      assert.notEqual(separator, -1, `invalid CSS declaration: ${declaration}`);
+      const rawValue = normalizeCssWhitespace(declaration.slice(separator + 1));
+      const important = /\s*!important$/i.test(rawValue);
+      return {
+        property: declaration.slice(0, separator).trim().toLowerCase(),
+        value: rawValue.replace(/\s*!important$/i, ''),
+        important,
+        order,
+      };
+    });
+}
+
+function cssMediaApplies(conditions, viewportWidth) {
+  return conditions.every((condition) => {
+    const maxWidth = condition.match(/\(\s*max-width\s*:\s*(\d+)px\s*\)/i);
+    if (maxWidth && viewportWidth > Number(maxWidth[1])) return false;
+    const minWidth = condition.match(/\(\s*min-width\s*:\s*(\d+)px\s*\)/i);
+    if (minWidth && viewportWidth < Number(minWidth[1])) return false;
+    if (/prefers-reduced-motion/i.test(condition)) return false;
+    return true;
+  });
+}
+
+function parseSimpleSelector(selector) {
+  if (/[>+~:[\]]/.test(selector)) return null;
+  const compounds = selector.trim().split(/\s+/).map((source) => {
+    const tag = source.match(/^[a-z][\w-]*/i)?.[0].toLowerCase() || null;
+    const ids = [...source.matchAll(/#([\w-]+)/g)].map((match) => match[1]);
+    const classes = [...source.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
+    const consumed = [
+      tag || '',
+      ...ids.map((id) => `#${id}`),
+      ...classes.map((className) => `.${className}`),
+    ].join('');
+    if (source.replace(/\*/g, '') !== consumed) return null;
+    return { tag, ids, classes };
+  });
+  return compounds.some((compound) => compound === null) ? null : compounds;
+}
+
+function cssSelectorSpecificity(selector) {
+  const compounds = parseSimpleSelector(selector);
+  if (!compounds) return null;
+  return compounds.reduce(
+    ([ids, classes, tags], compound) => [
+      ids + compound.ids.length,
+      classes + compound.classes.length,
+      tags + Number(Boolean(compound.tag)),
+    ],
+    [0, 0, 0],
+  );
+}
+
+function cssCompoundMatches(compound, element) {
+  return (
+    (!compound.tag || compound.tag === element.tag)
+    && compound.ids.every((id) => id === element.id)
+    && compound.classes.every((className) => element.classes.includes(className))
+  );
+}
+
+function cssSelectorMatches(selector, ancestry) {
+  const compounds = parseSimpleSelector(selector);
+  if (!compounds || compounds.length === 0) return false;
+  let ancestryIndex = ancestry.length - 1;
+  if (!cssCompoundMatches(compounds.at(-1), ancestry[ancestryIndex])) return false;
+
+  for (let index = compounds.length - 2; index >= 0; index -= 1) {
+    ancestryIndex -= 1;
+    while (
+      ancestryIndex >= 0
+      && !cssCompoundMatches(compounds[index], ancestry[ancestryIndex])
+    ) {
+      ancestryIndex -= 1;
+    }
+    if (ancestryIndex < 0) return false;
+  }
+  return true;
+}
+
+function compareCssCandidates(left, right) {
+  if (left.important !== right.important) return Number(left.important) - Number(right.important);
+  for (let index = 0; index < left.specificity.length; index += 1) {
+    if (left.specificity[index] !== right.specificity[index]) {
+      return left.specificity[index] - right.specificity[index];
+    }
+  }
+  if (left.ruleOrder !== right.ruleOrder) return left.ruleOrder - right.ruleOrder;
+  return left.declarationOrder - right.declarationOrder;
+}
+
+function cssCascadeCandidates(css, ancestry, viewportWidth) {
+  const candidates = [];
+  for (const rule of cssStyleRules(css)) {
+    if (!cssMediaApplies(rule.media, viewportWidth)) continue;
+    for (const selector of cssSelectors(rule)) {
+      if (!cssSelectorMatches(selector, ancestry)) continue;
+      const specificity = cssSelectorSpecificity(selector);
+      for (const declaration of cssDeclarationList(rule)) {
+        candidates.push({
+          ...declaration,
+          selector,
+          specificity,
+          ruleOrder: rule.order,
+          declarationOrder: declaration.order,
+        });
+      }
+    }
+  }
+  return candidates;
+}
+
+function winningCssCandidate(candidates, label) {
+  assert.notEqual(candidates.length, 0, `missing effective CSS declaration: ${label}`);
+  return candidates.reduce((winner, candidate) => (
+    compareCssCandidates(candidate, winner) > 0 ? candidate : winner
+  ));
+}
+
+function effectiveCssProperty(css, ancestry, property, viewportWidth = 1024) {
+  return winningCssCandidate(
+    cssCascadeCandidates(css, ancestry, viewportWidth)
+      .filter((candidate) => candidate.property === property),
+    property,
+  ).value;
+}
+
+function cssColorFromValue(css, value, label) {
+  const match = value.match(/(#[\da-f]{6}|var\((--[\w-]+)\))/i);
+  assert.ok(match, `missing color value for ${label}`);
+  return match[2] ? cssHexVariable(css, match[2]) : match[1];
+}
+
+const borderStyles = new Set([
+  'solid',
+  'dashed',
+  'dotted',
+  'double',
+  'groove',
+  'ridge',
+  'inset',
+  'outset',
+  'none',
+  'hidden',
+]);
+
+function parseBorderShorthand(value) {
+  const tokens = value.split(/\s+/);
+  return {
+    width: tokens.find((token) => /^(?:\d*\.)?\d+(?:px|rem|em)?$/i.test(token)),
+    style: tokens.find((token) => borderStyles.has(token.toLowerCase())),
+    color: tokens.find((token) => /^(?:#[\da-f]{6}|var\(--[\w-]+\))$/i.test(token)),
+  };
+}
+
+function effectiveControlBorder(css, ancestry) {
+  const candidates = cssCascadeCandidates(css, ancestry, 1024);
+  const componentCandidates = (component) => candidates.flatMap((candidate) => {
+    if (candidate.property === `border-${component}`) return [candidate];
+    if (candidate.property !== 'border') return [];
+    const value = parseBorderShorthand(candidate.value)[component];
+    return value ? [{ ...candidate, value }] : [];
+  });
+  return {
+    width: winningCssCandidate(componentCandidates('width'), 'border width').value,
+    style: winningCssCandidate(componentCandidates('style'), 'border style').value,
+    color: winningCssCandidate(componentCandidates('color'), 'border color').value,
+  };
+}
+
+const element = (tag, classes = [], id = null) => ({ tag, classes, id });
+const publicNavAncestry = [
+  element('body', ['public-content-page', 'contact-page']),
+  element('header', ['public-header']),
+  element('nav', ['public-nav']),
+];
+const publicMenuAncestry = [
+  element('body', ['public-content-page', 'contact-page']),
+  element('header', ['public-header']),
+  element('details', ['public-menu']),
+];
+const contactControlAncestry = (tag) => [
+  element('body', ['public-content-page', 'contact-page']),
+  element('main'),
+  element('section', ['public-section', 'contact-layout']),
+  element('form', ['contact-form'], 'contact-form'),
+  element('div', ['form-group']),
+  element(tag),
+];
+
+function publicClassNames(publicCss) {
+  const sharedClasses = new Set([
+    'btn',
+    'error',
+    'form-error-text',
+    'form-message',
+    'success',
+  ]);
+  const names = new Set();
+  for (const rule of cssStyleRules(publicCss)) {
+    for (const selector of cssSelectors(rule)) {
+      for (const match of selector.matchAll(/\.([\w-]+)/g)) {
+        if (!sharedClasses.has(match[1])) names.add(match[1]);
+      }
+    }
+  }
+  return names;
+}
+
+function assertPublicSelectorsScopedAcrossStylesheet(css) {
+  const publicClasses = publicClassNames(publicContentCss(css));
+  for (const rule of cssStyleRules(css)) {
+    for (const selector of cssSelectors(rule)) {
+      const targetsPublicClass = [...selector.matchAll(/\.([\w-]+)/g)]
+        .some((match) => publicClasses.has(match[1]));
+      if (!targetsPublicClass) continue;
+      assert.match(
+        selector,
+        /\.public-content-page(?![\w-])/,
+        `unscoped public selector in full stylesheet: ${selector}`,
+      );
+    }
+  }
+}
+
 function assertPublicSelectorsScoped(publicCss) {
   function walk(blocks, context) {
     for (const block of blocks) {
@@ -217,6 +462,58 @@ function assertPublicResponsiveContract(publicCss) {
   ]) {
     assert.equal(cssProperty(narrow, selector, 'grid-template-columns'), '1fr', selector);
   }
+}
+
+function assertPublicStylesheetContract(css) {
+  const publicCss = publicContentCss(css);
+  assertPublicSelectorsScoped(publicCss);
+  assertPublicSelectorsScopedAcrossStylesheet(css);
+  assertPublicResponsiveContract(publicCss);
+  assert.equal(
+    effectiveCssProperty(css, publicNavAncestry, 'display', 979),
+    'none',
+    '979px hides full public nav after the full cascade',
+  );
+  assert.equal(
+    effectiveCssProperty(css, publicMenuAncestry, 'display', 979),
+    'block',
+    '979px shows compact public menu after the full cascade',
+  );
+}
+
+function assertContactContrastContract(css) {
+  const wash = cssHexVariable(css, '--public-wash');
+  const labelAncestry = contactControlAncestry('label');
+  const label = cssColorFromValue(
+    css,
+    effectiveCssProperty(css, labelAncestry, 'color'),
+    'effective contact label color',
+  );
+
+  assert.ok(contrastRatio(label, wash) >= 4.5, 'form label on form wash');
+  for (const tag of ['input', 'textarea']) {
+    const border = effectiveControlBorder(css, contactControlAncestry(tag));
+    const width = border.width.match(/^((?:\d*\.)?\d+)(?:px|rem|em)?$/i);
+    assert.ok(
+      width && Number(width[1]) > 0,
+      `${tag} has a visible control border with non-zero width`,
+    );
+    assert.ok(
+      borderStyles.has(border.style) && !['none', 'hidden'].includes(border.style),
+      `${tag} has a visible control border style`,
+    );
+    const borderColor = cssColorFromValue(css, border.color, `${tag} border`);
+    assert.ok(contrastRatio(borderColor, wash) >= 3, 'control border on form wash');
+    assert.ok(contrastRatio(borderColor, '#ffffff') >= 3, 'control border on input fill');
+  }
+  assert.match(
+    effectiveCssProperty(css, labelAncestry, 'font-size'),
+    /^(?:0\.\d+rem|1rem)$/,
+  );
+  assert.notEqual(
+    effectiveCssProperty(css, labelAncestry, 'line-height'),
+    'normal',
+  );
 }
 
 function moveCssRuleOutsideMedia(publicCss, condition, selector) {
@@ -761,7 +1058,7 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
   const css = read('css/style.css');
   const publicCss = publicContentCss(css);
   const base = cssRuleBlocks(publicCss);
-  assertPublicSelectorsScoped(publicCss);
+  assertPublicStylesheetContract(css);
   for (const selector of [
     'body.public-content-page',
     '.public-content-page .public-header',
@@ -797,8 +1094,6 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
     cssProperty(base, '.public-content-page .about-vision', 'grid-template-columns'),
     'minmax(250px, 0.75fr) minmax(0, 1.25fr)',
   );
-  assertPublicResponsiveContract(publicCss);
-
   const reducedMotion = cssMediaRules(publicCss, '(prefers-reduced-motion: reduce)');
   assert.equal(
     cssProperty(reducedMotion, '.public-content-page .story-orbit-node', 'animation'),
@@ -817,7 +1112,8 @@ test('public content CSS is scoped, responsive, keyboard visible and motion safe
 });
 
 test('public CSS contracts reject selector leakage and responsive declarations moved to base', async (t) => {
-  const publicCss = publicContentCss(read('css/style.css'));
+  const css = read('css/style.css');
+  const publicCss = publicContentCss(css);
 
   await t.test('unscoped selector leakage', () => {
     assert.throws(
@@ -847,6 +1143,25 @@ test('public CSS contracts reject selector leakage and responsive declarations m
     assert.throws(
       () => assertPublicResponsiveContract(mutated),
       /missing CSS rule: \.public-content-page \.leadership-grid/,
+    );
+  });
+
+  await t.test('unscoped public selector after the admin marker', () => {
+    assert.throws(
+      () => assertPublicStylesheetContract(`${css}\n.public-header { color: red; }\n`),
+      /unscoped public selector.*\.public-header/,
+    );
+  });
+
+  await t.test('later, more-specific override reveals full nav below 980px', () => {
+    const mutated = `${css}
+@media (max-width: 979px) {
+  body.public-content-page .public-header .public-nav { display: flex; }
+}
+`;
+    assert.throws(
+      () => assertPublicStylesheetContract(mutated),
+      /979px hides full public nav/,
     );
   });
 });
@@ -880,31 +1195,63 @@ test('compact header anchors its popup to viewport-safe header insets at 320px',
 
 test('contact labels and default control boundaries meet contrast requirements', () => {
   const css = read('css/style.css');
-  const base = cssRuleBlocks(publicContentCss(css));
-  const wash = cssHexVariable(css, '--public-wash');
-  const label = cssResolvedColor(
-    css,
-    base,
-    '.public-content-page .contact-form label',
-  );
-  const controlBorder = cssResolvedColor(
-    css,
-    base,
-    '.public-content-page .contact-form input',
-    'border',
-  );
+  assertContactContrastContract(css);
+});
 
-  assert.ok(contrastRatio(label, wash) >= 4.5, 'form label on form wash');
-  assert.ok(contrastRatio(controlBorder, wash) >= 3, 'control border on form wash');
-  assert.ok(contrastRatio(controlBorder, '#ffffff') >= 3, 'control border on input fill');
-  assert.match(
-    cssProperty(base, '.public-content-page .contact-form label', 'font-size'),
-    /^(?:0\.\d+rem|1rem)$/,
-  );
-  assert.notEqual(
-    cssProperty(base, '.public-content-page .contact-form label', 'line-height'),
-    'normal',
-  );
+test('contact contrast contract rejects effective overrides and invisible borders', async (t) => {
+  const css = read('css/style.css');
+
+  await t.test('later, more-specific label color override', () => {
+    const mutated = `${css}
+body.public-content-page .contact-form .form-group label { color: #9ca3af; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /form label on form wash/,
+    );
+  });
+
+  await t.test('important generic label color override', () => {
+    const mutated = `${css}
+.form-group label { color: #9ca3af !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /form label on form wash/,
+    );
+  });
+
+  await t.test('important generic border color override', () => {
+    const mutated = `${css}
+.form-group input { border: 1px solid #cdd3df !important; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('later, more-specific border-color override', () => {
+    const mutated = `${css}
+body.public-content-page .contact-form .form-group input { border-color: #cdd3df; }
+`;
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /control border on form wash/,
+    );
+  });
+
+  await t.test('zero-width none border with a contrast-safe color', () => {
+    const mutated = css.replace(
+      'border: 1px solid #7b879e;',
+      'border: 0 none #7b879e;',
+    );
+    assert.notEqual(mutated, css, 'border mutation applied');
+    assert.throws(
+      () => assertContactContrastContract(mutated),
+      /visible control border/,
+    );
+  });
 });
 
 test('footer social heading and links use a coherent column layout', () => {
