@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
+const jwt = require('jsonwebtoken');
 
 const scriptsDir = path.join(__dirname, '..', 'scripts');
 const oldSmokePath = path.join(scriptsDir, 'live-four-role-smoke.js');
@@ -133,6 +134,70 @@ test('smoke configuration generates isolated identities and accepts only loopbac
   for (const email of Object.values(first.emails)) {
     assert.equal(email.startsWith(first.runId), true);
   }
+});
+
+test('live smoke portfolio fixture passes the production create validation contract', {
+  concurrency: false,
+}, async (t) => {
+  const { buildSmokePortfolioCreatePayload } = loadSmoke();
+  const { CANONICAL_SECTORS } = require('../src/validation/database-boundaries');
+  const db = require('../src/config/db');
+  const { createApp } = require('../server');
+  const previousSecret = process.env.JWT_SECRET;
+  const testSecret = 'live-smoke-portfolio-validation-test-secret';
+  const originalQuery = db.query;
+  const payload = buildSmokePortfolioCreatePayload('smoke-contract');
+  let queryCount = 0;
+
+  process.env.JWT_SECRET = testSecret;
+  db.query = async (sql, params) => {
+    queryCount += 1;
+    if (sql.includes('INSERT INTO portfolios')) return [{ insertId: 91 }];
+    if (sql.includes('SELECT * FROM portfolios WHERE id = ?')) {
+      return [[{
+        id: 91,
+        owner_id: 7,
+        ...payload,
+      }]];
+    }
+    throw new Error(`Unexpected portfolio create query: ${sql}`);
+  };
+  t.after(() => {
+    db.query = originalQuery;
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
+  });
+
+  const app = createApp();
+  const server = await new Promise((resolve, reject) => {
+    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    listener.once('error', reject);
+  });
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  }));
+  const token = jwt.sign({
+    id: 7,
+    email: 'owner@example.test',
+    name: 'Smoke Owner',
+    role: 'business_owner',
+  }, testSecret);
+
+  const response = await fetch(
+    `http://127.0.0.1:${server.address().port}/api/portfolios`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(CANONICAL_SECTORS.includes(payload.sector), true);
+  assert.equal(queryCount, 2, 'the canonical fixture should reach portfolio persistence');
 });
 
 test('five-role journey uses supported APIs in lifecycle order without removed chat controls', () => {

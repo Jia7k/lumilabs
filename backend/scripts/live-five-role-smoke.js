@@ -133,6 +133,28 @@ function createRunContext() {
   return context;
 }
 
+function buildSmokePortfolioCreatePayload(runId) {
+  return {
+    name: `${runId} Portfolio`,
+    sector: 'SaaS',
+    mvp_status: 'Beta',
+    description: 'Temporary five-role verification portfolio with complete release fields.',
+    funding_goal: 100000,
+    team_size: 3,
+    founded_year: 2026,
+    location: 'Singapore',
+    website: '',
+    monthly_revenue: 1000,
+    user_count: 10,
+    growth_rate: 5,
+    market_size: 'Temporary release verification market',
+    competitor_analysis: 'Temporary release verification competitors',
+    advisor_names: '',
+    burn_rate: 100,
+    runway_months: 12,
+  };
+}
+
 function sortedIds(values) {
   return [...values].map(Number).sort((left, right) => left - right);
 }
@@ -1892,25 +1914,7 @@ async function runFiveRoleFlow(context, origin) {
     method: 'POST',
     expectedStatus: 201,
     token: owner.token,
-    body: {
-      name: `${runId} Portfolio`,
-      sector: 'Technology',
-      mvp_status: 'Beta',
-      description: 'Temporary five-role verification portfolio with complete release fields.',
-      funding_goal: 100000,
-      team_size: 3,
-      founded_year: 2026,
-      location: 'Singapore',
-      website: '',
-      monthly_revenue: 1000,
-      user_count: 10,
-      growth_rate: 5,
-      market_size: 'Temporary release verification market',
-      competitor_analysis: 'Temporary release verification competitors',
-      advisor_names: '',
-      burn_rate: 100,
-      runway_months: 12,
-    },
+    body: buildSmokePortfolioCreatePayload(runId),
   })).data;
   const portfolioId = positiveId(portfolio.id, 'portfolio ID');
   reported.portfolioIds.add(portfolioId);
@@ -2785,6 +2789,7 @@ module.exports = {
   assertExactUser,
   assertNaturalSuperadminAudit,
   assertNonTemporaryCountsUnchanged,
+  buildSmokePortfolioCreatePayload,
   captureNonTemporaryCounts,
   cleanTemporaryRecords,
   createCleanupController,
