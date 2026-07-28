@@ -1644,6 +1644,36 @@ test('public content pages receive the homepage desktop navbar styling', () => {
   }
 });
 
+test('public desktop navigation forms one right-aligned cluster', () => {
+  const rules = cssRuleBlocks(read('css/style.css'));
+  for (const selector of [
+    '.landing-page .landing-page-links',
+    '.public-content-page .landing-page-links',
+  ]) {
+    assert.equal(cssProperty(rules, selector, 'margin-left'), 'auto', selector);
+  }
+  for (const selector of [
+    '.landing-page .landing-nav-actions',
+    '.public-content-page .landing-nav-actions',
+  ]) {
+    assert.equal(cssProperty(rules, selector, 'margin-left'), '12px', selector);
+  }
+});
+
+test('public navbar pages load the right-aligned stylesheet release', () => {
+  for (const file of ['index.html', 'about.html', 'contact.html']) {
+    const document = parseHtml(read(file));
+    const stylesheets = findAll(document, (node) => (
+      node.tagName === 'link' && node.attributes.rel === 'stylesheet'
+    )).map((link) => link.attributes.href);
+    assert.deepEqual(
+      stylesheets,
+      ['css/style.css?v=20260728.7'],
+      `${file}: right-aligned navbar stylesheet release`,
+    );
+  }
+});
+
 test('About preserves its complete story, vision and leadership without the retired CTA', () => {
   const source = read('about.html');
   const document = parseHtml(source);
@@ -1652,8 +1682,8 @@ test('About preserves its complete story, vision and leadership without the reti
   )).map((link) => link.attributes.href);
   assert.deepEqual(
     stylesheets,
-    ['css/style.css?v=20260728.6'],
-    'About loads the visual-removal stylesheet release',
+    ['css/style.css?v=20260728.7'],
+    'About loads the right-aligned navbar stylesheet release',
   );
   const text = visibleBodyText(document);
   const required = [
@@ -1748,8 +1778,8 @@ test('Contact preserves its details, map fallback and accessible form contract',
   )).map((link) => link.attributes.href);
   assert.deepEqual(
     stylesheets,
-    ['css/style.css?v=20260728.6'],
-    'Contact loads the visual-removal stylesheet release',
+    ['css/style.css?v=20260728.7'],
+    'Contact loads the right-aligned navbar stylesheet release',
   );
   const text = visibleBodyText(document);
   for (const value of [
