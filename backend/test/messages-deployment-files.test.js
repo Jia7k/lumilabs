@@ -1658,21 +1658,13 @@ test('dependency graph rejects a package imports target that is a self-reference
   );
 });
 
-test('About and Contact local routes, assets and scripts are deployable', () => {
+test('every deployed HTML page has all local dependencies in the manifest', () => {
   const manifest = new Set(readManifest());
-  for (const page of ['about.html', 'contact.html']) {
-    assert.ok(manifest.has(page), `missing public page: ${page}`);
+  for (const page of [...manifest].filter((entry) => entry.endsWith('.html'))) {
     for (const dependency of localPageReferences(page)) {
-      assert.ok(
-        manifest.has(dependency),
-        `${page} references an undeployed local dependency: ${dependency}`
-      );
+      assert.ok(manifest.has(dependency), `${page}: missing ${dependency}`);
       const absolute = path.join(repositoryDir, ...dependency.split('/'));
-      assert.equal(
-        fs.existsSync(absolute) && fs.statSync(absolute).isFile(),
-        true,
-        `${page} references a missing local file: ${dependency}`
-      );
+      assert.equal(fs.existsSync(absolute) && fs.statSync(absolute).isFile(), true);
     }
   }
 });

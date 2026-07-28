@@ -6,6 +6,38 @@ const path = require('node:path');
 const root = path.join(__dirname, '..', '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative));
 
+const PAGE_BRAND_HREFS = new Map([
+  ['about.html', 'index.html'],
+  ['assignments.html', 'index.html'],
+  ['audit-logs.html', 'index.html'],
+  ['browse.html', 'investordashboard.html'],
+  ['businessownerdashboard.html', 'index.html'],
+  ['contact.html', 'index.html'],
+  ['createportfolio.html', 'index.html'],
+  ['index.html', 'index.html'],
+  ['investordashboard.html', 'investordashboard.html'],
+  ['messages.html', 'index.html'],
+  ['moderatordashboard.html', 'index.html'],
+  ['my-interests.html', 'investordashboard.html'],
+  ['mybusinesses.html', 'index.html'],
+  ['relationshipmanagerdashboard.html', 'index.html'],
+  ['signin.html', 'index.html'],
+  ['signup.html', 'index.html'],
+  ['superadmindashboard.html', 'index.html'],
+]);
+
+function attribute(tag, name) {
+  return tag.match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i'))?.[1];
+}
+
+function brandAnchors(source) {
+  return [...source.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)]
+    .filter((match) => {
+      const classes = attribute(match[1], 'class')?.split(/\s+/) || [];
+      return classes.some((name) => ['landing-brand', 'auth-brand', 'nav-logo'].includes(name));
+    });
+}
+
 function pngMetadata(relative) {
   const source = read(relative);
   assert.deepEqual([...source.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
@@ -62,4 +94,39 @@ test('Lumi5 raster and platform icons have exact production formats', () => {
   assert.match(favicon, /fill="#FFFFFF"/);
   assert.match(favicon, /fill="#6B4EE6"/);
   assert.doesNotMatch(favicon, /<(?:script|image|foreignObject|filter)\b|https?:\/\//i);
+});
+
+test('all 17 pages use the approved accessible Lumi5 mark and platform icons', () => {
+  assert.deepEqual(
+    [...PAGE_BRAND_HREFS.keys()],
+    fs.readdirSync(root).filter((name) => name.endsWith('.html')).sort(),
+  );
+
+  for (const [page, expectedHref] of PAGE_BRAND_HREFS) {
+    const source = fs.readFileSync(path.join(root, page), 'utf8');
+    const anchors = brandAnchors(source);
+    assert.equal(anchors.length, 1, `${page}: one brand link`);
+    assert.equal(attribute(anchors[0][1], 'href'), expectedHref, `${page}: preserved destination`);
+    assert.match(anchors[0][2].replace(/<[^>]+>/g, ' '), /\bLumi5 Labs\b/);
+
+    const images = [...anchors[0][2].matchAll(/<img\b[^>]*>/gi)].map((match) => match[0]);
+    assert.equal(images.length, 1, `${page}: one mark image`);
+    assert.equal(attribute(images[0], 'src'), 'images/lumi5-mark.svg');
+    assert.equal(attribute(images[0], 'alt'), '');
+    assert.equal(attribute(images[0], 'width'), '24');
+    assert.equal(attribute(images[0], 'height'), '24');
+    assert.doesNotMatch(anchors[0][2], /<svg\b|ti-trending-up/);
+
+    for (const expected of [
+      /<link\b[^>]*rel=["']icon["'][^>]*href=["']favicon\.ico["'][^>]*>/i,
+      /<link\b[^>]*rel=["']icon["'][^>]*href=["']favicon\.svg["'][^>]*type=["']image\/svg\+xml["'][^>]*>/i,
+      /<link\b[^>]*rel=["']icon["'][^>]*href=["']favicon-32x32\.png["'][^>]*sizes=["']32x32["'][^>]*>/i,
+      /<link\b[^>]*rel=["']apple-touch-icon["'][^>]*href=["']apple-touch-icon\.png["'][^>]*>/i,
+    ]) {
+      assert.match(source, expected, `${page}: platform icon`);
+    }
+  }
+
+  const business = fs.readFileSync(path.join(root, 'businessownerdashboard.html'), 'utf8');
+  assert.equal((business.match(/ti ti-trending-up/g) || []).length, 1);
 });

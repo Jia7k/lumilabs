@@ -1668,7 +1668,7 @@ test('public navbar pages load the right-aligned stylesheet release', () => {
     )).map((link) => link.attributes.href);
     assert.deepEqual(
       stylesheets,
-      ['css/style.css?v=20260728.7'],
+      ['css/style.css?v=20260728.8'],
       `${file}: right-aligned navbar stylesheet release`,
     );
   }
@@ -1682,7 +1682,7 @@ test('About preserves its complete story, vision and leadership without the reti
   )).map((link) => link.attributes.href);
   assert.deepEqual(
     stylesheets,
-    ['css/style.css?v=20260728.7'],
+    ['css/style.css?v=20260728.8'],
     'About loads the right-aligned navbar stylesheet release',
   );
   const text = visibleBodyText(document);
@@ -1778,7 +1778,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
   )).map((link) => link.attributes.href);
   assert.deepEqual(
     stylesheets,
-    ['css/style.css?v=20260728.7'],
+    ['css/style.css?v=20260728.8'],
     'Contact loads the right-aligned navbar stylesheet release',
   );
   const text = visibleBodyText(document);
@@ -1962,7 +1962,7 @@ test('Contact preserves its details, map fallback and accessible form contract',
   )).map((script) => script.attributes.src);
   assert.deepEqual(
     scripts,
-    ['js/api.js?v=20260728.4', 'js/contact.js?v=20260728.4'],
+    ['js/api.js?v=20260728.8', 'js/contact.js?v=20260728.8'],
     'Contact scripts load in API-then-form order',
   );
 });

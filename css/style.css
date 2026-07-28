@@ -78,13 +78,18 @@ html {
 .logo-icon {
   width: 30px;
   height: 30px;
-  border-radius: var(--radius-md);
-  background: var(--logo-purple);
+  border-radius: 0;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-size: 15px;
+}
+
+.lumi5-logo-mark {
+  width: 24px;
+  height: 24px;
+  display: block;
+  flex: 0 0 auto;
 }
 
 .nav-links {
@@ -586,10 +591,9 @@ body.landing-page {
   height: 36px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #5558DE, #806DE9);
-  box-shadow: 0 9px 20px rgba(84, 87, 221, 0.24);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .landing-page .landing-page-links,
