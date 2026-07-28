@@ -594,6 +594,7 @@ body.landing-page {
 
 .landing-page .landing-page-links,
 .public-content-page .landing-page-links {
+  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -687,6 +688,7 @@ body.landing-page {
 
 .landing-page .landing-nav-actions,
 .public-content-page .landing-nav-actions {
+  margin-left: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
