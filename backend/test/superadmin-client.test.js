@@ -356,9 +356,9 @@ test('dashboard assets and stable accessible regions are synchronized', () => {
     /https:\/\/cdn\.jsdelivr\.net\/npm\/@tabler\/icons-webfont@3\.0\.0\/dist\/tabler-icons\.min\.css/,
   );
   for (const asset of [
-    'css/style.css?v=20260727.1',
-    'js/api.js?v=20260727.1',
-    'js/superadmindashboard.js?v=20260727.1',
+    'css/style.css?v=20260728.4',
+    'js/api.js?v=20260728.4',
+    'js/superadmindashboard.js?v=20260728.4',
   ]) assert.match(html, new RegExp(escapeRegex(asset)));
   for (const id of [
     'superadmin-stats',

@@ -118,14 +118,15 @@
   .qa-left { display: flex; align-items: center; gap: 12px; }
   .badge-red { background: var(--pink-bg); color: var(--pink-text); font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
   
-  .interest-list-item { background: var(--bg-page); border-radius: var(--radius-md); padding: 12px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .il-icon { width: 36px; height: 36px; background: var(--pink-bg); color: var(--pink-text); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .interest-list-item { background: var(--bg-page); border-radius: var(--radius-md); padding: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+  .interest-list-item > :nth-child(2) { flex: 1 1 120px; min-width: 0; }
+  .il-icon { width: 36px; height: 36px; background: var(--pink-bg); color: var(--pink-text); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
   .il-name { font-weight: 600; font-size: 14px; }
   .il-sub { font-size: 12px; color: var(--text-secondary); }
   .managed-chat-action--compact { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 20px; text-decoration: none; background: #F3F0FF; color: #6D28D9; border: 1px solid #C4B5FD; margin-left: auto; transition: background 0.15s; }
   .managed-chat-action--compact:hover { background: #EDE9FE; }
-  .managed-chat-action--compact.managed-chat-archived { background: #F3F4F6; color: #6B7280; border-color: #D1D5DB; }
-  .managed-chat-awaiting--compact { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 20px; background: #F9FAFB; color: #6B7280; border: 1px dashed #D1D5DB; margin-left: auto; }
+  .managed-chat-action--compact.managed-chat-archived { background: #F3F4F6; color: #4B5563; border-color: #D1D5DB; }
+  .managed-chat-awaiting--compact { display: inline-flex; align-items: center; justify-content: flex-start; gap: 5px; flex: 1 1 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 20px; background: #F9FAFB; color: #6B7280; border: 1px dashed #D1D5DB; margin-left: 0; }
 
   @media (max-width: 900px) {
     .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -268,7 +269,7 @@
   </div>
 </main>
 
-<script src="js/api.js?v=20260727.1"></script>
-<script src="js/investordashboard.js?v=20260727.1"></script>
+<script src="js/api.js?v=20260728.4"></script>
+<script src="js/investordashboard.js?v=20260728.4"></script>
 </body>
 </html>

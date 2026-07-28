@@ -1,7 +1,9 @@
+about.html
 assignments.html
 audit-logs.html
 browse.html
 businessownerdashboard.html
+contact.html
 createportfolio.html
 index.html
 investordashboard.html
@@ -14,10 +16,13 @@ signin.html
 signup.html
 superadmindashboard.html
 css/style.css
+images/raveen.webp
+images/victor.webp
 js/api.js
 js/assignments.js
 js/audit-logs.js
 js/browse.js
+js/contact.js
 js/createportfolio.js
 js/investordashboard.js
 js/messages.js
@@ -29,8 +34,10 @@ js/script.js
 js/superadmindashboard.js
 backend/server.js
 backend/migrate.js
+backend/migrate-contact.js
 backend/package.json
 backend/package-lock.json
+backend/scripts/migrate-contact-submissions.js
 backend/scripts/migrate-five-role-workflow.js
 backend/scripts/seed-managed-chat.js
 backend/scripts/live-five-role-smoke.js
@@ -41,6 +48,7 @@ backend/src/middleware/auth.js
 backend/src/middleware/upload.js
 backend/src/routes/admin.js
 backend/src/routes/auth.js
+backend/src/routes/contact.js
 backend/src/routes/dashboard.js
 backend/src/routes/interests.js
 backend/src/routes/messages.js
@@ -49,6 +57,7 @@ backend/src/routes/portfolios.js
 backend/src/routes/recommendations.js
 backend/src/routes/relationship-manager.js
 backend/src/routes/superadmin.js
+backend/src/services/contact-submission-workflow.js
 backend/src/services/document-workflow.js
 backend/src/services/group-message-workflow.js
 backend/src/services/managed-conversation-workflow.js

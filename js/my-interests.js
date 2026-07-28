@@ -25,8 +25,8 @@ function managedChatAction(portfolio) {
     return `<span class="chat-awaiting"><i class="ti ti-user-off"></i> Chat access is no longer available</span>`;
   }
   const guidance = portfolio.relationship_manager_id
-    ? "Awaiting group chat setup"
-    : "Pending match";
+    ? "Awaiting relationship manager to create group chat"
+    : "Awaiting relationship manager assignment";
   return `<span class="chat-awaiting"><i class="ti ti-clock"></i> ${guidance}</span>`;
 }
 

@@ -211,7 +211,7 @@ test('My Businesses renders malformed readiness as numeric zero', async () => {
 test('owner navigation is hidden before auth and revealed only after role resolution', async () => {
   for (const page of [dashboardPage, businessesPage]) {
     assert.match(page, /<div[^>]*id="business-owner-nav"[^>]*hidden[^>]*>/);
-    assert.match(page, /(?:css\/style|js\/api)\.[a-z]+\?v=20260727\.1/);
+    assert.match(page, /(?:css\/style|js\/api)\.[a-z]+\?v=20260728\.4/);
   }
 
   const client = loadClient();

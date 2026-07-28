@@ -225,6 +225,13 @@ const COLUMN_CONTRACT = {
     ],
     ['created_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
   ]),
+  contact_submissions: defineColumns([
+    ['id', 'bigint unsigned', 'NO', null, 'auto_increment'],
+    ['name', 'varchar(100)', 'NO', null],
+    ['email', 'varchar(255)', 'NO', null],
+    ['message', 'text', 'YES', null],
+    ['created_at', 'timestamp', 'NO', 'CURRENT_TIMESTAMP', 'DEFAULT_GENERATED'],
+  ]),
 };
 
 const PRIMARY_INDEX_CONTRACT = [
@@ -238,6 +245,7 @@ const PRIMARY_INDEX_CONTRACT = [
   ['notifications', ['id']],
   ['audit_logs', ['id']],
   ['superadmin_audit_logs', ['id']],
+  ['contact_submissions', ['id']],
 ];
 
 const UNIQUE_INDEX_CONTRACT = [
@@ -269,6 +277,7 @@ const ACCESS_INDEX_CONTRACT = [
   ['superadmin_audit_logs', ['previous_relationship_manager_id']],
   ['superadmin_audit_logs', ['new_relationship_manager_id']],
   ['superadmin_audit_logs', ['created_user_id']],
+  ['contact_submissions', ['created_at']],
 ];
 
 const FOREIGN_KEY_CONTRACT = [
@@ -842,6 +851,55 @@ function appendForeignKeyIssues(foreignKeyRows, requiredContract, issues) {
   }
 }
 
+function appendExactContactSubmissionIssues(
+  columnRows,
+  indexRows,
+  foreignKeyRows,
+  issues,
+) {
+  const tableName = 'contact_submissions';
+  const expectedColumns = new Set(
+    COLUMN_CONTRACT[tableName].map(({ name }) => name),
+  );
+  for (const column of columnRows) {
+    if (
+      property(column, 'table_name') === tableName
+      && !expectedColumns.has(property(column, 'column_name'))
+    ) {
+      issues.push(
+        `${tableName} must not have unexpected column ${property(column, 'column_name')}`,
+      );
+    }
+  }
+
+  const expectedIndexes = new Map([
+    ['PRIMARY', ['id']],
+    ['idx_contact_submissions_created_at', ['created_at']],
+  ]);
+  for (const rows of orderedGroups(indexRows, 'index_name').values()) {
+    if (property(rows[0], 'table_name') !== tableName) continue;
+    const name = property(rows[0], 'index_name');
+    if (sameValues(indexColumns(rows), expectedIndexes.get(name) || [])) continue;
+    const kind = rows.every((row) => Number(property(row, 'non_unique')) === 0)
+      ? 'unique'
+      : 'access';
+    issues.push(
+      `${tableName} must not have unexpected ${kind} index (${indexColumns(rows).join(',')})`,
+    );
+  }
+
+  for (const rows of orderedGroups(foreignKeyRows, 'constraint_name').values()) {
+    if (property(rows[0], 'table_name') !== tableName) continue;
+    issues.push(
+      `${tableName} must not have unexpected foreign key (${rows.map((row) => (
+        property(row, 'column_name')
+      )).join(',')}) -> ${property(rows[0], 'referenced_table_name')}(${rows.map((row) => (
+        property(row, 'referenced_column_name')
+      )).join(',')})`,
+    );
+  }
+}
+
 async function verifySchema(database) {
   const {
     tableRows,
@@ -874,6 +932,12 @@ async function verifySchema(database) {
   appendForeignKeyIssues(
     foreignKeyRows,
     EXPECTED_SCHEMA.foreignKeys,
+    issues,
+  );
+  appendExactContactSubmissionIssues(
+    columnRows,
+    indexRows,
+    foreignKeyRows,
     issues,
   );
 

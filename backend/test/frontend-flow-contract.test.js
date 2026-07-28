@@ -45,6 +45,12 @@ function visibleText(markup) {
   return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function anchorRoutes(markup) {
+  return [...markup.matchAll(
+    /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+  )].map((match) => [visibleText(match[2]), match[1]]);
+}
+
 function elementTag(source, id) {
   const match = source.match(
     new RegExp(`<(?:input|textarea|select)\\b[^>]*\\bid=["']${id}["'][^>]*>`, 'i'),
@@ -68,6 +74,25 @@ function assertAttribute(tag, name, value = true) {
     return;
   }
   assert.match(tag, new RegExp(`\\b${name}=["']${String(value).replaceAll('.', '\\.')}["']`, 'i'));
+}
+
+function balancedCssBlock(source, openingPattern, label) {
+  const start = source.search(openingPattern);
+  assert.notEqual(start, -1, `missing ${label}`);
+
+  const openingBrace = source.indexOf('{', start);
+  assert.notEqual(openingBrace, -1, `missing opening brace for ${label}`);
+
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] !== '}') continue;
+
+    depth -= 1;
+    if (depth === 0) return source.slice(openingBrace + 1, index);
+  }
+
+  assert.fail(`missing closing brace for ${label}`);
 }
 
 function relativeLuminance(hexColor) {
@@ -318,11 +343,39 @@ test('portfolio editor mirrors database-backed form limits', () => {
   );
 });
 
-test('homepage exposes only the two public audience journeys', () => {
+test('homepage exposes exact public journeys and navigation routes', () => {
   const html = read('index.html');
-  const nav = html.match(/<nav\b[\s\S]*?<\/nav>/i)?.[0];
+  const desktopNav = html.match(
+    /<nav\b[^>]*class=["'][^"']*\blanding-page-links\b[^"']*["'][^>]*aria-label=["']Primary navigation["'][^>]*>[\s\S]*?<\/nav>/i,
+  )?.[0];
+  const compactMenu = html.match(
+    /<details\b[^>]*class=["'][^"']*\blanding-menu\b[^"']*["'][^>]*>[\s\S]*?<\/details>/i,
+  )?.[0];
+  const compactNav = compactMenu?.match(
+    /<nav\b[^>]*aria-label=["']Compact primary navigation["'][^>]*>[\s\S]*?<\/nav>/i,
+  )?.[0];
+  const authActions = html.match(
+    /<div\b[^>]*class=["'][^"']*\blanding-nav-actions\b[^"']*["'][^>]*>[\s\S]*?<\/div>/i,
+  )?.[0];
 
-  assert.ok(nav, 'missing homepage navigation');
+  assert.ok(desktopNav, 'missing homepage desktop navigation');
+  assert.ok(compactMenu, 'missing homepage compact menu');
+  assert.match(compactMenu, /<summary>\s*Menu\s*<\/summary>/i);
+  assert.ok(compactNav, 'missing homepage compact navigation');
+  assert.ok(authActions, 'missing homepage authentication actions');
+  assert.deepEqual(anchorRoutes(desktopNav), [
+    ['About', 'about.html'],
+    ['Contact', 'contact.html'],
+  ]);
+  assert.deepEqual(anchorRoutes(compactNav), [
+    ['About', 'about.html'],
+    ['Contact', 'contact.html'],
+    ['Sign in', 'signin.html'],
+  ]);
+  assert.deepEqual(anchorRoutes(authActions), [
+    ['Sign in', 'signin.html'],
+    ['Sign up', 'signup.html'],
+  ]);
   assert.doesNotMatch(
     html,
     /Relationship Manager|Administrator|Superadmin/i,
@@ -331,10 +384,7 @@ test('homepage exposes only the two public audience journeys', () => {
     html,
     /signin\.html\?role=(?:relationship_manager|admin|superadmin)/i,
   );
-  assert.doesNotMatch(nav, /How it works/i);
-
-  assert.match(nav, /href=["']signin\.html["'][^>]*>\s*Sign in\s*</i);
-  assert.match(nav, /href=["']signup\.html["'][^>]*>\s*Sign up\s*</i);
+  assert.doesNotMatch(desktopNav, /How it works/i);
   assert.match(
     html,
     /href=["']signup\.html\?role=business_owner["'][^>]*>\s*Raise capital/i,
@@ -356,6 +406,7 @@ test('homepage exposes only the two public audience journeys', () => {
 test('homepage contains the approved semantic content and orbit description', () => {
   const html = read('index.html');
 
+  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260728\.4["']/i);
   assert.match(html, /<body class=["']landing-page["']/i);
   assert.equal([...html.matchAll(/<h1\b/gi)].length, 1);
   assert.match(html, /<main\b[^>]*>/i);
@@ -368,11 +419,21 @@ test('homepage contains the approved semantic content and orbit description', ()
     html,
     /role=["']img["'][^>]*aria-label=["']Lumi5 Labs connects businesses and investors around shared sector, stage, geography, and capital priorities\.["']/i,
   );
-  assert.match(html, /<script src=["']js\/script\.js\?v=20260727\.1["']/i);
+  assert.match(html, /<script src=["']js\/script\.js\?v=20260728\.4["']/i);
 });
 
 test('homepage styles are scoped and follow the approved breakpoints', () => {
   const css = read('css/style.css');
+  const compactStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*719px\)/,
+    '719px homepage media query',
+  );
+  const narrowStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*599px\)/,
+    '599px homepage media query',
+  );
 
   assert.match(
     css,
@@ -395,17 +456,50 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
     /@media \(max-width:\s*899px\)[\s\S]*?\.landing-page \.landing-audience-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
-    css,
-    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-trust-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    narrowStyles,
+    /\.landing-page \.landing-trust-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    narrowStyles,
+    /\.landing-page \.landing-steps-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
   );
   assert.match(
     css,
-    /@media \(max-width:\s*599px\)[\s\S]*?\.landing-page \.landing-steps-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    /\.landing-page \.landing-menu\s*,[^{}]*\{[^}]*display:\s*none/s,
   );
   assert.match(
-    css,
-    /\.landing-page [^{]*:focus-visible\s*\{[^}]*outline:/s,
+    compactStyles,
+    /\.landing-page \.landing-page-links\s*\{[^}]*display:\s*none/,
   );
+  assert.match(
+    compactStyles,
+    /\.landing-page \.landing-menu\s*\{[^}]*display:\s*block/,
+  );
+  assert.match(
+    compactStyles,
+    /\.landing-page \.landing-nav-signin\s*\{[^}]*display:\s*none/,
+  );
+  assert.deepEqual(
+    [...compactStyles.matchAll(/([^{}]+)\{[^{}]*display:\s*none/g)]
+      .map((match) => match[1].trim()),
+    [
+      '.landing-page .landing-page-links',
+      '.landing-page .landing-nav-signin',
+    ],
+    'compact breakpoint must keep the Sign up action visible',
+  );
+
+  const focusRule = css.match(
+    /([^{}]+)\{[^{}]*outline:\s*3px solid #1F2A44;[^{}]*box-shadow:\s*0 0 0 6px #FFFFFF;/,
+  );
+  assert.ok(focusRule, 'missing homepage focus-visible rule');
+  for (const selector of [
+    '.landing-page .landing-page-links a:focus-visible',
+    '.landing-page .landing-menu summary:focus-visible',
+    '.landing-page .landing-menu nav a:focus-visible',
+  ]) {
+    assert.ok(focusRule[1].includes(selector), `missing focus style for ${selector}`);
+  }
   assert.match(
     css,
     /@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.landing-page \*,\s*\.landing-page \*::before,\s*\.landing-page \*::after\s*\{[^}]*animation-duration:\s*0\.01ms\s*!important;[^}]*transition-duration:\s*0\.01ms\s*!important;/,
@@ -414,14 +508,42 @@ test('homepage styles are scoped and follow the approved breakpoints', () => {
 
 test('homepage accessibility styles preserve contrast and touch targets', () => {
   const css = read('css/style.css');
+  const compactStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*719px\)/,
+    '719px homepage media query',
+  );
+  const narrowStyles = balancedCssBlock(
+    css,
+    /@media \(max-width:\s*599px\)/,
+    '599px homepage media query',
+  );
 
   assert.match(
     css,
-    /\.landing-page \.landing-brand\s*\{[^}]*min-height:\s*44px/s,
+    /\.landing-page \.landing-brand\s*,[^{}]*\{[^}]*min-height:\s*44px/s,
   );
   assert.match(
     css,
     /\.landing-page \.landing-audience-card a\s*\{[^}]*min-height:\s*44px/s,
+  );
+  for (const selector of [
+    '\\.landing-page-links a',
+    '\\.landing-menu summary',
+    '\\.landing-menu nav a',
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.landing-page ${selector}\\s*,[^{}]*\\{[^}]*min-height:\\s*44px`, 's'),
+    );
+  }
+  assert.match(
+    compactStyles,
+    /\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*32px;[^}]*right:\s*32px;/,
+  );
+  assert.match(
+    narrowStyles,
+    /\.landing-page \.landing-menu nav\s*\{[^}]*left:\s*16px;[^}]*right:\s*16px;/,
   );
   assert.match(
     css,
@@ -433,7 +555,6 @@ test('homepage accessibility styles preserve contrast and touch targets', () => 
     '\\.landing-section-heading > p:last-child',
     '\\.landing-audience-card p',
     '\\.landing-steps-grid p',
-    '\\.landing-footer',
   ]) {
     assert.match(
       css,
@@ -535,7 +656,7 @@ test('every Tabler page uses the exact pinned dist stylesheet', () => {
 });
 
 test('changed shared-client pages use one coherent frontend release key', () => {
-  const releaseKey = '20260727.1';
+  const releaseKey = '20260728.4';
   const changedSharedClientPages = [
     'audit-logs.html',
     'assignments.html',
@@ -549,7 +670,6 @@ test('changed shared-client pages use one coherent frontend release key', () => 
     'mybusinesses.html',
     'relationshipmanagerdashboard.html',
     'superadmindashboard.html',
-    'index.html',
     'signin.html',
     'signup.html',
   ];
@@ -665,6 +785,103 @@ test('standalone investor pages define narrow-screen layout contracts', () => {
   assert.match(
     interests,
     /@media \(max-width:\s*699px\)[\s\S]*?\.interest-card\s*\{[^}]*flex-direction:\s*column/,
+  );
+});
+
+test('managed-chat guidance wraps inside narrow dashboard cards', () => {
+  const sharedCss = read('css/style.css');
+  const investorDashboard = read('investordashboard.html');
+  const sharedGuidance = sharedCss.match(
+    /\.managed-chat-awaiting\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*normal;[^}]*\}/s,
+  )?.[0];
+
+  assert.ok(sharedGuidance, 'missing shared managed-chat guidance styles');
+  assert.match(sharedGuidance, /white-space:\s*normal;/);
+  assert.match(sharedGuidance, /overflow-wrap:\s*anywhere;/);
+  assert.match(
+    sharedCss,
+    /\.interest-item\s*\{[^}]*flex-wrap:\s*wrap;/s,
+  );
+  assert.match(
+    investorDashboard,
+    /\.interest-list-item\s*\{[^}]*flex-wrap:\s*wrap;/s,
+  );
+  assert.match(
+    investorDashboard,
+    /\.managed-chat-awaiting--compact\s*\{[^}]*flex:\s*1\s+1\s+100%;[^}]*white-space:\s*normal;/s,
+  );
+});
+
+test('investor action labels meet WCAG AA contrast', () => {
+  const browse = read('browse.html');
+  const dashboard = read('investordashboard.html');
+  const declaration = (source, selector, property) => {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const body = source.match(new RegExp(`${escapedSelector}\\s*\\{([^}]+)\\}`, 's'))?.[1];
+    assert.ok(body, `missing ${selector} rule`);
+    const value = body.match(new RegExp(`${property}:\\s*([^;]+);`, 'i'))?.[1].trim();
+    assert.ok(value, `missing ${property} in ${selector}`);
+    const token = value.match(/^var\(--([a-z0-9-]+)\)$/i)?.[1];
+    if (!token) return value;
+    const resolved = source.match(new RegExp(`--${token}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+    assert.ok(resolved, `missing --${token} color token`);
+    return resolved;
+  };
+  const requireTextContrast = (label, foreground, background) => {
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${label} ${foreground}/${background} must reach 4.5:1`,
+    );
+  };
+
+  const removeText = declaration(browse, '.btn-remove-interest', 'color');
+  requireTextContrast(
+    'Remove Interest',
+    removeText,
+    declaration(browse, '.btn-remove-interest', 'background'),
+  );
+  requireTextContrast(
+    'Remove Interest hover',
+    removeText,
+    declaration(browse, '.btn-remove-interest:hover', 'background'),
+  );
+  const openChatText = declaration(browse, '.managed-chat-action', 'color');
+  requireTextContrast(
+    'Open Managed Chat',
+    openChatText,
+    declaration(browse, '.managed-chat-action', 'background'),
+  );
+  requireTextContrast(
+    'Open Managed Chat hover',
+    openChatText,
+    declaration(browse, '.managed-chat-action:hover', 'background'),
+  );
+  const archivedText = declaration(browse, '.managed-chat-archived', 'color');
+  requireTextContrast(
+    'Archived chat',
+    archivedText,
+    declaration(browse, '.managed-chat-archived', 'background'),
+  );
+  requireTextContrast(
+    'Archived chat hover',
+    archivedText,
+    declaration(browse, '.managed-chat-archived:hover', 'background'),
+  );
+  requireTextContrast(
+    'Compact archived chat',
+    declaration(dashboard, '.managed-chat-action--compact.managed-chat-archived', 'color'),
+    declaration(dashboard, '.managed-chat-action--compact.managed-chat-archived', 'background'),
+  );
+  const compactOpenText = declaration(dashboard, '.managed-chat-action--compact', 'color');
+  requireTextContrast(
+    'Compact Open Managed Chat',
+    compactOpenText,
+    declaration(dashboard, '.managed-chat-action--compact', 'background'),
+  );
+  requireTextContrast(
+    'Compact Open Managed Chat hover',
+    compactOpenText,
+    declaration(dashboard, '.managed-chat-action--compact:hover', 'background'),
   );
 });
 

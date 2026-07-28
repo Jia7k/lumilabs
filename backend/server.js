@@ -113,23 +113,13 @@ function createApp(options = {}) {
   const {
     createSuperadminRouter,
   } = require('./src/routes/superadmin');
+  const {
+    createContactRouter,
+  } = require('./src/routes/contact');
 
   const app = express();
+  app.set('trust proxy', 1);
   app.disable('x-powered-by');
-
-  // Allow cross-origin requests from the local Python dev server (port 5501).
-  app.use((req, res, next) => {
-    const allowed = ['http://127.0.0.1:5501', 'http://localhost:5501'];
-    const origin = req.headers.origin;
-    if (allowed.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-      res.setHeader('Vary', 'Origin');
-    }
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    next();
-  });
 
   app.use(express.json({ limit: DB_LIMITS.JSON_LIMIT }));
 
@@ -158,6 +148,10 @@ function createApp(options = {}) {
     createRelationshipManagerRouter({ database }),
   );
   app.use('/api/superadmin', createSuperadminRouter({ database }));
+  app.use('/api/contact', createContactRouter({
+    database,
+    limiter: options.contactLimiter,
+  }));
 
   app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
   app.use((error, req, res, next) => {
