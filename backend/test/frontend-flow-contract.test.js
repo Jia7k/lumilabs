@@ -406,7 +406,7 @@ test('homepage exposes exact public journeys and navigation routes', () => {
 test('homepage contains the approved semantic content and orbit description', () => {
   const html = read('index.html');
 
-  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260728\.4["']/i);
+  assert.match(html, /<link[^>]+href=["']css\/style\.css\?v=20260728\.7["']/i);
   assert.match(html, /<body class=["']landing-page["']/i);
   assert.equal([...html.matchAll(/<h1\b/gi)].length, 1);
   assert.match(html, /<main\b[^>]*>/i);
