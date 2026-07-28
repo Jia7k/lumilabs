@@ -90,10 +90,11 @@ test('Lumi5 raster and platform icons have exact production formats', () => {
   assert.deepEqual(icoSizes('favicon.ico'), ['16x16', '32x32', '48x48']);
 
   const favicon = read('favicon.svg').toString('utf8');
+  assert.match(favicon, /<svg[^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
   assert.match(favicon, /<svg[^>]*viewBox="10 10 80 80"/);
   assert.match(favicon, /fill="#FFFFFF"/);
   assert.match(favicon, /fill="#6B4EE6"/);
-  assert.doesNotMatch(favicon, /<(?:script|image|foreignObject|filter)\b|https?:\/\//i);
+  assert.doesNotMatch(favicon, /<(?:script|image|foreignObject|filter)\b|https?:\/\/(?!www\.w3\.org\/2000\/svg)/i);
 });
 
 test('all 17 pages use the approved accessible Lumi5 mark and platform icons', () => {
