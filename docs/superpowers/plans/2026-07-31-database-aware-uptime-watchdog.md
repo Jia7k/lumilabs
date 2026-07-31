@@ -917,15 +917,30 @@ git commit -m "ops: record database-aware watchdog deployment"
 
 ### Hardening Follow-up: 2026-07-31
 
-- Final candidate and live SHA-256: `2be56194d42ce76150c9c649d2dab86f8b146e86863f031c8b4a9e400f6869d1`; installed metadata `0700 root:root`, 3948 bytes.
+- Intermediate candidate SHA-256 at the hard-timeout checkpoint: `2be56194d42ce76150c9c649d2dab86f8b146e86863f031c8b4a9e400f6869d1`; installed metadata `0700 root:root`, 3948 bytes.
 - Syntax and portability checks: source and harness passed `sh -n` and `dash -n`.
 - Mocked scenarios after hardening: `healthy=PASS`, `inactive_recover=PASS`, `active_recover=PASS`, `ready_fail=PASS`, `unrecoverable=PASS`, `hang=PASS`; 6/6 passed.
 - Hardening mutation checks: missing `--signal=KILL`, extra direct `mysqladmin`, unreviewed PATH seam, and later PATH rebinding all failed as required; restored candidate passed 6/6.
 - Production timeout contract: a direct child that ignored `SIGTERM` was terminated by `timeout --foreground --signal=KILL 0.2` with status 124 in 0 seconds.
 - Production probe at that time: `mysqladmin --no-defaults` over `/run/mysqld/mysqld.sock` completed with status 0. This suppressed ordinary option files, but MySQL 8.0 treats `.mylogin.cnf` separately; the subsequent hardening redirects that exceptional source with `MYSQL_TEST_LOGIN_FILE=/dev/null`.
-- Restart counters before and after the final healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
+- Restart counters before and after that healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
 - Systemd unit states: `apache2=active`, `mysql=active`, `ssh=active`, `rsyslog=active`, `lumilabs-backend=active`, `lumilabs-watchdog.timer=active`.
 - HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.
 - Compromise indicators: `zmap`, `otheramd`, and `/usr/lib/sysfmd` absent.
 - Watchdog journal severity: no `err` through `alert` entries since `2026-07-31 10:52:36 UTC`.
 - Immediate rollback artifact: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-hardening-20260731`, SHA-256 `841fc9898ab4b075fab2876f7ca0ac414e6dbc998ed95917053fef6cc18a3cf4`; original baseline rollback remains at its recorded path and SHA-256.
+
+### MySQL 8.0 Login-Path Isolation Follow-up: 2026-07-31
+
+- Final candidate and live SHA-256: `01cb41cbee6b3f7249d6609becb5c1f1c0b663409d1bec1a43f61ec46a57b865`; installed metadata `0700 root:root`, 3990 bytes.
+- Compatibility decision: production uses MySQL 8.0.46, which rejects the MySQL 8.2 `--no-login-paths` option. The supported `MYSQL_TEST_LOGIN_FILE=/dev/null` override prevents the exceptional `.mylogin.cnf` source from supplying credentials while `--no-defaults` suppresses ordinary option files.
+- Syntax and portability checks: source and harness passed `sh -n` and `dash -n`; all six mocked scenarios passed under both shells.
+- Login-path mutation checks: removing the command-local `/dev/null` override failed with the caller variable both unset and pre-seeded to `/dev/null`; the harness forces a noncompliant sentinel so only the candidate override can pass.
+- Earlier hardening mutation checks remained RED: missing `--signal=KILL`, extra direct `mysqladmin`, unreviewed PATH seam, and later PATH rebinding.
+- Production isolated probe: the exact MySQL 8.0-compatible socket probe completed with status 0; the hard-timeout contract completed with status 124 in 0 seconds.
+- Restart counters before and after the final healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
+- Systemd unit states: `apache2=active`, `mysql=active`, `ssh=active`, `rsyslog=active`, `lumilabs-backend=active`, `lumilabs-watchdog.timer=active`.
+- HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.
+- Compromise indicators: `zmap`, `otheramd`, and `/usr/lib/sysfmd` absent.
+- Watchdog journal severity: no `err` through `alert` entries since `2026-07-31 11:20:10 UTC`.
+- Immediate rollback artifact: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-login-isolation-20260731`, SHA-256 `2be56194d42ce76150c9c649d2dab86f8b146e86863f031c8b4a9e400f6869d1`; the two earlier rollback artifacts remain at their recorded paths and hashes.
