@@ -162,6 +162,7 @@ run_case() {
   WATCHDOG_TEST_SCENARIO="$scenario" \
   WATCHDOG_TEST_LOG="$log_file" \
   WATCHDOG_TEST_STATE="$state_file" \
+  MYSQL_TEST_LOGIN_FILE=/must-be-overridden-by-watchdog \
   MYSQL_PING_TIMEOUT=0.2 \
     "$under_test"
   script_status=$?
