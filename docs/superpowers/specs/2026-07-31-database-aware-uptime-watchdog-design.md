@@ -22,9 +22,11 @@ service.
 - If backend readiness fails while MySQL remains marked active, it restarts only
   the backend. This cannot repair a MySQL process that is active but
   unresponsive.
-- `mysqladmin --protocol=socket ping` returns exit status zero while the live
-  MySQL server is responding. It does not require the watchdog to read or store
-  the application database password.
+- `mysqladmin --no-defaults --protocol=socket
+  --socket=/run/mysqld/mysqld.sock ping --silent` returns exit status zero
+  while the live MySQL server is responding. `--no-defaults` is the first
+  `mysqladmin` option, so the probe does not read option files or require the
+  watchdog to read or store the application database password.
 - MySQL and the backend already use systemd `Restart=on-failure`; the watchdog
   is the slower recovery layer for failures that do not terminate a process.
 
@@ -47,8 +49,10 @@ existing generic service-state checks for Apache and the Lumi5 backend remain
 unchanged.
 
 The combined check first reads the MySQL systemd state. If MySQL is active, it
-runs a credential-free liveness probe with a hard timeout so an unresponsive
-socket cannot stall the watchdog indefinitely.
+runs the credential-free liveness probe against the verified local socket with
+GNU `timeout --foreground --signal=KILL`. Foreground mode preserves timeout's
+normal status handling while `SIGKILL` gives the probe a hard bound even if a
+child process ignores `SIGTERM`.
 
 When MySQL is active and the probe succeeds, the new path takes no action.
 Healthy MySQL, backend, and Apache processes are not restarted.
@@ -78,8 +82,9 @@ five minutes, so a later run can retry after a transient infrastructure issue.
   changed by the new path.
 - Restarts are conditional on a failed probe and are bounded to one MySQL and
   one backend restart per watchdog run.
-- Each MySQL probe has a hard timeout. The recovery path is therefore bounded
-  even if the local socket accepts a connection but never replies.
+- Each MySQL probe has a hard three-second production timeout enforced with
+  `SIGKILL`. The recovery path is therefore bounded even if the local socket
+  accepts a connection but never replies or the client ignores `SIGTERM`.
 - A failed restart is logged and does not stop the timer from scheduling the
   next watchdog run.
 - Deployment uses a syntax-checked temporary file and an atomic `install` over
@@ -101,6 +106,12 @@ Before production deployment, a mocked command harness must prove these cases:
    without an infinite loop.
 
 The candidate script must pass `sh -n`.
+
+Every mocked probe must also prove the exact timeout duration, `SIGKILL`
+signal, `--no-defaults` first-option ordering, socket protocol, verified socket
+path, silent mode, and `ping` command. The harness may inject its fake command
+path only through the exact reviewed production seam or the exact legacy fixed
+path line; any other candidate is rejected before execution.
 
 After atomic deployment, run the watchdog once against the healthy production
 system and verify:

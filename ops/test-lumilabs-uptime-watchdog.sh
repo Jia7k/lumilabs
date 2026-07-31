@@ -44,6 +44,20 @@ assert_at_least_one() {
   [ "$actual" -ge 1 ] || fail_case "$scenario" "$label" '>=1' "$actual" "$log_file"
 }
 
+assert_probe_contract() {
+  scenario=$1
+  expected=$2
+  log_file=$3
+  timeout_pattern='^timeout --foreground --signal=KILL 0\.2 mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
+  mysqladmin_pattern='^mysqladmin call=[0-9][0-9]* --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
+
+  assert_count "$scenario" mysql_probes '^timeout ' "$expected" "$log_file" || return 1
+  assert_count "$scenario" mysql_probe_contract "$timeout_pattern" "$expected" "$log_file" || return 1
+
+  mysqladmin_calls=$(count_calls '^mysqladmin ' "$log_file")
+  assert_count "$scenario" mysqladmin_contract "$mysqladmin_pattern" "$mysqladmin_calls" "$log_file" || return 1
+}
+
 run_case() {
   scenario=$1
   case_dir=$(mktemp -d "${TMPDIR:-/tmp}/lumilabs-watchdog-test.XXXXXX") || exit 1
@@ -55,11 +69,21 @@ run_case() {
   : > "$log_file"
   printf '0\n' > "$state_file"
 
-  if grep -q 'WATCHDOG_TEST_PATH' "$script"; then
+  test_path_seam='PATH="${WATCHDOG_TEST_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"'
+  legacy_path_line='PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+  path_line_count=$(grep -Ec '^[[:space:]]*(export[[:space:]]+)?PATH=' "$script" 2>/dev/null || true)
+  test_path_count=$(grep -Fxc "$test_path_seam" "$script" 2>/dev/null || true)
+  legacy_path_count=$(grep -Fxc "$legacy_path_line" "$script" 2>/dev/null || true)
+
+  if [ "$path_line_count" -eq 1 ] && [ "$test_path_count" -eq 1 ] && [ "$legacy_path_count" -eq 0 ]; then
     cp "$script" "$under_test"
+  elif [ "$path_line_count" -eq 1 ] && [ "$test_path_count" -eq 0 ] && [ "$legacy_path_count" -eq 1 ]; then
+    awk -v old="$legacy_path_line" -v new="$test_path_seam" \
+      '{ if ($0 == old) $0 = new; print }' "$script" > "$under_test"
   else
-    sed 's#^PATH=.*#PATH="${WATCHDOG_TEST_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"#' \
-      "$script" > "$under_test"
+    printf 'unsafe PATH seam in candidate: expected exactly one reviewed PATH line\n' >&2
+    rm -rf "$case_dir"
+    exit 2
   fi
   chmod 700 "$under_test"
 
@@ -88,6 +112,12 @@ run_case() {
   printf '%s\n' \
     '#!/bin/sh' \
     'printf "timeout %s\\n" "$*" >> "$WATCHDOG_TEST_LOG"' \
+    'if [ "${1:-}" = "--foreground" ]; then' \
+    '  shift' \
+    'fi' \
+    'if [ "${1:-}" = "--signal=KILL" ]; then' \
+    '  shift' \
+    'fi' \
     'duration=$1' \
     'shift' \
     'if [ "$WATCHDOG_TEST_SCENARIO" = "hang" ]; then' \
@@ -143,32 +173,34 @@ run_case() {
   fi
 
   case "$scenario" in
+    healthy|inactive_recover) expected_probes=1 ;;
+    active_recover|ready_fail) expected_probes=2 ;;
+    unrecoverable|hang) expected_probes=6 ;;
+  esac
+  assert_probe_contract "$scenario" "$expected_probes" "$log_file" || return 1
+
+  case "$scenario" in
     healthy)
       assert_count "$scenario" restarts '^systemctl restart ' 0 "$log_file" || return 1
       assert_count "$scenario" error_logs '^logger .* -p daemon\.(err|crit) ' 0 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 1 "$log_file" || return 1
       ;;
     inactive_recover)
       assert_count "$scenario" reset_failed '^systemctl reset-failed mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" mysql_restart '^systemctl restart mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" backend_restart '^systemctl restart lumilabs-backend$' 1 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 1 "$log_file" || return 1
       ;;
     active_recover)
       assert_count "$scenario" mysql_restart '^systemctl restart mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" backend_restart '^systemctl restart lumilabs-backend$' 1 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 2 "$log_file" || return 1
       ;;
     ready_fail)
       assert_count "$scenario" mysql_restart '^systemctl restart mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" backend_restart '^systemctl restart lumilabs-backend$' 1 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 2 "$log_file" || return 1
       assert_at_least_one "$scenario" critical_log '^logger .* -p daemon\.crit ' "$log_file" || return 1
       ;;
     unrecoverable)
       assert_count "$scenario" mysql_restart '^systemctl restart mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" backend_restart '^systemctl restart lumilabs-backend$' 0 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 6 "$log_file" || return 1
       assert_count "$scenario" mysql_poll_intervals '^sleep 5$' 4 "$log_file" || return 1
       assert_at_least_one "$scenario" critical_log '^logger .* -p daemon\.crit ' "$log_file" || return 1
       ;;
@@ -178,7 +210,6 @@ run_case() {
       fi
       assert_count "$scenario" mysql_restart '^systemctl restart mysql$' 1 "$log_file" || return 1
       assert_count "$scenario" backend_restart '^systemctl restart lumilabs-backend$' 0 "$log_file" || return 1
-      assert_count "$scenario" mysql_probes '^timeout ' 6 "$log_file" || return 1
       assert_count "$scenario" mysql_poll_intervals '^sleep 5$' 4 "$log_file" || return 1
       assert_at_least_one "$scenario" critical_log '^logger .* -p daemon\.crit ' "$log_file" || return 1
       ;;

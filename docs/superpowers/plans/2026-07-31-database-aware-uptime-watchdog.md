@@ -14,7 +14,11 @@
 - Do not read or store a database password, JWT secret, environment file, or database record.
 - Do not restart healthy MySQL, Apache, or backend processes.
 - Bound each watchdog run to at most one MySQL restart and one backend restart.
-- Give each MySQL liveness probe a hard three-second timeout in production.
+- Give each MySQL liveness probe a hard three-second `SIGKILL` timeout in
+  production so a child that ignores `SIGTERM` cannot exceed the bound.
+- Probe only `/run/mysqld/mysqld.sock` over the socket protocol, suppress probe
+  output, and pass `--no-defaults` as the first `mysqladmin` option so no option
+  file is read.
 - Poll for MySQL recovery immediately and then at five-second intervals through the 20-second mark.
 - Do not intentionally stop MySQL or another production service to test the failure path.
 - Preserve the deployed script in `/root/incident-20260730` before installation.
@@ -43,7 +47,10 @@
 
 - `WATCHDOG_TEST_PATH`: Optional command search path used only by the local harness. Production systemd does not set it, so the fixed trusted path remains the default.
 - `MYSQL_PING_TIMEOUT`: Optional liveness timeout used by the harness as `0.2`; production systemd does not set it, so production uses `3` seconds.
-- `mysql_ping() -> exit status`: Returns zero when the local MySQL server answers before the hard timeout.
+- `mysql_ping() -> exit status`: Runs `timeout --foreground --signal=KILL 3 mysqladmin
+  --no-defaults --protocol=socket --socket=/run/mysqld/mysqld.sock ping
+  --silent` in production and returns zero only when that local server answers
+  before the hard bound.
 - `wait_for_mysql() -> exit status`: Calls `mysql_ping` at most five times with four five-second intervals.
 - `backend_restart_attempted`: Integer guard that prevents every branch from restarting the backend more than once per run.
 - `mysql_available`: Integer state used to suppress a futile backend readiness restart when MySQL did not recover.
@@ -366,8 +373,14 @@ printf '%s passed, %s failed\n' "$passed" "$failed"
 ```
 
 The harness isolates `systemctl`, `mysqladmin`, `timeout`, `curl`, `logger`,
-`sleep`, `pgrep`, `pkill`, and `df`. Each fake appends relevant invocations to
-`$WATCHDOG_TEST_LOG`. The fake `systemctl`
+`sleep`, `pgrep`, `pkill`, and `df`. It accepts only the exact current
+`WATCHDOG_TEST_PATH` seam or the exact reviewed legacy fixed `PATH` line and
+otherwise aborts before running the candidate. Every probe assertion requires
+the literal test command `timeout --foreground --signal=KILL 0.2 mysqladmin --no-defaults
+--protocol=socket --socket=/run/mysqld/mysqld.sock ping --silent`, so the
+duration, kill signal, option-file isolation, option ordering, protocol, socket,
+silence, and ping action are checked on every invocation. Each fake appends
+relevant invocations to `$WATCHDOG_TEST_LOG`. The fake `systemctl`
 returns inactive only for MySQL in the `inactive_recover` scenario. The fake
 `mysqladmin` implements these literal sequences:
 
@@ -503,7 +516,9 @@ Insert these functions after `recover_service()`:
 
 ```sh
 mysql_ping() {
-  timeout "$MYSQL_PING_TIMEOUT" mysqladmin --protocol=socket ping >/dev/null 2>&1
+  timeout --foreground --signal=KILL "$MYSQL_PING_TIMEOUT" \
+    mysqladmin --no-defaults --protocol=socket \
+      --socket=/run/mysqld/mysqld.sock ping --silent >/dev/null 2>&1
 }
 
 wait_for_mysql() {
@@ -685,7 +700,7 @@ Also verify the installed GNU timeout contract without touching a service:
 ```bash
 start_seconds=$(date +%s)
 set +e
-/usr/bin/timeout 0.2 /bin/sleep 10
+/usr/bin/timeout --foreground --signal=KILL 0.2 /bin/sleep 10
 timeout_status=$?
 set -e
 elapsed_seconds=$(( $(date +%s) - start_seconds ))

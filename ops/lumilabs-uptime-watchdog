@@ -32,7 +32,9 @@ recover_service() {
 }
 
 mysql_ping() {
-  timeout "$MYSQL_PING_TIMEOUT" mysqladmin --protocol=socket ping >/dev/null 2>&1
+  timeout --foreground --signal=KILL "$MYSQL_PING_TIMEOUT" \
+    mysqladmin --no-defaults --protocol=socket \
+      --socket=/run/mysqld/mysqld.sock ping --silent >/dev/null 2>&1
 }
 
 wait_for_mysql() {
