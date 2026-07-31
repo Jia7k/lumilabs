@@ -873,3 +873,17 @@ git add docs/superpowers/plans/2026-07-31-database-aware-uptime-watchdog.md
 git diff --cached --check
 git commit -m "ops: record database-aware watchdog deployment"
 ```
+
+## Execution Record: 2026-07-31
+
+- Baseline SHA-256: `c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161`.
+- Candidate and live SHA-256: `841fc9898ab4b075fab2876f7ca0ac414e6dbc998ed95917053fef6cc18a3cf4`.
+- Syntax checks: source passed; harness passed.
+- Mocked scenarios: `healthy=PASS`, `inactive_recover=PASS`, `active_recover=PASS`, `ready_fail=PASS`, `unrecoverable=PASS`, `hang=PASS`; 6/6 passed.
+- Mutation-check RED: `ready_fail` expected 1 backend restart, actual 2.
+- Restored candidate GREEN: 6/6 mocked scenarios passed.
+- Restart counters before and after the healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
+- Systemd unit states: `apache2=active`, `mysql=active`, `ssh=active`, `rsyslog=active`, `lumilabs-backend=active`, `lumilabs-watchdog.timer=active`.
+- HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.
+- Watchdog journal severity: no `err` through `alert` entries since `2026-07-31 10:13:28 UTC`.
+- Rollback artifact: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-db-aware-20260731`, SHA-256 `c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161`.
