@@ -28,10 +28,10 @@
 
 - Create locally for the test cycle: `/private/tmp/lumilabs-watchdog-20260731/current`
   - Exact copy of the reviewed production baseline.
-- Create locally for the test cycle: `/private/tmp/lumilabs-watchdog-20260731/candidate`
-  - Deployment candidate with the combined MySQL health check.
-- Create locally for the test cycle: `/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh`
-  - Scenario harness that executes the candidate with isolated fake system commands and asserts behavior.
+- Create and version: `ops/lumilabs-uptime-watchdog`
+  - Deployment source with the combined MySQL health check.
+- Create and version: `ops/test-lumilabs-uptime-watchdog.sh`
+  - Scenario harness that executes the deployment source with isolated fake system commands and asserts behavior.
 - Preserve on the VM: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-db-aware-20260731`
   - Root-only rollback copy of the live baseline.
 - Preserve on the VM: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-db-aware-20260731.sha256`
@@ -54,11 +54,11 @@
 
 **Files:**
 - Create: `/private/tmp/lumilabs-watchdog-20260731/current`
-- Create: `/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh`
+- Create: `ops/test-lumilabs-uptime-watchdog.sh`
 
 **Interfaces:**
 - Consumes: Production watchdog baseline with SHA-256 `c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161`.
-- Produces: `test-watchdog.sh SCRIPT [SCENARIO]`, which exits zero only when all selected behavioral assertions pass.
+- Produces: `ops/test-lumilabs-uptime-watchdog.sh SCRIPT [SCENARIO]`, which exits zero only when all selected behavioral assertions pass.
 
 - [ ] **Step 1: Reconstruct and verify the reviewed baseline locally**
 
@@ -149,7 +149,7 @@ c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161
 
 - [ ] **Step 2: Write the scenario harness before changing the candidate**
 
-Create `test-watchdog.sh` with the following content. The harness makes one
+Create `ops/test-lumilabs-uptime-watchdog.sh` with the following content. The harness makes one
 safety-only copy of an old baseline to replace its fixed `PATH=` line when
 `WATCHDOG_TEST_PATH` is absent. Once the candidate contains the native test
 seam, the exact candidate executes without rewriting.
@@ -420,7 +420,7 @@ The harness must fail on the first mismatched literal count and print the scenar
 Run:
 
 ```bash
-/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh \
+ops/test-lumilabs-uptime-watchdog.sh \
   /private/tmp/lumilabs-watchdog-20260731/current active_recover
 ```
 
@@ -431,8 +431,8 @@ Expected: FAIL because the current script sees an active MySQL unit, never invok
 ### Task 2: Implement the Bounded MySQL Recovery Path and Prove GREEN
 
 **Files:**
-- Create: `/private/tmp/lumilabs-watchdog-20260731/candidate`
-- Test: `/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh`
+- Create: `ops/lumilabs-uptime-watchdog`
+- Test: `ops/test-lumilabs-uptime-watchdog.sh`
 
 **Interfaces:**
 - Consumes: The failing behavioral harness from Task 1.
@@ -442,8 +442,8 @@ Expected: FAIL because the current script sees an active MySQL unit, never invok
 
 ```bash
 cp /private/tmp/lumilabs-watchdog-20260731/current \
-  /private/tmp/lumilabs-watchdog-20260731/candidate
-chmod 700 /private/tmp/lumilabs-watchdog-20260731/candidate
+  ops/lumilabs-uptime-watchdog
+chmod 700 ops/lumilabs-uptime-watchdog
 ```
 
 - [ ] **Step 2: Add the two production defaults and state guards**
@@ -573,9 +573,8 @@ Leave the homepage, scanner, `/usr/lib/sysfmd`, disk-pressure, and final `exit 0
 Run:
 
 ```bash
-sh -n /private/tmp/lumilabs-watchdog-20260731/candidate
-/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh \
-  /private/tmp/lumilabs-watchdog-20260731/candidate
+sh -n ops/lumilabs-uptime-watchdog
+ops/test-lumilabs-uptime-watchdog.sh ops/lumilabs-uptime-watchdog
 ```
 
 Expected:
@@ -603,7 +602,7 @@ awk '
     if (assignments == 2) next
   }
   { print }
-' /private/tmp/lumilabs-watchdog-20260731/candidate \
+' ops/lumilabs-uptime-watchdog \
   > /private/tmp/lumilabs-watchdog-20260731/candidate.mutant
 chmod 700 /private/tmp/lumilabs-watchdog-20260731/candidate.mutant
 ```
@@ -611,13 +610,12 @@ chmod 700 /private/tmp/lumilabs-watchdog-20260731/candidate.mutant
 Run:
 
 ```bash
-if /private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh \
+if ops/test-lumilabs-uptime-watchdog.sh \
   /private/tmp/lumilabs-watchdog-20260731/candidate.mutant ready_fail; then
   printf 'mutation unexpectedly passed\n' >&2
   exit 1
 fi
-/private/tmp/lumilabs-watchdog-20260731/test-watchdog.sh \
-  /private/tmp/lumilabs-watchdog-20260731/candidate
+ops/test-lumilabs-uptime-watchdog.sh ops/lumilabs-uptime-watchdog
 ```
 
 Expected: the mutant fails with two backend restarts; the restored candidate
@@ -654,7 +652,7 @@ Stop without uploading if it differs.
 
 - [ ] **Step 2: Upload the candidate to a non-production temporary path**
 
-Transfer the exact green candidate to `/tmp/lumilabs-uptime-watchdog.candidate` on the VM. Then run:
+Transfer the exact green `ops/lumilabs-uptime-watchdog` to `/tmp/lumilabs-uptime-watchdog.candidate` on the VM. Then run:
 
 ```bash
 sudo sh -n /tmp/lumilabs-uptime-watchdog.candidate
@@ -662,7 +660,7 @@ sudo stat -c '%s %n' /tmp/lumilabs-uptime-watchdog.candidate
 sudo sha256sum /tmp/lumilabs-uptime-watchdog.candidate
 ```
 
-Compare the size and SHA-256 with the local green candidate. Stop on any mismatch.
+Compare the size and SHA-256 with the versioned green source. Stop on any mismatch.
 
 Also verify the installed GNU timeout contract without touching a service:
 
