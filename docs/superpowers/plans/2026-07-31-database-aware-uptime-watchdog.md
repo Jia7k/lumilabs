@@ -17,8 +17,11 @@
 - Give each MySQL liveness probe a hard three-second `SIGKILL` timeout in
   production so a child that ignores `SIGTERM` cannot exceed the bound.
 - Probe only `/run/mysqld/mysqld.sock` over the socket protocol, suppress probe
-  output, and pass `--no-defaults` as the first `mysqladmin` option so no option
-  file is read.
+  output, and pass `--no-defaults` as the first `mysqladmin` option so ordinary
+  option files are not read. The installed MySQL 8.0.46 client rejects the
+  `--no-login-paths` option introduced in 8.2, so set
+  `MYSQL_TEST_LOGIN_FILE=/dev/null` on every timeout process to suppress the
+  exceptional MySQL 8.0 login-path source.
 - Poll for MySQL recovery immediately and then at five-second intervals through the 20-second mark.
 - Do not intentionally stop MySQL or another production service to test the failure path.
 - Preserve the deployed script in `/root/incident-20260730` before installation.
@@ -47,10 +50,10 @@
 
 - `WATCHDOG_TEST_PATH`: Optional command search path used only by the local harness. Production systemd does not set it, so the fixed trusted path remains the default.
 - `MYSQL_PING_TIMEOUT`: Optional liveness timeout used by the harness as `0.2`; production systemd does not set it, so production uses `3` seconds.
-- `mysql_ping() -> exit status`: Runs `timeout --foreground --signal=KILL 3 mysqladmin
-  --no-defaults --protocol=socket --socket=/run/mysqld/mysqld.sock ping
-  --silent` in production and returns zero only when that local server answers
-  before the hard bound.
+- `mysql_ping() -> exit status`: Runs `MYSQL_TEST_LOGIN_FILE=/dev/null timeout
+  --foreground --signal=KILL 3 mysqladmin --no-defaults --protocol=socket
+  --socket=/run/mysqld/mysqld.sock ping --silent` in production and returns
+  zero only when that local server answers before the hard bound.
 - `wait_for_mysql() -> exit status`: Calls `mysql_ping` at most five times with four five-second intervals.
 - `backend_restart_attempted`: Integer guard that prevents every branch from restarting the backend more than once per run.
 - `mysql_available`: Integer state used to suppress a futile backend readiness restart when MySQL did not recover.
@@ -156,10 +159,14 @@ c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161
 
 - [ ] **Step 2: Write the scenario harness before changing the candidate**
 
-Create `ops/test-lumilabs-uptime-watchdog.sh` with the following content. The harness makes one
-safety-only copy of an old baseline to replace its fixed `PATH=` line when
-`WATCHDOG_TEST_PATH` is absent. Once the candidate contains the native test
-seam, the exact candidate executes without rewriting.
+> **Historical initial RED snapshot, superseded:** The large block below records
+> the harness as first written for the initial test-first cycle. It is not the
+> current implementation. The authoritative harness is the versioned
+> `ops/test-lumilabs-uptime-watchdog.sh`; its current security contract is
+> summarized immediately after this historical block.
+
+The initial snapshot made one safety-only copy of an old baseline to replace
+its fixed `PATH=` line when `WATCHDOG_TEST_PATH` was absent:
 
 ```sh
 #!/bin/sh
@@ -378,10 +385,12 @@ The harness isolates `systemctl`, `mysqladmin`, `timeout`, `curl`, `logger`,
 otherwise aborts before running the candidate. It inserts `readonly PATH`
 immediately after the accepted seam so later candidate assignments cannot
 replace the isolated command path. Every probe assertion requires
-the literal test command `timeout --foreground --signal=KILL 0.2 mysqladmin --no-defaults
---protocol=socket --socket=/run/mysqld/mysqld.sock ping --silent`, so the
-duration, kill signal, option-file isolation, option ordering, protocol, socket,
-silence, and ping action are checked on every invocation. Each fake appends
+the timeout environment and literal command
+`MYSQL_TEST_LOGIN_FILE=/dev/null timeout --foreground --signal=KILL 0.2
+mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld.sock
+ping --silent`, so login-path isolation, duration, kill signal, ordinary
+option-file isolation, option ordering, protocol, socket, silence, and ping
+action are checked on every invocation. Each fake appends
 relevant invocations to `$WATCHDOG_TEST_LOG`. The fake `systemctl`
 returns inactive only for MySQL in the `inactive_recover` scenario. The fake
 `mysqladmin` implements these literal sequences:
@@ -518,9 +527,10 @@ Insert these functions after `recover_service()`:
 
 ```sh
 mysql_ping() {
-  timeout --foreground --signal=KILL "$MYSQL_PING_TIMEOUT" \
-    mysqladmin --no-defaults --protocol=socket \
-      --socket=/run/mysqld/mysqld.sock ping --silent >/dev/null 2>&1
+  MYSQL_TEST_LOGIN_FILE=/dev/null \
+    timeout --foreground --signal=KILL "$MYSQL_PING_TIMEOUT" \
+      mysqladmin --no-defaults --protocol=socket \
+        --socket=/run/mysqld/mysqld.sock ping --silent >/dev/null 2>&1
 }
 
 wait_for_mysql() {
@@ -912,7 +922,7 @@ git commit -m "ops: record database-aware watchdog deployment"
 - Mocked scenarios after hardening: `healthy=PASS`, `inactive_recover=PASS`, `active_recover=PASS`, `ready_fail=PASS`, `unrecoverable=PASS`, `hang=PASS`; 6/6 passed.
 - Hardening mutation checks: missing `--signal=KILL`, extra direct `mysqladmin`, unreviewed PATH seam, and later PATH rebinding all failed as required; restored candidate passed 6/6.
 - Production timeout contract: a direct child that ignored `SIGTERM` was terminated by `timeout --foreground --signal=KILL 0.2` with status 124 in 0 seconds.
-- Credential-free production probe: `mysqladmin --no-defaults` over `/run/mysqld/mysqld.sock` completed with status 0 without reading an option file.
+- Production probe at that time: `mysqladmin --no-defaults` over `/run/mysqld/mysqld.sock` completed with status 0. This suppressed ordinary option files, but MySQL 8.0 treats `.mylogin.cnf` separately; the subsequent hardening redirects that exceptional source with `MYSQL_TEST_LOGIN_FILE=/dev/null`.
 - Restart counters before and after the final healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
 - Systemd unit states: `apache2=active`, `mysql=active`, `ssh=active`, `rsyslog=active`, `lumilabs-backend=active`, `lumilabs-watchdog.timer=active`.
 - HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.

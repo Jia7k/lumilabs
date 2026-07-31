@@ -49,7 +49,7 @@ assert_probe_contract() {
   expected_timeouts=$2
   expected_mysqladmin=$3
   log_file=$4
-  timeout_pattern='^timeout --foreground --signal=KILL 0\.2 mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
+  timeout_pattern='^timeout MYSQL_TEST_LOGIN_FILE=/dev/null --foreground --signal=KILL 0\.2 mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
   mysqladmin_pattern='^mysqladmin call=[0-9][0-9]* --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
 
   assert_count "$scenario" mysql_probes '^timeout ' "$expected_timeouts" "$log_file" || return 1
@@ -113,7 +113,7 @@ run_case() {
 
   printf '%s\n' \
     '#!/bin/sh' \
-    'printf "timeout %s\\n" "$*" >> "$WATCHDOG_TEST_LOG"' \
+    'printf "timeout MYSQL_TEST_LOGIN_FILE=%s %s\\n" "${MYSQL_TEST_LOGIN_FILE-<unset>}" "$*" >> "$WATCHDOG_TEST_LOG"' \
     'if [ "${1:-}" = "--foreground" ]; then' \
     '  shift' \
     'fi' \

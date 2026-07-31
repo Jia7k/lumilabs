@@ -22,11 +22,15 @@ service.
 - If backend readiness fails while MySQL remains marked active, it restarts only
   the backend. This cannot repair a MySQL process that is active but
   unresponsive.
-- `mysqladmin --no-defaults --protocol=socket
-  --socket=/run/mysqld/mysqld.sock ping --silent` returns exit status zero
-  while the live MySQL server is responding. `--no-defaults` is the first
-  `mysqladmin` option, so the probe does not read option files or require the
-  watchdog to read or store the application database password.
+- `MYSQL_TEST_LOGIN_FILE=/dev/null timeout --foreground --signal=KILL 3
+  mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld.sock
+  ping --silent` returns exit status zero while the live MySQL server is
+  responding. `--no-defaults` is the first
+  `mysqladmin` option and suppresses ordinary option files. MySQL 8.0 still
+  reads its exceptional login-path file despite `--no-defaults`, so the
+  supported 8.0 fallback redirects that source to `/dev/null` without reading
+  or storing the application database password. The installed MySQL 8.0.46
+  client does not support the `--no-login-paths` option introduced in 8.2.
 - MySQL and the backend already use systemd `Restart=on-failure`; the watchdog
   is the slower recovery layer for failures that do not terminate a process.
 
@@ -108,8 +112,9 @@ Before production deployment, a mocked command harness must prove these cases:
 The candidate script must pass `sh -n`.
 
 Every mocked probe must also prove the exact timeout duration, `SIGKILL`
-signal, `--no-defaults` first-option ordering, socket protocol, verified socket
-path, silent mode, and `ping` command. The harness may inject its fake command
+signal, `MYSQL_TEST_LOGIN_FILE=/dev/null` timeout environment,
+`--no-defaults` first-option ordering, socket protocol, verified socket path,
+silent mode, and `ping` command. The harness may inject its fake command
 path only through the exact reviewed production seam or the exact legacy fixed
 path line; any other candidate is rejected before execution. The harness makes
 the injected PATH readonly before any candidate behavior and asserts both the
