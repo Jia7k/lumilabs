@@ -1,0 +1,130 @@
+#!/bin/sh
+set -u
+PATH="${WATCHDOG_TEST_PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+export PATH
+TAG=lumilabs-watchdog
+MYSQL_PING_TIMEOUT="${MYSQL_PING_TIMEOUT:-3}"
+recovered=0
+backend_restart_attempted=0
+mysql_available=0
+
+recover_service() {
+  service_name="$1"
+
+  if [ "$service_name" = "lumilabs-backend" ] && [ "$backend_restart_attempted" -eq 1 ]; then
+    return
+  fi
+
+  if ! systemctl is-active --quiet "$service_name"; then
+    logger -t "$TAG" -p daemon.err "$service_name was inactive; attempting restart"
+
+    if [ "$service_name" = "lumilabs-backend" ]; then
+      backend_restart_attempted=1
+    fi
+
+    if systemctl restart "$service_name"; then
+      logger -t "$TAG" -p daemon.notice "$service_name restarted"
+    else
+      logger -t "$TAG" -p daemon.crit "$service_name restart failed"
+    fi
+    recovered=1
+  fi
+}
+
+mysql_ping() {
+  timeout "$MYSQL_PING_TIMEOUT" mysqladmin --protocol=socket ping >/dev/null 2>&1
+}
+
+wait_for_mysql() {
+  attempt=1
+
+  while [ "$attempt" -le 5 ]; do
+    if mysql_ping; then
+      return 0
+    fi
+
+    if [ "$attempt" -lt 5 ]; then
+      sleep 5
+    fi
+
+    attempt=$((attempt + 1))
+  done
+
+  return 1
+}
+
+if systemctl is-active --quiet mysql && mysql_ping; then
+  mysql_available=1
+else
+  logger -t "$TAG" -p daemon.err "MySQL was inactive or unresponsive; attempting one restart"
+  systemctl reset-failed mysql || true
+
+  if systemctl restart mysql && wait_for_mysql; then
+    mysql_available=1
+    recovered=1
+    logger -t "$TAG" -p daemon.notice "MySQL recovered after restart"
+
+    backend_restart_attempted=1
+    if systemctl restart lumilabs-backend; then
+      logger -t "$TAG" -p daemon.notice "lumilabs-backend restarted after MySQL recovery"
+    else
+      logger -t "$TAG" -p daemon.crit "lumilabs-backend restart failed after MySQL recovery"
+    fi
+  else
+    logger -t "$TAG" -p daemon.crit "MySQL remained unavailable after its single restart"
+  fi
+fi
+
+recover_service apache2
+recover_service lumilabs-backend
+
+if [ "$recovered" -eq 1 ]; then
+  sleep 4
+fi
+
+if ! curl -fsS --max-time 10 http://127.0.0.1:3100/api/ready >/dev/null; then
+  if [ "$mysql_available" -eq 0 ]; then
+    logger -t "$TAG" -p daemon.crit "backend readiness failed while MySQL was unavailable; backend restart suppressed"
+  elif [ "$backend_restart_attempted" -eq 1 ]; then
+    logger -t "$TAG" -p daemon.crit "backend readiness failed after its single restart"
+  else
+    logger -t "$TAG" -p daemon.err "backend readiness failed; attempting one restart"
+    backend_restart_attempted=1
+    systemctl restart lumilabs-backend || true
+    sleep 4
+
+    if ! curl -fsS --max-time 10 http://127.0.0.1:3100/api/ready >/dev/null; then
+      logger -t "$TAG" -p daemon.crit "backend readiness still failing after restart"
+    fi
+  fi
+fi
+
+if ! curl -fsS --max-time 10 http://127.0.0.1/ >/dev/null; then
+  logger -t "$TAG" -p daemon.err "local homepage failed; attempting one Apache restart"
+  systemctl restart apache2 || true
+  sleep 3
+  if ! curl -fsS --max-time 10 http://127.0.0.1/ >/dev/null; then
+    logger -t "$TAG" -p daemon.crit "local homepage still failing after restart"
+  fi
+fi
+
+for scanner_name in zmap otheramd; do
+  scanner_pids="$(pgrep -x "$scanner_name" 2>/dev/null || true)"
+  if [ -n "$scanner_pids" ]; then
+    logger -t "$TAG" -p daemon.crit "scanner process $scanner_name detected and terminated"
+    pkill -TERM -x "$scanner_name" 2>/dev/null || true
+    sleep 1
+    pkill -KILL -x "$scanner_name" 2>/dev/null || true
+  fi
+done
+
+if [ -e /usr/lib/sysfmd ]; then
+  logger -t "$TAG" -p daemon.crit "/usr/lib/sysfmd reappeared; manual incident response required"
+fi
+
+root_used="$(df -P / | awk 'NR == 2 {gsub(/%/, "", $5); print $5}')"
+if [ -n "$root_used" ] && [ "$root_used" -ge 90 ]; then
+  logger -t "$TAG" -p daemon.err "root filesystem usage is ${root_used}%"
+fi
+
+exit 0
