@@ -46,16 +46,16 @@ assert_at_least_one() {
 
 assert_probe_contract() {
   scenario=$1
-  expected=$2
-  log_file=$3
+  expected_timeouts=$2
+  expected_mysqladmin=$3
+  log_file=$4
   timeout_pattern='^timeout --foreground --signal=KILL 0\.2 mysqladmin --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
   mysqladmin_pattern='^mysqladmin call=[0-9][0-9]* --no-defaults --protocol=socket --socket=/run/mysqld/mysqld\.sock ping --silent$'
 
-  assert_count "$scenario" mysql_probes '^timeout ' "$expected" "$log_file" || return 1
-  assert_count "$scenario" mysql_probe_contract "$timeout_pattern" "$expected" "$log_file" || return 1
-
-  mysqladmin_calls=$(count_calls '^mysqladmin ' "$log_file")
-  assert_count "$scenario" mysqladmin_contract "$mysqladmin_pattern" "$mysqladmin_calls" "$log_file" || return 1
+  assert_count "$scenario" mysql_probes '^timeout ' "$expected_timeouts" "$log_file" || return 1
+  assert_count "$scenario" mysql_probe_contract "$timeout_pattern" "$expected_timeouts" "$log_file" || return 1
+  assert_count "$scenario" mysqladmin_probes '^mysqladmin ' "$expected_mysqladmin" "$log_file" || return 1
+  assert_count "$scenario" mysqladmin_contract "$mysqladmin_pattern" "$expected_mysqladmin" "$log_file" || return 1
 }
 
 run_case() {
@@ -76,10 +76,12 @@ run_case() {
   legacy_path_count=$(grep -Fxc "$legacy_path_line" "$script" 2>/dev/null || true)
 
   if [ "$path_line_count" -eq 1 ] && [ "$test_path_count" -eq 1 ] && [ "$legacy_path_count" -eq 0 ]; then
-    cp "$script" "$under_test"
+    awk -v seam="$test_path_seam" \
+      '{ print; if ($0 == seam) print "readonly PATH" }' "$script" > "$under_test"
   elif [ "$path_line_count" -eq 1 ] && [ "$test_path_count" -eq 0 ] && [ "$legacy_path_count" -eq 1 ]; then
     awk -v old="$legacy_path_line" -v new="$test_path_seam" \
-      '{ if ($0 == old) $0 = new; print }' "$script" > "$under_test"
+      '{ if ($0 == old) { print new; print "readonly PATH" } else print }' \
+      "$script" > "$under_test"
   else
     printf 'unsafe PATH seam in candidate: expected exactly one reviewed PATH line\n' >&2
     rm -rf "$case_dir"
@@ -177,7 +179,13 @@ run_case() {
     active_recover|ready_fail) expected_probes=2 ;;
     unrecoverable|hang) expected_probes=6 ;;
   esac
-  assert_probe_contract "$scenario" "$expected_probes" "$log_file" || return 1
+  if [ "$scenario" = "hang" ]; then
+    expected_mysqladmin=0
+  else
+    expected_mysqladmin=$expected_probes
+  fi
+  assert_probe_contract \
+    "$scenario" "$expected_probes" "$expected_mysqladmin" "$log_file" || return 1
 
   case "$scenario" in
     healthy)

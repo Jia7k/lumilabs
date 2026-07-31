@@ -111,7 +111,9 @@ Every mocked probe must also prove the exact timeout duration, `SIGKILL`
 signal, `--no-defaults` first-option ordering, socket protocol, verified socket
 path, silent mode, and `ping` command. The harness may inject its fake command
 path only through the exact reviewed production seam or the exact legacy fixed
-path line; any other candidate is rejected before execution.
+path line; any other candidate is rejected before execution. The harness makes
+the injected PATH readonly before any candidate behavior and asserts both the
+exact timeout-mediated probe count and the exact executed `mysqladmin` count.
 
 After atomic deployment, run the watchdog once against the healthy production
 system and verify:

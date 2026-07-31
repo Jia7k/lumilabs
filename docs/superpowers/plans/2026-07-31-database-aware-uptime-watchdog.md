@@ -375,7 +375,9 @@ printf '%s passed, %s failed\n' "$passed" "$failed"
 The harness isolates `systemctl`, `mysqladmin`, `timeout`, `curl`, `logger`,
 `sleep`, `pgrep`, `pkill`, and `df`. It accepts only the exact current
 `WATCHDOG_TEST_PATH` seam or the exact reviewed legacy fixed `PATH` line and
-otherwise aborts before running the candidate. Every probe assertion requires
+otherwise aborts before running the candidate. It inserts `readonly PATH`
+immediately after the accepted seam so later candidate assignments cannot
+replace the isolated command path. Every probe assertion requires
 the literal test command `timeout --foreground --signal=KILL 0.2 mysqladmin --no-defaults
 --protocol=socket --socket=/run/mysqld/mysqld.sock ping --silent`, so the
 duration, kill signal, option-file isolation, option ordering, protocol, socket,
