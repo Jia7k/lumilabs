@@ -894,7 +894,7 @@ git commit -m "ops: record database-aware watchdog deployment"
 ## Execution Record: 2026-07-31
 
 - Baseline SHA-256: `c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161`.
-- Candidate and live SHA-256: `841fc9898ab4b075fab2876f7ca0ac414e6dbc998ed95917053fef6cc18a3cf4`.
+- Initial candidate SHA-256 for the first atomic deployment: `841fc9898ab4b075fab2876f7ca0ac414e6dbc998ed95917053fef6cc18a3cf4`.
 - Syntax checks: source passed; harness passed.
 - Mocked scenarios: `healthy=PASS`, `inactive_recover=PASS`, `active_recover=PASS`, `ready_fail=PASS`, `unrecoverable=PASS`, `hang=PASS`; 6/6 passed.
 - Mutation-check RED: `ready_fail` expected 1 backend restart, actual 2.
@@ -904,3 +904,18 @@ git commit -m "ops: record database-aware watchdog deployment"
 - HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.
 - Watchdog journal severity: no `err` through `alert` entries since `2026-07-31 10:13:28 UTC`.
 - Rollback artifact: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-db-aware-20260731`, SHA-256 `c85cd16fc5a669beaffb8f226bf90267203755477c1b3f494a593d68568e7161`.
+
+### Hardening Follow-up: 2026-07-31
+
+- Final candidate and live SHA-256: `2be56194d42ce76150c9c649d2dab86f8b146e86863f031c8b4a9e400f6869d1`; installed metadata `0700 root:root`, 3948 bytes.
+- Syntax and portability checks: source and harness passed `sh -n` and `dash -n`.
+- Mocked scenarios after hardening: `healthy=PASS`, `inactive_recover=PASS`, `active_recover=PASS`, `ready_fail=PASS`, `unrecoverable=PASS`, `hang=PASS`; 6/6 passed.
+- Hardening mutation checks: missing `--signal=KILL`, extra direct `mysqladmin`, unreviewed PATH seam, and later PATH rebinding all failed as required; restored candidate passed 6/6.
+- Production timeout contract: a direct child that ignored `SIGTERM` was terminated by `timeout --foreground --signal=KILL 0.2` with status 124 in 0 seconds.
+- Credential-free production probe: `mysqladmin --no-defaults` over `/run/mysqld/mysqld.sock` completed with status 0 without reading an option file.
+- Restart counters before and after the final healthy run: `mysql=0/0`, `apache2=0/0`, `lumilabs-backend=0/0`.
+- Systemd unit states: `apache2=active`, `mysql=active`, `ssh=active`, `rsyslog=active`, `lumilabs-backend=active`, `lumilabs-watchdog.timer=active`.
+- HTTP status codes: `/=200`, `/messages.html=200`, `/api/health=200`, `/api/ready=200`.
+- Compromise indicators: `zmap`, `otheramd`, and `/usr/lib/sysfmd` absent.
+- Watchdog journal severity: no `err` through `alert` entries since `2026-07-31 10:52:36 UTC`.
+- Immediate rollback artifact: `/root/incident-20260730/lumilabs-uptime-watchdog.pre-hardening-20260731`, SHA-256 `841fc9898ab4b075fab2876f7ca0ac414e6dbc998ed95917053fef6cc18a3cf4`; original baseline rollback remains at its recorded path and SHA-256.
