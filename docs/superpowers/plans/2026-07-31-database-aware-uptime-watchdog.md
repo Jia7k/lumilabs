@@ -426,6 +426,16 @@ ops/test-lumilabs-uptime-watchdog.sh \
 
 Expected: FAIL because the current script sees an active MySQL unit, never invokes `mysqladmin`, and records zero `systemctl restart mysql` calls instead of one. This is the required failing regression test.
 
+- [ ] **Step 4: Commit the focused regression harness**
+
+```bash
+chmod 700 ops/test-lumilabs-uptime-watchdog.sh
+sh -n ops/test-lumilabs-uptime-watchdog.sh
+git add ops/test-lumilabs-uptime-watchdog.sh
+git diff --cached --check
+git commit -m "test: cover database-aware uptime recovery"
+```
+
 ---
 
 ### Task 2: Implement the Bounded MySQL Recovery Path and Prove GREEN
@@ -620,6 +630,14 @@ ops/test-lumilabs-uptime-watchdog.sh ops/lumilabs-uptime-watchdog
 
 Expected: the mutant fails with two backend restarts; the restored candidate
 finishes with `6 passed, 0 failed`.
+
+- [ ] **Step 7: Commit the green deployment source**
+
+```bash
+git add ops/lumilabs-uptime-watchdog
+git diff --cached --check
+git commit -m "ops: add database-aware uptime recovery"
+```
 
 ---
 
